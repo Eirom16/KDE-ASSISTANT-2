@@ -6,6 +6,8 @@ description = "Asistente de escritorio para KDE Plasma con estetica Apple, tool 
 authors = ["KDE Assistant Dev"]
 license = "MIT"
 
+default-run = "kde-assistant"
+
 [[bin]]
 name = "kde-assistant"
 path = "src/main.rs"
