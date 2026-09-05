@@ -29,8 +29,23 @@ serde_json = "1"
 # Database
 rusqlite = { version = "0.31", features = ["bundled"] }
 
-# Chimes playback (sin whisper por ahora en scaffold)
+# Audio capture (cpal)
+cpal = "0.15"
+
+# Chimes + TTS playback (rodio)
 rodio = { version = "0.19", default-features = false, features = ["wav", "mp3"] }
+hound = "3.5"   # WAV writer para chimes sinteticos
+
+# TTS (espeak-ng FFI)
+espeak-ng = "0.2"
+
+# Wake Word (ONNX runtime via ort, descarga binarios automatico)
+# Deshabilitado por ahora: problemas con ureq-tls en version actual
+# ort = { version = "2.0.0-rc.13", default-features = false, features = ["download-binaries"] }
+ndarray = "0.16"
+
+# Numerics for VAD/RMS
+# (incluido en std, no necesario)
 
 # Utilities
 chrono = { version = "0.4", features = ["serde"] }
@@ -41,6 +56,11 @@ log = "0.4"
 env_logger = "0.11"
 dirs = "5"
 once_cell = "1"
+hex = "0.4"
+
+# Speech - whisper-rs (comentada: requiere build pesado con cmake/clang)
+# Se puede habilitar en una fase posterior o via feature flag
+# whisper-rs = { version = "0.12", features = ["whisper-cpp-metal"] }
 
 # Speech (opcional - se añadira en fase de voz)
 # whisper-rs = "0.12"      # Requiere cmake + clang

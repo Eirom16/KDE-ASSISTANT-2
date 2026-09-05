@@ -1,10 +1,9 @@
 //! Backend de KDE Assistant v2
 //!
 //! Coordina todos los servicios: AI, sesiones, voz, hotword, KDE integration.
-//! En Fase 1 (scaffold) solo expone la estructura. En fases siguientes
-//! cada subservicio se implementa progresivamente.
 
 pub mod ai_service;
+pub mod audio_capture;
 pub mod chime_player;
 pub mod hotword;
 pub mod kde_integration;
@@ -15,22 +14,18 @@ pub mod tool_registry;
 
 use anyhow::Result;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, RwLock};
 
 use crate::models::Config;
 
 /// Estructura principal del backend que coordina todos los servicios.
-///
-/// Cada subservicio se almacena detras de un `Arc<RwLock<...>>` para permitir
-/// acceso concurrente desde multiples tasks de Tokio, mientras que el thread
-/// de Qt accede a traves de signals/slots (no directamente).
 pub struct Backend {
     pub config: Arc<RwLock<Config>>,
     pub ai: Arc<ai_service::AiService>,
     pub sessions: Arc<session_manager::SessionManager>,
     pub tools: Arc<tool_executor::ToolExecutor>,
     pub speech: Arc<speech_service::SpeechService>,
-    pub audio: Arc<RwLock<Option<audio_capture_stub::AudioCaptureStub>>>,
+    pub audio: Arc<RwLock<Option<audio_capture::AudioCapture>>>,
     pub chimes: Arc<chime_player::ChimePlayer>,
     pub hotword: Arc<hotword::HotwordDetector>,
     pub kde: Arc<kde_integration::KdeIntegration>,
@@ -40,13 +35,10 @@ impl Backend {
     pub async fn new() -> Result<Self> {
         log::info!("Inicializando Backend...");
 
-        // Cargar configuracion
         let config = Config::load().await?;
         let config = Arc::new(RwLock::new(config));
-
         log::info!("Config cargada desde ~/.config/kde-assistant/config.json");
 
-        // Inicializar subservicios
         let ai = Arc::new(ai_service::AiService::new(config.clone()).await?);
         let sessions = Arc::new(session_manager::SessionManager::new().await?);
         let tools = Arc::new(tool_executor::ToolExecutor::new(config.clone()));
@@ -69,17 +61,39 @@ impl Backend {
             kde,
         })
     }
-}
 
-/// Stub temporal para audio_capture mientras se integra cpal en Fase 5.
-pub mod audio_capture_stub {
-    use anyhow::Result;
+    /// Inicia captura de audio + deteccion de hotword en background.
+    /// Retorna un receiver de eventos HotwordEvent.
+    pub async fn start_voice_pipeline(&self) -> Result<mpsc::Receiver<hotword::HotwordEvent>> {
+        let (audio_tx, audio_rx) = mpsc::channel::<Vec<f32>>(64);
+        let (event_tx, event_rx) = mpsc::channel::<hotword::HotwordEvent>(8);
 
-    pub struct AudioCaptureStub;
+        // Crear y arrancar audio capture
+        let mut cap = audio_capture::AudioCapture::new()?;
+        let meter = cap.meter.clone();
+        cap.start(move |frame: &[f32]| {
+            // Reenviar al hotword detector
+            let frame_vec = frame.to_vec();
+            let tx = audio_tx.clone();
+            tokio::spawn(async move {
+                let _ = tx.send(frame_vec).await;
+            });
+        })?;
+        *self.audio.write().await = Some(cap);
 
-    impl AudioCaptureStub {
-        pub fn new() -> Result<Self> {
-            Ok(Self)
+        log::info!("Voice pipeline started (meter: {})", meter.get());
+
+        // Arrancar hotword
+        self.hotword.start(audio_rx, event_tx).await?;
+
+        Ok(event_rx)
+    }
+
+    /// Detiene captura de audio.
+    pub async fn stop_voice_pipeline(&self) {
+        if let Some(mut cap) = self.audio.write().await.take() {
+            cap.stop();
         }
+        self.hotword.stop();
     }
 }
