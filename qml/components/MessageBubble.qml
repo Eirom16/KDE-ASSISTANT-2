@@ -19,6 +19,8 @@ Item {
     property int maxWidth: 480
     property int avatarSize: 28
 
+    signal imageClicked(string url)
+
     implicitHeight: column.implicitHeight + 8
     implicitWidth: column.implicitWidth
 
@@ -124,19 +126,21 @@ Item {
                     status: modelData.status || "running"
                     result: modelData.result || ""
                     imageUrl: modelData.imageUrl || ""
+                    onImageClicked: root.imageClicked(modelData.imageUrl)
                 }
             }
         }
 
         // Image card (si hay show_image)
-        ImageCard {
-            visible: root.toolCalls && root.toolCalls.some(function(tc) { return tc.imageUrl })
-            Layout.alignment: root.role === "user" ? Qt.AlignRight : Qt.AlignLeft
-            Layout.maximumWidth: root.maxWidth
-            source: {
-                if (!root.toolCalls) return ""
-                var tc = root.toolCalls.find(function(t) { return t.imageUrl })
-                return tc ? tc.imageUrl : ""
+        Repeater {
+            model: root.toolCalls ? root.toolCalls.filter(function(tc) { return tc.imageUrl }) : []
+            delegate: ImageCard {
+                required property var modelData
+                Layout.alignment: root.role === "user" ? Qt.AlignRight : Qt.AlignLeft
+                Layout.maximumWidth: root.maxWidth
+                source: modelData.imageUrl
+                caption: modelData.caption || ""
+                onClicked: root.imageClicked(modelData.imageUrl)
             }
         }
 

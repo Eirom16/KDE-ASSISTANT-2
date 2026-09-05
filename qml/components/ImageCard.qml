@@ -95,11 +95,12 @@ Rectangle {
         elide: Text.ElideRight
     }
 
-    // Click handler
+    // Click + hover handler
     MouseArea {
+        id: hoverArea
         anchors.fill: parent
-        cursorShape: Qt.PointingHandCursor
         hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
         onClicked: root.clicked()
     }
 
@@ -107,12 +108,5 @@ Rectangle {
     opacity: hoverArea.containsMouse ? 0.95 : 1.0
     Behavior on opacity {
         NumberAnimation { duration: Theme.animFast }
-    }
-
-    MouseArea {
-        id: hoverArea
-        anchors.fill: parent
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
     }
 }

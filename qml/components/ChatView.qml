@@ -14,6 +14,8 @@ Item {
     property bool showWelcome: messages.length === 0
 
     signal suggestionClicked(string text)
+    signal imageClicked(string url, string caption)
+    signal toolRetryClicked(string toolCallId)
 
     Rectangle {
         anchors.fill: parent
@@ -55,6 +57,19 @@ Item {
                         timestamp: modelData.timestamp || ""
                         isStreaming: modelData.isStreaming || false
                         toolCalls: modelData.toolCalls || []
+                        onImageClicked: function(url) {
+                            var cap = ""
+                            for (var i = 0; i < (root.messages ? root.messages.length : 0); i++) {
+                                var tcs = root.messages[i].toolCalls || []
+                                for (var j = 0; j < tcs.length; j++) {
+                                    if (tcs[j].imageUrl === url) {
+                                        cap = tcs[j].caption || ""
+                                        break
+                                    }
+                                }
+                            }
+                            root.imageClicked(url, cap)
+                        }
                     }
                 }
 

@@ -1,31 +1,55 @@
-// snap_ui.sh - Captura screenshots de la UI en distintos estados para QA visual
-// Requiere: Xvfb, ffmpeg, qml6
-//
-// Uso: ./snap_ui.sh /tmp/snap1.png /tmp/snap2.png
+// snap_ui - Captura screenshot de la UI para QA visual
+// Uso: snap_ui [ancho alto] [archivo_qml] [output.png]
 
 use anyhow::Result;
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.is_empty() {
-        eprintln!("Uso: snap_ui <output1.png> [output2.png ...]");
-        std::process::exit(1);
-    }
+
+    let width: u32 = args.get(0).and_then(|s| s.parse().ok()).unwrap_or(1280);
+    let height: u32 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(800);
+    let qml_file: String = args
+        .get(2)
+        .cloned()
+        .unwrap_or_else(|| "qml/Main.qml".to_string());
+    let outputs: Vec<String> = if args.len() > 3 {
+        args[3..].to_vec()
+    } else {
+        vec!["/tmp/snap.png".to_string()]
+    };
+
+    // Limpiar locks previos
+    let _ = Command::new("pkill").args(["-f", "qml6|Xvfb"]).status();
+    let _ = std::fs::remove_file("/tmp/.X99-lock");
+    std::thread::sleep(Duration::from_millis(500));
 
     // Iniciar Xvfb
     let _xvfb = Command::new("Xvfb")
-        .args([":99", "-screen", "0", "1280x800x24", "-ac"])
+        .args([
+            ":99",
+            "-screen",
+            "0",
+            &format!("{width}x{height}x24"),
+            "-ac",
+        ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()?;
 
-    std::thread::sleep(Duration::from_secs(1));
+    std::thread::sleep(Duration::from_secs(2));
+
+    if !Path::new(&qml_file).exists() {
+        eprintln!("QML no encontrado: {qml_file}");
+        let _ = Command::new("pkill").args(["-f", "Xvfb"]).status();
+        std::process::exit(1);
+    }
 
     // Lanzar QML
     let mut child = Command::new("qml6")
-        .args(["-I", ".", "qml/Main.qml"])
+        .args(["-I", ".", &qml_file])
         .env("DISPLAY", ":99")
         .env("QT_QPA_PLATFORM", "xcb")
         .stdout(Stdio::null())
@@ -35,30 +59,32 @@ fn main() -> Result<()> {
     std::thread::sleep(Duration::from_secs(4));
 
     // Capturar
-    for (i, out) in args.iter().enumerate() {
+    for (i, out) in outputs.iter().enumerate() {
         let status = Command::new("ffmpeg")
             .args([
+                "-y",
                 "-f",
                 "x11grab",
                 "-video_size",
-                "1280x800",
+                &format!("{width}x{height}"),
+                "-framerate",
+                "1",
                 "-i",
                 ":99",
                 "-frames:v",
                 "1",
                 "-update",
                 "1",
-                "-y",
                 out,
             ])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()?;
 
-        if !status.success() {
-            eprintln!("ffmpeg fallo en frame {}", i);
+        if status.success() {
+            println!("Captura {i} guardada en {out}");
         } else {
-            println!("Captura {} guardada en {}", i, out);
+            eprintln!("ffmpeg fallo en frame {i}");
         }
         std::thread::sleep(Duration::from_millis(500));
     }
@@ -66,7 +92,8 @@ fn main() -> Result<()> {
     // Limpiar
     let _ = child.kill();
     let _ = child.wait();
-    Command::new("pkill").args(["-f", "Xvfb"]).status().ok();
+    let _ = Command::new("pkill").args(["-f", "Xvfb"]).status();
+    let _ = std::fs::remove_file("/tmp/.X99-lock");
 
     Ok(())
 }

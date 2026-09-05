@@ -11,3 +11,8 @@ VoiceOrb 1.0 VoiceOrb.qml
 SessionDrawer 1.0 SessionDrawer.qml
 ChatView 1.0 ChatView.qml
 WelcomeScreen 1.0 WelcomeScreen.qml
+ErrorBanner 1.0 ErrorBanner.qml
+ImagePreviewDialog 1.0 ImagePreviewDialog.qml
+SettingsDialog 1.0 SettingsDialog.qml
+SettingsField 1.0 SettingsField.qml
+SettingsToggle 1.0 SettingsToggle.qml

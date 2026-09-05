@@ -12,9 +12,12 @@ Rectangle {
     property string result: ""          // preview del resultado
     property string imageUrl: ""
 
+    signal imageClicked(string url)
+    signal retryClicked()
+
     property int iconSize: Theme.iconSizeSm
 
-    implicitWidth: row.implicitWidth + paddingH * 2
+        implicitWidth: row.implicitWidth + paddingH * 2
     implicitHeight: row.implicitHeight + paddingV * 2
     radius: Theme.radiusPill
 
@@ -105,6 +108,37 @@ Rectangle {
                 color: Theme.inkMuted
                 maximumLineCount: 1
                 elide: Text.ElideRight
+            }
+        }
+
+        // Boton de retry cuando hay error
+        Item {
+            visible: root.status === "error"
+            width: visible ? 20 : 0
+            height: 20
+            anchors.verticalCenter: parent.verticalCenter
+
+            Octicon {
+                anchors.fill: parent
+                name: "sync-16"
+                size: 14
+                color: Theme.error
+            }
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.retryClicked()
+            }
+        }
+    }
+
+    // Click area para abrir imagen si hay imageUrl
+    MouseArea {
+        anchors.fill: parent
+        cursorShape: root.imageUrl !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor
+        onClicked: {
+            if (root.imageUrl !== "") {
+                root.imageClicked(root.imageUrl)
             }
         }
     }

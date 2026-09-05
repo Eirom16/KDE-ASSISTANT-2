@@ -34,7 +34,7 @@ ApplicationWindow {
     property string currentSessionId: "s1"
 
     // Setter para alternar entre demo (welcome) y conversacion (con mensajes)
-    property bool showDemoConversation: false
+    property bool showDemoConversation: true
 
     property var mockMessages: showDemoConversation ? [
         {
@@ -68,9 +68,61 @@ ApplicationWindow {
             authorLabel: "KDE Assistant",
             content: "Estoy consultando... dame un momento.",
             timestamp: "10:43",
-            isStreaming: true,
+            isStreaming: false,
             toolCalls: [
-                { name: "web_search", status: "running", result: "Buscando..." }
+                {
+                    name: "web_search",
+                    status: "success",
+                    result: "Madrid 22°C, parcialmente nublado",
+                    imageUrl: ""
+                }
+            ]
+        },
+        {
+            role: "user",
+            authorLabel: "Tu",
+            content: "Muestrame una imagen del espacio",
+            timestamp: "10:44",
+            isStreaming: false,
+            toolCalls: []
+        },
+        {
+            role: "assistant",
+            authorLabel: "KDE Assistant",
+            content: "Aqui tienes una vista espectacular del espacio profundo captada por el telescopio Hubble.",
+            timestamp: "10:44",
+            isStreaming: false,
+            toolCalls: [
+                {
+                    name: "show_image",
+                    status: "success",
+                    result: "Imagen: Pillars of Creation (NASA/ESA)",
+                    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/68/Pillars_2014_HST_WFC3-UVIS_full-res_denoised.jpg/800px-Pillars_2014_HST_WFC3-UVIS_full-res_denoised.jpg",
+                    caption: "Pillars of Creation - Hubble"
+                }
+            ]
+        },
+        {
+            role: "user",
+            authorLabel: "Tu",
+            content: "Crea un archivo notas.txt con la lista del super",
+            timestamp: "10:46",
+            isStreaming: false,
+            toolCalls: []
+        },
+        {
+            role: "assistant",
+            authorLabel: "KDE Assistant",
+            content: "Listo, archivo creado.",
+            timestamp: "10:46",
+            isStreaming: false,
+            toolCalls: [
+                {
+                    name: "create_file",
+                    status: "success",
+                    result: "/home/user/Documentos/notas.txt",
+                    imageUrl: ""
+                }
             ]
         }
     ] : []
@@ -116,7 +168,7 @@ ApplicationWindow {
             }
             onSettingsClicked: {
                 root.drawerOpen = false
-                // TODO: abrir SettingsDialog
+                settings.show()
             }
         }
 
@@ -216,6 +268,9 @@ ApplicationWindow {
                     console.log("Sugerencia:", text)
                     // TODO: enviar a Rust backend
                 }
+                onImageClicked: function(url, caption) {
+                    imagePreview.show(url, caption)
+                }
             }
 
             // === Input bar (flotante) ===
@@ -241,6 +296,36 @@ ApplicationWindow {
                     }
                 }
             }
+        }
+    }
+
+    // === Image preview dialog (overlay) ===
+    ImagePreviewDialog {
+        id: imagePreview
+        anchors.fill: parent
+        open_: false
+    }
+
+    // === Settings dialog (overlay) ===
+    SettingsDialog {
+        id: settings
+        anchors.fill: parent
+        open_: false
+        onClosed: console.log("Settings closed")
+        onSaved: console.log("Settings saved")
+    }
+
+    // === Accesos rapidos por teclado ===
+    Shortcut {
+        sequences: ["Ctrl+,"]
+        onActivated: settings.show()
+    }
+    Shortcut {
+        sequence: "Escape"
+        onActivated: {
+            if (settings.open_) settings.hide()
+            else if (imagePreview.open_) imagePreview.hide()
+            else if (root.voiceState === "listening") root.voiceState = "idle"
         }
     }
 }
