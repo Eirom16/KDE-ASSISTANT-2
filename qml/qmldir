@@ -1,0 +1,4 @@
+module qml
+singleton Theme 1.0 Theme.qml
+Octicon 1.0 Octicon.qml
+Main 1.0 Main.qml

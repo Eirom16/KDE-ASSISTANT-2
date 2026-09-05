@@ -1,0 +1,62 @@
+[package]
+name = "kde-assistant"
+version = "0.1.0"
+edition = "2021"
+description = "Asistente de escritorio para KDE Plasma con estetica Apple, tool calling, voz estilo Siri y tray multifuncion"
+authors = ["KDE Assistant Dev"]
+license = "MIT"
+
+[[bin]]
+name = "kde-assistant"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+
+# HTTP client (OpenRouter API)
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "gzip"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Database
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Chimes playback (sin whisper por ahora en scaffold)
+rodio = { version = "0.19", default-features = false, features = ["wav", "mp3"] }
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+anyhow = "1"
+thiserror = "1"
+log = "0.4"
+env_logger = "0.11"
+dirs = "5"
+once_cell = "1"
+
+# Speech (opcional - se añadira en fase de voz)
+# whisper-rs = "0.12"      # Requiere cmake + clang
+# cpal = "0.15"              # Audio capture
+# espeak-ng = "0.2"         # TTS
+
+# Wake Word (opcional)
+# ort = { version = "2.0", default-features = false, features = ["download-binaries"] }
+# ndarray = "0.16"
+
+# Qt bindings (se anadira en fase de UI)
+# cxx-qt = "0.10"
+# cxx-qt-build = { version = "0.10" }
+
+[build-dependencies]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
+codegen-units = 1
+
+[profile.dev]
+opt-level = 0
+debug = true

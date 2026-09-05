@@ -1,0 +1,41 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <!-- QML files -->
+        <file>qml/Main.qml</file>
+        <file>qml/Theme.qml</file>
+        <file>qml/Octicon.qml</file>
+        <file>qml/qmldir</file>
+
+        <!-- GitHub Primer Octicons (subset usado por la UI) -->
+        <file alias="assets/octicons/paper-airplane-16.svg">assets/octicons/paper-airplane-16.svg</file>
+        <file alias="assets/octicons/search-16.svg">assets/octicons/search-16.svg</file>
+        <file alias="assets/octicons/rocket-16.svg">assets/octicons/rocket-16.svg</file>
+        <file alias="assets/octicons/file-added-16.svg">assets/octicons/file-added-16.svg</file>
+        <file alias="assets/octicons/pencil-16.svg">assets/octicons/pencil-16.svg</file>
+        <file alias="assets/octicons/file-16.svg">assets/octicons/file-16.svg</file>
+        <file alias="assets/octicons/image-16.svg">assets/octicons/image-16.svg</file>
+        <file alias="assets/octicons/gear-16.svg">assets/octicons/gear-16.svg</file>
+        <file alias="assets/octicons/plus-16.svg">assets/octicons/plus-16.svg</file>
+        <file alias="assets/octicons/sidebar-collapse-16.svg">assets/octicons/sidebar-collapse-16.svg</file>
+        <file alias="assets/octicons/sidebar-expand-16.svg">assets/octicons/sidebar-expand-16.svg</file>
+        <file alias="assets/octicons/hubot-16.svg">assets/octicons/hubot-16.svg</file>
+        <file alias="assets/octicons/unmute-16.svg">assets/octicons/unmute-16.svg</file>
+        <file alias="assets/octicons/stop-16.svg">assets/octicons/stop-16.svg</file>
+        <file alias="assets/octicons/sync-16.svg">assets/octicons/sync-16.svg</file>
+        <file alias="assets/octicons/x-16.svg">assets/octicons/x-16.svg</file>
+        <file alias="assets/octicons/dash-16.svg">assets/octicons/dash-16.svg</file>
+        <file alias="assets/octicons/square-16.svg">assets/octicons/square-16.svg</file>
+        <file alias="assets/octicons/eye-16.svg">assets/octicons/eye-16.svg</file>
+        <file alias="assets/octicons/history-16.svg">assets/octicons/history-16.svg</file>
+        <file alias="assets/octicons/sign-out-16.svg">assets/octicons/sign-out-16.svg</file>
+        <file alias="assets/octicons/check-16.svg">assets/octicons/check-16.svg</file>
+        <file alias="assets/octicons/arrow-up-16.svg">assets/octicons/arrow-up-16.svg</file>
+        <file alias="assets/octicons/terminal-16.svg">assets/octicons/terminal-16.svg</file>
+        <file alias="assets/octicons/tools-16.svg">assets/octicons/tools-16.svg</file>
+        <file alias="assets/octicons/bell-16.svg">assets/octicons/bell-16.svg</file>
+        <file alias="assets/octicons/play-16.svg">assets/octicons/play-16.svg</file>
+        <file alias="assets/octicons/trash-16.svg">assets/octicons/trash-16.svg</file>
+        <file alias="assets/octicons/mic-16.svg">assets/octicons/unmute-16.svg</file>
+    </qresource>
+</RCC>
