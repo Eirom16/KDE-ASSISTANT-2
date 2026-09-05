@@ -102,6 +102,18 @@ impl Config {
     }
 
     pub fn default() -> Self {
+        Self::default_internal()
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::default_internal()
+    }
+}
+
+impl Config {
+    fn default_internal() -> Self {
         Self {
             ai: AiConfig {
                 base_url: "https://openrouter.ai/api/v1".to_string(),

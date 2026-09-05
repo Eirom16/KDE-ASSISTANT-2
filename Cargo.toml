@@ -10,6 +10,10 @@ license = "MIT"
 name = "kde-assistant"
 path = "src/main.rs"
 
+[lib]
+name = "kde_assistant_lib"
+path = "src/lib.rs"
+
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["full"] }

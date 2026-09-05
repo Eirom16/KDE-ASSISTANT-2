@@ -4,12 +4,8 @@
 // base del backend. La UI de Qt/QML se conectara en Fase 3 via cxx-qt.
 
 use anyhow::Result;
+use kde_assistant_lib::backend::Backend;
 use std::sync::Arc;
-
-mod backend;
-mod models;
-
-use backend::Backend;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -19,7 +15,7 @@ async fn main() -> Result<()> {
     log::info!("KDE Assistant v2 starting...");
 
     // Init backend
-    let backend = Arc::new(Backend::new().await?);
+    let _backend = Arc::new(Backend::new().await?);
     log::info!("Backend inicializado correctamente");
 
     // TODO(Fase 3): Inicializar Qt Engine y cargar Main.qml

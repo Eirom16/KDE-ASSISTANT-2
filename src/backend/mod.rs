@@ -11,6 +11,7 @@ pub mod kde_integration;
 pub mod session_manager;
 pub mod speech_service;
 pub mod tool_executor;
+pub mod tool_registry;
 
 use anyhow::Result;
 use std::sync::Arc;
