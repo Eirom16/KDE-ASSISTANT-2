@@ -177,10 +177,7 @@ where
                 mono.clear();
                 for sample in chunk.chunks(channels) {
                     // Promedio de canales -> mono
-                    let sum: f32 = sample
-                        .iter()
-                        .map(|s| f32::from_sample(*s))
-                        .sum();
+                    let sum: f32 = sample.iter().map(|s| f32::from_sample(*s)).sum();
                     mono.push(sum / channels as f32);
                 }
                 on_frame(&mono);

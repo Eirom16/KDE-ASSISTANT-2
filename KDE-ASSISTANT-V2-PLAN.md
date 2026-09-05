@@ -38,7 +38,7 @@ KDE Assistant v2 es un asistente de escritorio para KDE Plasma Linux construido 
 
 ### 8. Speech
 - **NUNCA** depender de Web Speech API (solo funciona en Chrome/Electron).
-- **SOLUCION:** Usar `whisper-rs` para STT local y `espeak-ng` o `piper-tts` para TTS nativo. Chimes generados con `rodio`.
+- **SOLUCION:** Usar `whisper-rs` para STT local y `piper-tts` (motor neural ONNX) para TTS de alta calidad. Chimes generados con `rodio`.
 
 ### 9. Wake Word
 - **NUNCA** usar detección simple de energia para el wake word (demasiados falsos positivos).
@@ -64,7 +64,7 @@ sudo pacman -S \
   pkg-config \
   openssl \
   sqlite \
-  espeak-ng \
+  piper-tts \
   onnxruntime
 ```
 
@@ -78,7 +78,7 @@ sudo dnf install \
   pkg-config \
   openssl-devel \
   sqlite-devel \
-  espeak-ng \
+  piper-tts \
   onnxruntime
 ```
 
@@ -92,7 +92,7 @@ sudo apt install \
   pkg-config \
   libssl-dev \
   libsqlite3-dev \
-  espeak-ng \
+  piper-tts \
   libonnxruntime-dev
 ```
 
@@ -158,7 +158,7 @@ kde-assistant/
 │   │   ├── ai_service.rs         # HTTP client OpenRouter + SSE + tool calling
 │   │   ├── tool_executor.rs      # Ejecucion segura de herramientas
 │   │   ├── session_manager.rs    # SQLite CRUD
-│   │   ├── speech_service.rs     # STT (whisper-rs) + TTS (espeak-ng/piper)
+│   │   ├── speech_service.rs     # STT (whisper-rs) + TTS (piper-tts neural)
 │   │   ├── audio_capture.rs      # cpal input + VAD + nivel de amplitud
 │   │   ├── chime_player.rs       # rodio playback de chimes
 │   │   ├── hotword.rs            # Wake word detection (ONNX/openWakeWord)
@@ -216,13 +216,15 @@ serde_json = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 
 # Speech
-whisper-rs = "0.12"
-cpal = "0.15"
-espeak-ng = "0.2"
-rodio = "0.19"                    # Chimes playback
+whisper-rs = "0.12"           # STT (futuro)
+cpal = "0.15"                 # Audio input
+# piper-tts se invoca como subproceso del binario del sistema
+# Instalar: sudo pacman -S piper-tts
+# Modelo: descargar .onnx y .onnx.json a ~/.local/share/kde-assistant/models/piper/
+rodio = "0.19"                # Chimes playback + TTS playback
 
 # Wake Word (ML)
-ort = "2.0"                       # ONNX Runtime para openWakeWord
+ort = "2.0"                   # ONNX Runtime para openWakeWord
 ndarray = "0.16"
 
 # Utils
@@ -249,7 +251,7 @@ QML UI ──Signal──→ Rust Backend ──HTTP+SSE──→ OpenRouter API
    │                    │
    │                    ├──→ SQLite (Sessions/Messages)
    │                    ├──→ Whisper (STT)
-   │                    ├──→ espeak-ng (TTS)
+   │                    ├──→ piper-tts (TTS neural)
    │                    ├──→ Rodio (Chimes)
    │                    ├──→ ONNX (Wake Word)
    │                    ├──→ cpal (Audio Capture + VAD)
@@ -330,7 +332,7 @@ cargo build --release --target x86_64-unknown-linux-gnu
 - [ ] Orbe luminoso con SpringAnimation (gradiente Action Blue → cian)
 - [ ] Chimes de activacion/procesamiento/desactivacion (rodio)
 - [ ] STT: Whisper local (whisper-rs)
-- [ ] TTS: espeak-ng o piper-tts
+- [ ] TTS: piper-tts (motor neural ONNX, alta calidad)
 - [ ] Push-to-talk (Super+Shift+V)
 - [ ] Barge-in: detener TTS al hablar o pulsar Escape
 - [ ] Indicador visual de escucha (orbe pulsante)

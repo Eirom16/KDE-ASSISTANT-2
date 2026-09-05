@@ -19,6 +19,10 @@ Rectangle {
     property bool chimesEnabled: true
     property string theme: "system"  // "system" | "dark" | "light"
 
+    // Piper-tts
+    property string piperModel: "es_ES-sharvard-medium"
+    property real piperLengthScale: 1.0
+
     signal closed()
     signal saved()
 
@@ -177,10 +181,57 @@ Rectangle {
 
                     // Voz
                     Text {
-                        text: qsTr("Voz")
+                        text: qsTr("Voz (piper-tts neural)")
                         font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0.4)
                         color: Theme.inkMuted
                         Layout.topMargin: Theme.spacingMd
+                    }
+
+                    SettingsField {
+                        label: qsTr("Modelo de voz")
+                        value: root.piperModel
+                        placeholder: "es_ES-sharvard-medium"
+                    }
+
+                    Text {
+                        text: qsTr("Descarga modelos desde huggingface.co/rhasspy/piper-voices y copialos a ~/.local/share/kde-assistant/models/piper/")
+                        font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                        color: Theme.inkMuted
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
+
+                    // Speed slider
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 36
+                        RowLayout {
+                            anchors.fill: parent
+                            spacing: Theme.spacingSm
+
+                            Text {
+                                text: qsTr("Velocidad")
+                                font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, -0.05)
+                                color: Theme.ink
+                                Layout.preferredWidth: 80
+                            }
+
+                            Slider {
+                                id: speedSlider
+                                Layout.fillWidth: true
+                                from: 0.5
+                                to: 1.5
+                                value: root.piperLengthScale
+                                onValueChanged: root.piperLengthScale = value
+                            }
+
+                            Text {
+                                text: speedSlider.value.toFixed(2) + "x"
+                                font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
+                                color: Theme.inkMuted
+                                Layout.preferredWidth: 40
+                            }
+                        }
                     }
 
                     SettingsToggle {

@@ -7,7 +7,7 @@ Asistente de escritorio para KDE Plasma Linux con estetica Apple Design (Cuperti
 - **Backend:** Rust + Tokio
 - **UI:** Qt 6 / QML (lanzada via `qml6`)
 - **AI:** OpenRouter API (compatible con OpenAI, tool calling, SSE streaming)
-- **Voz:** whisper-rs (STT) + espeak-ng/piper-tts (TTS) + ONNX openWakeWord
+- **Voz:** whisper-rs (STT) + piper-tts (TTS neural ONNX) + ONNX openWakeWord
 - **DB:** SQLite (rusqlite)
 - **Iconos:** GitHub Primer Octicons
 
@@ -23,7 +23,7 @@ Asistente de escritorio para KDE Plasma Linux con estetica Apple Design (Cuperti
 ### Dependencias del sistema (Arch / CachyOS)
 
 ```bash
-sudo pacman -S rust cargo qt6-declarative cmake alsa-lib espeak-ng
+sudo pacman -S rust cargo qt6-declarative cmake alsa-lib piper-tts
 ```
 
 Para los modelos ML (Fase 5+):
@@ -80,18 +80,36 @@ Editar `~/.config/kde-assistant/config.json`:
     "api_key": "<tu-api-key>",
     "model": "openrouter/z-ai/glm-5.2:free",
     "enable_tool_calling": true
+  },
+  "speech": {
+    "tts_engine": "piper",
+    "piper_model": "es_ES-sharvard-medium",
+    "piper_length_scale": 1.0,
+    "auto_speak": false
   }
 }
 ```
 
 Tambien puedes usar la variable de entorno `OPENROUTER_API_KEY`.
 
+## Voz (TTS con piper-tts)
+
+El motor TTS es **piper-tts** (neural ONNX, alta calidad). Necesita:
+
+1. **Binario:** `sudo pacman -S piper-tts` (Arch/CachyOS) o descargar de https://github.com/rhasspy/piper/releases
+2. **Modelo de voz:** descargar de https://huggingface.co/rhasspy/piper-voices (ej. `es_ES-sharvard-medium` ~60MB) y colocar en `~/.local/share/kde-assistant/models/piper/`:
+   - `es_ES-sharvard-medium.onnx`
+   - `es_ES-sharvard-medium.onnx.json`
+
+Probar el pipeline: `cargo run --bin test_voice`
+
 ## Tests
 
 ```bash
-cargo test --lib           # 9 tests unitarios
+cargo test --lib           # 19 tests unitarios
 ./target/debug/valida_qml  # Verifica que el QML carga sin errores
 ./target/debug/snap_ui     # Captura screenshots para QA visual
+./target/debug/test_voice  # Prueba TTS + chimes
 ```
 
 ## Estado
@@ -100,6 +118,6 @@ cargo test --lib           # 9 tests unitarios
 - **Fase 2:** Backend core (AI, tool executor, agente ReAct) ✓
 - **Fase 3:** QML UI estilo Apple (17 componentes) ✓
 - **Fase 4:** Tool calling UI + dialogs (ErrorBanner, ImagePreview, Settings) ✓
-- **Fase 5:** Voz Siri (cpal + whisper-rs + espeak-ng + ONNX hotword) — *pendiente*
+- **Fase 5:** Voz Siri (cpal + whisper-rs + piper-tts neural + ONNX hotword) ✓
 - **Fase 6:** KDE Integration (DBus, System Tray, KGlobalAccel) — *pendiente*
 - **Fase 7:** Polish final — *pendiente*

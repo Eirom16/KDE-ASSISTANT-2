@@ -108,7 +108,7 @@ impl ChimePlayer {
         for i in 0..n {
             let t = i as f32 / sr as f32;
             let p = i as f32 / n as f32; // 0 a 1
-            // Frecuencia sube de 220 a 880Hz
+                                         // Frecuencia sube de 220 a 880Hz
             let freq = 220.0 + (880.0 - 220.0) * p;
             // Envolvente: ataque 20ms, sustain, release 30ms
             let env = envelope(t, 0.02, dur - 0.03, 0.03);
@@ -186,7 +186,9 @@ fn play_wav_file(path: &PathBuf) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("abriendo output stream: {e}"))?;
     let file = BufReader::new(File::open(path).context("abriendo wav")?);
     // play_once acepta un Read+Seek; el WAV se decodifica internamente
-    let sink = handle.play_once(file).map_err(|e| anyhow::anyhow!("play_once: {e}"))?;
+    let sink = handle
+        .play_once(file)
+        .map_err(|e| anyhow::anyhow!("play_once: {e}"))?;
     sink.set_volume(0.5);
     sink.sleep_until_end();
     Ok(())

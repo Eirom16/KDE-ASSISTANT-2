@@ -12,7 +12,7 @@
 - **UI:** Qt 6.11+ / QML con QtQuick Controls 2
 - **API LLM:** OpenRouter (`https://openrouter.ai/api/v1/chat/completions`) — compatible con OpenAI, tool calling y SSE streaming
 - **STT:** whisper-rs (local, modelo ggml-base.bin)
-- **TTS:** espeak-ng o piper-tts (local)
+- **TTS:** piper-tts (motor neural) (local)
 - **Chimes:** rodio (WAVs embebidos)
 - **Wake Word:** ONNX / openWakeWord (~50MB, deteccion ML)
 - **Audio capture:** cpal + WebRTC VAD
@@ -103,7 +103,7 @@ while let Some(chunk) = stream.next().await {
 
 ### 7. Voz Local
 - STT: `whisper-rs` local, no Web Speech API.
-- TTS: `espeak-ng` o `piper-tts` local.
+- TTS: `piper-tts` local (motor neural ONNX).
 - Chimes: WAVs embebidos + `rodio`.
 
 ### 8. Wake Word ML
@@ -154,7 +154,7 @@ src/
 │   ├── ai_service.rs         # HTTP client OpenRouter + SSE + tool calling
 │   ├── tool_executor.rs      # Ejecucion segura de herramientas
 │   ├── session_manager.rs    # SQLite CRUD (sessions, messages)
-│   ├── speech_service.rs     # STT (whisper-rs) + TTS (espeak-ng/piper)
+│   ├── speech_service.rs     # STT (whisper-rs) + TTS (piper-tts)
 │   ├── audio_capture.rs      # cpal input + VAD + nivel de amplitud
 │   ├── chime_player.rs       # rodio playback de chimes
 │   ├── hotword.rs            # Wake word ONNX
@@ -277,6 +277,9 @@ cargo build --release
 - **Whisper model no descargado** — Descarga manual desde HuggingFace o esperar primer arranque (descarga automatica).
 - **Wake word no detecta** — Verificar que el modelo ONNX existe en `assets/models/wake_word.onnx`. Verificar umbral (bajar de 0.8 si es muy estricto).
 - **Tool call no ejecuta** — Verificar que `enableToolCalling: true` en config y que la API key tiene acceso a modelos con tool calling.
+- **TTS suena robotico** — Asegurarse de que `piper-tts` esta instalado (no espeak-ng). En Arch: `sudo pacman -S piper-tts`. Descargar un modelo neural de https://huggingface.co/rhasspy/piper-voices (ej. `es_ES-sharvard-medium`) a `~/.local/share/kde-assistant/models/piper/`.
+- **"piper-tts no encontrado"** — Verificar `which piper-tts`. Si no esta, instalar con el gestor de paquetes o descargar binario desde https://github.com/rhasspy/piper/releases.
+- **"no hay modelos piper"** — El motor esta pero sin voces. Descargar archivos `.onnx` + `.onnx.json` de HuggingFace a `~/.local/share/kde-assistant/models/piper/`.
 
 ## Estado Actual del Proyecto
 
@@ -287,7 +290,7 @@ Ver `git log --oneline` para historial y `KDE-ASSISTANT-V2-PLAN.md` seccion "Pas
 - **Privacidad primero:** Voz y archivos locales, solo el prompt va a la nube.
 - **Rendimiento:** Rust + Tokio, nunca bloquear UI.
 - **Estetica Apple:** Minimalismo, frosted glass, un solo color interactivo, tracking negativo.
-- **Open source friendly:** MIT/Apache, sin dependencias proprietarias, Octicons (MIT), Whisper (MIT), espeak-ng (GPLv3).
+- **Open source friendly:** MIT/Apache, sin dependencias proprietarias, Octicons (MIT), Whisper (MIT), piper-tts (Apache-2.0).
 - **KDE nativo:** DBus, KGlobalAccel, KWin blur, Breeze detection.
 
 ## Contacto y Contexto

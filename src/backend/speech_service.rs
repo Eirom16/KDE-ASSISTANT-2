@@ -1,126 +1,89 @@
-//! Speech Service - Sintesis (TTS) con espeak-ng
+//! Speech Service - Sintesis (TTS) con piper-tts
 //!
-//! Para STT (whisper-rs), se hara en una fase posterior cuando se
-//! descargue el modelo ggml-base.bin (~140MB).
+//! Motor neural local (ONNX), alta calidad y casi humana en espanol.
+//! El binario `piper-tts` se invoca como subproceso (wrapper en
+//! `crate::backend::tts::piper::PiperEngine`).
 //!
-//! Por ahora provee:
-//! - synthesize(text) -> WAV bytes via espeak-ng
-//! - speak_blocking(text) -> reproduce el audio generado
+//! STT (whisper-rs) queda como placeholder para una fase futura.
 
-use anyhow::{Context, Result};
-use std::process::Command;
+use anyhow::{anyhow, bail, Context, Result};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use crate::backend::tts::piper::PiperEngine;
 use crate::models::Config;
 
 pub struct SpeechService {
     pub config: Arc<RwLock<Config>>,
+    pub piper: PiperEngine,
 }
 
 impl SpeechService {
     pub async fn new(config: Arc<RwLock<Config>>) -> Result<Self> {
-        log::info!("SpeechService: TTS via espeak-ng");
-        Ok(Self { config })
+        let piper = PiperEngine::new().context("inicializando Piper TTS")?;
+        let models = piper.list_models();
+        let available = piper.has_binary();
+
+        if !available {
+            log::warn!("piper-tts no encontrado. TTS no funcionara hasta instalar.");
+        } else if models.is_empty() {
+            log::warn!(
+                "piper-tts disponible pero sin modelos en {}. Descarga uno desde https://huggingface.co/rhasspy/piper-voices",
+                piper.models_dir.display()
+            );
+        } else {
+            log::info!(
+                "SpeechService: piper-tts con {} modelo(s): {:?}",
+                models.len(),
+                models.iter().map(|m| &m.id).collect::<Vec<_>>()
+            );
+        }
+
+        Ok(Self { config, piper })
     }
 
-    /// Sintetiza texto a bytes WAV usando espeak-ng.
-    /// Retorna los bytes del archivo WAV generado.
+    /// Sintetiza texto a bytes WAV.
     pub async fn synthesize(&self, text: &str) -> Result<Vec<u8>> {
         let cfg = self.config.read().await.clone();
-
-        // Sanear texto: espeak-ng no maneja bien algunos caracteres
-        let safe = text
-            .replace('&', "and")
-            .replace('<', "less than")
-            .replace('>', "greater than");
-
-        // Path al WAV temporal
-        let cache_dir = dirs::cache_dir()
-            .ok_or_else(|| anyhow::anyhow!("sin cache_dir"))?
-            .join("kde-assistant/tts");
-        tokio::fs::create_dir_all(&cache_dir).await?;
-        let out_path = cache_dir.join(format!("tts_{}.wav", chrono::Utc::now().timestamp_millis()));
-
-        // espeak-ng -v voice -s rate -w output.wav "texto"
-        let mut cmd = Command::new("espeak-ng");
-        cmd.arg("-v").arg(&cfg.speech.tts_voice);
-        cmd.arg("-s").arg(format!("{}", (175.0 * cfg.speech.tts_rate) as i32)); // rate por defecto 175 ppm
-        cmd.arg("-w").arg(&out_path);
-        cmd.arg("--stdin");
-
-        // Pasar texto por stdin para evitar problemas con argumentos largos
-        use std::io::Write;
-        let mut child = cmd
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .context("lanzando espeak-ng")?;
-
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(safe.as_bytes())?;
-        }
-
-        let status = child.wait().context("esperando espeak-ng")?;
-        if !status.success() {
-            anyhow::bail!("espeak-ng fallo con codigo {:?}", status.code());
-        }
-
-        // Leer el WAV generado
-        let bytes = tokio::fs::read(&out_path)
+        self.piper
+            .synthesize(
+                text,
+                Some(&cfg.speech.piper_model),
+                Some(cfg.speech.piper_length_scale),
+            )
             .await
-            .with_context(|| format!("leyendo {}", out_path.display()))?;
-
-        // Limpiar (opcional)
-        let _ = tokio::fs::remove_file(&out_path).await;
-
-        log::info!("TTS: sintetizadas {} muestras ({} bytes)", safe.len(), bytes.len());
-        Ok(bytes)
     }
 
-    /// Reproduce un texto hablado (sintetiza y reproduce).
+    /// Reproduce el texto sintetizado inmediatamente.
     pub async fn speak(&self, text: &str) -> Result<()> {
-        let wav_bytes = self.synthesize(text).await?;
-        play_wav_bytes(&wav_bytes)?;
-        Ok(())
+        let cfg = self.config.read().await.clone();
+        self.piper
+            .speak(
+                text,
+                Some(&cfg.speech.piper_model),
+                Some(cfg.speech.piper_length_scale),
+            )
+            .await
     }
 
     /// STT placeholder. En una fase posterior se integrara whisper-rs.
     pub async fn transcribe(&self, _audio: &[f32]) -> Result<String> {
-        anyhow::bail!("STT no implementado aun (requiere whisper-rs + modelo ggml-base.bin)")
+        bail!("STT no implementado aun (requiere whisper-rs + modelo ggml-base.bin)")
     }
 
-    /// Verifica si espeak-ng esta disponible.
+    /// Verifica si piper esta disponible (binario + al menos un modelo).
     pub async fn is_available(&self) -> bool {
-        Command::new("espeak-ng")
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+        self.piper.is_available()
     }
 
-    /// Lista las voces disponibles de espeak-ng.
-    pub async fn list_voices() -> Result<Vec<String>> {
-        let output = Command::new("espeak-ng")
-            .arg("--voices")
-            .arg("variant")
-            .output()
-            .context("listando voces espeak-ng")?;
-        if !output.status.success() {
-            return Ok(vec!["es".to_string(), "en".to_string()]);
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let voices: Vec<String> = stdout
-            .lines()
-            .skip(1) // header
-            .filter_map(|line| line.split_whitespace().nth(1).map(|s| s.to_string()))
-            .collect();
-        Ok(if voices.is_empty() {
-            vec!["es".to_string(), "en".to_string()]
-        } else {
-            voices
-        })
+    /// Lista los modelos de voz piper disponibles.
+    pub async fn list_models(&self) -> Vec<String> {
+        self.piper.list_models().into_iter().map(|m| m.id).collect()
+    }
+
+    /// Devuelve un mensaje de ayuda si piper no esta configurado.
+    pub fn help_message(&self) -> String {
+        PiperEngine::help_message()
     }
 }
 
@@ -131,7 +94,9 @@ pub fn play_wav_bytes(wav_bytes: &[u8]) -> Result<()> {
     let (_stream, handle) = rodio::OutputStream::try_default()
         .map_err(|e| anyhow::anyhow!("abriendo output stream: {e}"))?;
     let cursor = Cursor::new(wav_bytes.to_vec());
-    let sink = handle.play_once(cursor).map_err(|e| anyhow::anyhow!("play_once: {e}"))?;
+    let sink = handle
+        .play_once(cursor)
+        .map_err(|e| anyhow::anyhow!("play_once: {e}"))?;
     sink.set_volume(0.9);
     sink.sleep_until_end();
     Ok(())
@@ -142,15 +107,11 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn espeak_ng_available() {
-        let svc = SpeechService::new(Arc::new(RwLock::new(Config::default()))).await.unwrap();
-        // En CI puede no estar; solo verificar que el metodo no panic
-        let _ = svc.is_available().await;
-    }
-
-    #[tokio::test]
-    async fn list_voices_returns_something() {
-        let voices = SpeechService::list_voices().await.unwrap();
-        assert!(!voices.is_empty());
+    async fn piper_engine_initializes() {
+        // Solo verifica que no panic; puede no tener piper instalado
+        let cfg = Arc::new(RwLock::new(Config::default()));
+        let svc = SpeechService::new(cfg).await;
+        // No fallamos si piper no esta; el servicio debe inicializarse igual
+        assert!(svc.is_ok());
     }
 }

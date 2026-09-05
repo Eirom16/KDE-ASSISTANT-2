@@ -12,8 +12,8 @@
 //! un modelo wake word compatible.
 
 use anyhow::Result;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
 use crate::models::Config;
@@ -208,9 +208,7 @@ mod tests {
             running: Arc::new(AtomicBool::new(false)),
         };
         // Frame con onda senoidal realista
-        let frame: Vec<f32> = (0..512)
-            .map(|i| (i as f32 * 0.05).sin() * 0.2)
-            .collect();
+        let frame: Vec<f32> = (0..512).map(|i| (i as f32 * 0.05).sin() * 0.2).collect();
         // Puede o no detectar segun el threshold
         let _ = det.process_frame(&frame);
     }

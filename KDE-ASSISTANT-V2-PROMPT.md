@@ -20,7 +20,7 @@ Es un asistente de IA de escritorio que:
 - **UI:** Qt 6.11+ / QML con QtQuick Controls 2
 - **AI:** OpenRouter API (`https://openrouter.ai/api/v1/chat/completions`) — compatible con tool calling
 - **STT:** whisper-rs (local, sin internet)
-- **TTS:** espeak-ng o piper-tts (local)
+- **TTS:** piper-tts (motor neural ONNX) (local)
 - **Chimes:** rodio (playback de WAVs)
 - **Wake Word:** ONNX/openWakeWord (~50MB, deteccion precisa de "Hey KDE")
 - **Audio:** cpal (input) + VAD
@@ -55,7 +55,7 @@ Es un asistente de IA de escritorio que:
 │  │ Speech   │  │ Audio     │  ┌──────────────┐              │
 │  │ STT+TTS  │  │ Capture   │  │ Hotword ONNX │              │
 │  │ whisper  │  │ cpal+VAD  │  │ "Hey KDE"    │              │
-│  │ espeak   │  └───────────┘  └──────────────┘              │
+│  │ piper   │  └───────────┘  └──────────────┘              │
 │  └──────────┘  ┌───────────┐  ┌──────────────┐              │
 │  ┌──────────┐  │ Chime     │  │ KDE Integr.  │              │
 │  │ Config   │  │ Player    │  │ DBus+Tray+   │              │
@@ -438,7 +438,7 @@ async fn agent_loop(messages: Vec<Message>, tools: Vec<Tool>) -> Result<String> 
 
 ### TTS (Text-to-Speech)
 
-- **Motor:** espeak-ng o piper-tts
+- **Motor:** piper-tts (motor neural ONNX)
 - **Voces:** Configurables
 - **Velocidad:** Configurable (1.0 = normal)
 - **Trigger:** Automatico despues de respuesta (configurable)
@@ -564,7 +564,9 @@ Ubicacion: `~/.config/kde-assistant/config.json`
   },
   "speech": {
     "sttModel": "base",
-    "ttsEngine": "espeak-ng",
+    "ttsEngine": "piper",
+    "piperModel": "es_ES-sharvard-medium",
+    "piperLengthScale": 1.0,
     "ttsVoice": "es",
     "ttsRate": 1.0,
     "wakeWord": "hey kde",
@@ -640,7 +642,7 @@ Ubicacion: `~/.config/kde-assistant/config.json`
 
 ### Fase 5: Voz Siri (Dias 13-16)
 1. `audio_capture` con cpal + VAD
-2. `speech_service` con whisper-rs + espeak-ng
+2. `speech_service` con whisper-rs + piper-tts
 3. `chime_player` con rodio
 4. `hotword` con ONNX/openWakeWord
 5. `VoiceOrb.qml` con SpringAnimation
@@ -765,6 +767,6 @@ if !model_path.exists() {
 - OpenRouter API: https://openrouter.ai/docs
 - Whisper.cpp: https://github.com/ggerganov/whisper.cpp
 - openWakeWord: https://github.com/dscripka/openWakeWord
-- espeak-ng: https://github.com/espeak-ng/espeak-ng
+- piper-tts: https://github.com/rhasspy/piper
 - GitHub Primer Octicons: https://github.com/primer/octicons
 - Apple Design: https://developer.apple.com/design/

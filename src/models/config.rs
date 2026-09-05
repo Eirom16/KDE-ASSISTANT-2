@@ -28,9 +28,12 @@ pub struct AiConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpeechConfig {
     pub stt_model: String,
-    pub tts_engine: String,
-    pub tts_voice: String,
-    pub tts_rate: f32,
+    pub tts_engine: String,      // "piper" (unico soportado actualmente)
+    pub tts_voice: String,       // Alias legado (mantener compat con configs viejas)
+    pub tts_rate: f32,           // Alias legado
+    pub piper_model: String,     // ej: "es_ES-sharvard-medium"
+    pub piper_length_scale: f32, // 1.0 = normal, <1 mas rapido, >1 mas lento
+    pub piper_speaker: u32,      // id de speaker (multi-speaker models)
     pub wake_word: String,
     pub wake_word_threshold: f32,
     pub auto_speak: bool,
@@ -127,9 +130,12 @@ impl Config {
             },
             speech: SpeechConfig {
                 stt_model: "base".to_string(),
-                tts_engine: "espeak-ng".to_string(),
+                tts_engine: "piper".to_string(),
                 tts_voice: "es".to_string(),
                 tts_rate: 1.0,
+                piper_model: "es_ES-sharvard-medium".to_string(),
+                piper_length_scale: 1.0,
+                piper_speaker: 0,
                 wake_word: "hey kde".to_string(),
                 wake_word_threshold: 0.8,
                 auto_speak: false,
