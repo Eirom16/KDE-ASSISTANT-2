@@ -4,6 +4,7 @@
 
 import QtQuick
 import QtQuick.Shapes
+import Qt5Compat.GraphicalEffects   // ColorOverlay para tintar SVG
 
 Item {
     id: root
@@ -23,8 +24,8 @@ Item {
     width: size
     height: size
 
-    // Path a recursos embebidos (qrc:/icons/<name>.svg)
-    readonly property string iconPath: "qrc:/assets/octicons/" + name + ".svg"
+    // Path a los SVGs (filesystem; en produccion se embeben via resources.qrc)
+    readonly property string iconPath: Qt.resolvedUrl("../assets/octicons/" + name + ".svg")
 
     // Carga del SVG via Image (Qt SVG renderer)
     Image {

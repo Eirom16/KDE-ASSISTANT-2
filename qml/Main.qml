@@ -1,11 +1,12 @@
-// Main.qml - Ventana principal de KDE Assistant v2
-// Fase 1: estructura minima. La integracion real con Rust via cxx-qt
-// se completara en Fase 3.
+// Main.qml - Ventana principal KDE Assistant v2
+// Estetica Apple Design (Cupertino), translucida, frosted glass
 
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Window
 import QtQuick.Layouts
+import qml 1.0
+import qml.components 1.0
 
 ApplicationWindow {
     id: root
@@ -18,76 +19,225 @@ ApplicationWindow {
     maximumWidth: Theme.windowMaxWidth
     maximumHeight: Theme.windowMaxHeight
 
-    // Tema (sera controlado desde Rust en Fase 3)
-    color: Theme.canvas
+    color: "transparent"   // El fondo lo da el Rectangle root
 
-    // Flags para ventana flotante translucida (Fase 6)
-    // flags: Qt.Window | Qt.WindowStaysOnTopHint
-
+    flags: Qt.Window | Qt.WindowStaysOnTopHint
     visible: true
 
-    // Welcome screen placeholder
+    // === Modelo de datos mock (en produccion vendra de Rust) ===
+    property var mockSessions: [
+        { id: "s1", title: "Conversacion sobre Rust", updatedAt: "hace 2h", count: 12 },
+        { id: "s2", title: "Configurar KDE", updatedAt: "ayer", count: 5 },
+        { id: "s3", title: "Organizacion de archivos", updatedAt: "hace 3d", count: 8 }
+    ]
+
+    property string currentSessionId: "s1"
+
+    // Setter para alternar entre demo (welcome) y conversacion (con mensajes)
+    property bool showDemoConversation: false
+
+    property var mockMessages: showDemoConversation ? [
+        {
+            role: "user",
+            authorLabel: "Tu",
+            content: "Hola, puedes abrir Firefox?",
+            timestamp: "10:42",
+            isStreaming: false,
+            toolCalls: []
+        },
+        {
+            role: "assistant",
+            authorLabel: "KDE Assistant",
+            content: "Claro, abro Firefox ahora mismo.",
+            timestamp: "10:42",
+            isStreaming: false,
+            toolCalls: [
+                { name: "open_app", status: "success", result: "App 'firefox' abierta", imageUrl: "" }
+            ]
+        },
+        {
+            role: "user",
+            authorLabel: "Tu",
+            content: "Buscame el clima de hoy en Madrid",
+            timestamp: "10:43",
+            isStreaming: false,
+            toolCalls: []
+        },
+        {
+            role: "assistant",
+            authorLabel: "KDE Assistant",
+            content: "Estoy consultando... dame un momento.",
+            timestamp: "10:43",
+            isStreaming: true,
+            toolCalls: [
+                { name: "web_search", status: "running", result: "Buscando..." }
+            ]
+        }
+    ] : []
+
+    // === Estado UI ===
+    property bool drawerOpen: false
+    property bool streaming: false
+    property string voiceState: "idle"  // "idle" | "listening" | "processing" | "speaking"
+
+    // === Background frosted ===
+    Rectangle {
+        id: bgRect
+        anchors.fill: parent
+        color: Theme.canvas
+        radius: Theme.radiusLg + 4
+        border.width: 1
+        border.color: Theme.hairline
+    }
+
+    // === Layout principal ===
     Item {
         anchors.fill: parent
-        anchors.margins: Theme.spacingLg
+        anchors.margins: 1
 
+        // === Drawer lateral (colapsable) ===
+        SessionDrawer {
+            id: drawer
+            x: root.drawerOpen ? 0 : -drawer.drawerWidth
+            y: 0
+            width: drawer.drawerWidth
+            height: parent.height
+            drawerOpen: root.drawerOpen
+            sessions: root.mockSessions
+            currentId: root.currentSessionId
+            isDark: Theme.isDark
+            onNewSessionClicked: {
+                root.drawerOpen = false
+                root.currentSessionId = ""
+            }
+            onSessionSelected: function(id) {
+                root.currentSessionId = id
+                root.drawerOpen = false
+            }
+            onSettingsClicked: {
+                root.drawerOpen = false
+                // TODO: abrir SettingsDialog
+            }
+        }
+
+        // === Main content area ===
         ColumnLayout {
-            anchors.centerIn: parent
-            spacing: Theme.spacingMd
+            anchors.fill: parent
+            anchors.leftMargin: root.drawerOpen ? drawer.drawerWidth : 0
+            anchors.rightMargin: 0
+            anchors.topMargin: 0
+            anchors.bottomMargin: 0
+            spacing: 0
 
-            // Logo
-            Octicon {
-                name: "hubot-16"
-                size: Theme.iconSizeHero
-                color: Theme.primary
-                Layout.alignment: Qt.AlignHCenter
+            Behavior on anchors.leftMargin {
+                NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutCubic }
             }
 
-            // Title
-            Text {
-                text: "KDE Assistant"
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeHero
-                font.weight: Theme.weightBold
-                color: Theme.ink
-                lineHeight: Theme.lhHero
-                Layout.alignment: Qt.AlignHCenter
-            }
+            // === Title bar ===
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 40
 
-            // Subtitle
-            Text {
-                text: "Fase 1: Scaffold completado.\nEl backend Rust esta listo.\nLa UI se conectara en Fase 3."
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeBody
-                color: Theme.inkMuted
-                lineHeight: Theme.lhBody
-                horizontalAlignment: Text.AlignHCenter
-                Layout.alignment: Qt.AlignHCenter
-            }
+                // Toggle drawer
+                IconButton {
+                    id: toggleBtn
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.leftMargin: Theme.spacingXs
+                    iconName: root.drawerOpen ? "sidebar-collapse-16" : "sidebar-expand-16"
+                    iconSize: 18
+                    buttonSize: 32
+                    backgroundColor: "transparent"
+                    iconColor: Theme.ink
+                    onClicked: root.drawerOpen = !root.drawerOpen
+                }
 
-            // Status pill
-            Rectangle {
-                Layout.alignment: Qt.AlignHCenter
-                color: Theme.surfacePearl
-                radius: Theme.radiusPill
-                implicitHeight: 36
-                implicitWidth: statusRow.implicitWidth + Theme.spacingLg
-
-                RowLayout {
-                    id: statusRow
+                // Title
+                Text {
                     anchors.centerIn: parent
-                    spacing: Theme.spacingXs
+                    text: qsTr("KDE Assistant")
+                    font: Theme.font(Theme.fontSizeBodyStrong, Theme.weightBold, -0.1)
+                    color: Theme.ink
+                }
 
-                    Octicon {
-                        name: "check-16"
-                        size: Theme.iconSizeSm
+                // Status indicator (conectado a backend)
+                Row {
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.rightMargin: Theme.spacingMd
+                    spacing: 6
+
+                    Rectangle {
+                        width: 6; height: 6; radius: 3
                         color: Theme.success
+                        anchors.verticalCenter: parent.verticalCenter
+                        SequentialAnimation on opacity {
+                            loops: Animation.Infinite
+                            NumberAnimation { from: 1.0; to: 0.4; duration: 1200 }
+                            NumberAnimation { from: 0.4; to: 1.0; duration: 1200 }
+                        }
                     }
                     Text {
-                        text: "Backend online"
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeCaption
-                        color: Theme.ink
+                        text: qsTr("Online")
+                        font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
+                        color: Theme.inkMuted
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
+            }
+
+            // === Voice Orb (centrado, visible cuando no es idle) ===
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: root.voiceState === "idle" ? 0 : 180
+                visible: root.voiceState !== "idle"
+
+                Behavior on Layout.preferredHeight {
+                    NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutCubic }
+                }
+
+                VoiceOrb {
+                    anchors.centerIn: parent
+                    state: root.voiceState
+                    size: 120
+                    onClicked: {
+                        // Toggle voice
+                        if (root.voiceState !== "idle") root.voiceState = "idle"
+                    }
+                }
+            }
+
+            // === ChatView ===
+            ChatView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                messages: root.mockMessages
+                onSuggestionClicked: function(text) {
+                    console.log("Sugerencia:", text)
+                    // TODO: enviar a Rust backend
+                }
+            }
+
+            // === Input bar (flotante) ===
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 64
+                Layout.margins: Theme.spacingSm
+
+                InputBar {
+                    anchors.fill: parent
+                    streaming: root.streaming
+                    recording: root.voiceState === "listening"
+                    onSendClicked: function(text) {
+                        console.log("Enviar:", text)
+                        root.streaming = true
+                    }
+                    onMicClicked: {
+                        root.voiceState = root.voiceState === "listening" ? "idle" : "listening"
+                    }
+                    onStopClicked: {
+                        root.streaming = false
+                        root.voiceState = "idle"
                     }
                 }
             }

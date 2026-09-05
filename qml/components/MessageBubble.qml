@@ -1,0 +1,152 @@
+// MessageBubble.qml - Burbuja de mensaje estilo Apple
+// Radio uniforme de 18px, max-width 75%, alineado por rol
+
+import QtQuick
+import QtQuick.Layouts
+import qml 1.0
+
+Item {
+    id: root
+
+    // === Props ===
+    property string role: "assistant"   // "user" | "assistant" | "system"
+    property string authorLabel: ""      // "Tu" | "KDE Assistant" | ...
+    property string content: ""
+    property string timestamp: ""
+    property bool isStreaming: false
+    property var toolCalls: []           // Array de {name, args, status, result, imageUrl?}
+
+    property int maxWidth: 480
+    property int avatarSize: 28
+
+    implicitHeight: column.implicitHeight + 8
+    implicitWidth: column.implicitWidth
+
+    // === Layout ===
+    ColumnLayout {
+        id: column
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        spacing: Theme.spacingXs
+
+        // Author label + avatar (solo asistente o sistema)
+        RowLayout {
+            visible: root.authorLabel !== ""
+            spacing: Theme.spacingXs
+            Layout.alignment: root.role === "user" ? Qt.AlignRight : Qt.AlignLeft
+
+            // Avatar para asistente
+            Rectangle {
+                visible: root.role !== "user"
+                width: root.avatarSize
+                height: width
+                radius: width / 2
+                color: Theme.primary
+                Octicon {
+                    anchors.centerIn: parent
+                    name: "hubot-16"
+                    size: 16
+                    color: Theme.inkOnPrimary
+                }
+            }
+
+            Text {
+                text: root.authorLabel
+                font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
+                color: Theme.inkMuted
+                textFormat: Text.PlainText
+            }
+        }
+
+        // Burbuja de texto
+        Rectangle {
+            id: bubble
+            Layout.maximumWidth: root.maxWidth
+            Layout.alignment: root.role === "user" ? Qt.AlignRight : Qt.AlignLeft
+            radius: Theme.radiusLg
+            color: root.role === "user" ? Theme.primary : Theme.surface
+            border.width: root.role === "user" ? 0 : 1
+            border.color: Theme.hairline
+
+            // Sombra sutil
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: -1
+                color: "transparent"
+                z: -1
+                radius: parent.radius
+                border.width: 0
+            }
+
+            implicitWidth: Math.min(contentText.implicitWidth + paddingH * 2, root.maxWidth)
+            implicitHeight: contentText.implicitHeight + paddingV * 2
+
+            property int paddingH: Theme.spacingMd - 2
+            property int paddingV: Theme.spacingSm
+
+            TextEdit {
+                id: contentText
+                anchors.fill: parent
+                anchors.margins: bubble.paddingV
+                anchors.leftMargin: bubble.paddingH
+                anchors.rightMargin: bubble.paddingH
+                text: root.content
+                readOnly: true
+                selectByMouse: true
+                wrapMode: TextEdit.Wrap
+                textFormat: TextEdit.RichText
+                font: Theme.font(
+                    Theme.fontSizeBody,
+                    Theme.weightNormal,
+                    Theme.lsBody
+                )
+                color: root.role === "user" ? Theme.inkOnPrimary : Theme.ink
+
+                // Cursor parpadeante cuando esta streameando
+                cursorVisible: root.isStreaming
+                cursorPosition: root.content.length
+            }
+        }
+
+        // Tool call badges (debajo de la burbuja)
+        Flow {
+            visible: root.toolCalls && root.toolCalls.length > 0
+            Layout.alignment: root.role === "user" ? Qt.AlignRight : Qt.AlignLeft
+            Layout.maximumWidth: root.maxWidth
+            spacing: Theme.spacingXs
+
+            Repeater {
+                model: root.toolCalls
+                delegate: ToolCallBadge {
+                    required property var modelData
+                    toolName: modelData.name || ""
+                    status: modelData.status || "running"
+                    result: modelData.result || ""
+                    imageUrl: modelData.imageUrl || ""
+                }
+            }
+        }
+
+        // Image card (si hay show_image)
+        ImageCard {
+            visible: root.toolCalls && root.toolCalls.some(function(tc) { return tc.imageUrl })
+            Layout.alignment: root.role === "user" ? Qt.AlignRight : Qt.AlignLeft
+            Layout.maximumWidth: root.maxWidth
+            source: {
+                if (!root.toolCalls) return ""
+                var tc = root.toolCalls.find(function(t) { return t.imageUrl })
+                return tc ? tc.imageUrl : ""
+            }
+        }
+
+        // Timestamp
+        Text {
+            visible: root.timestamp !== ""
+            text: root.timestamp
+            font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+            color: Theme.inkMuted
+            Layout.alignment: root.role === "user" ? Qt.AlignRight : Qt.AlignLeft
+        }
+    }
+}

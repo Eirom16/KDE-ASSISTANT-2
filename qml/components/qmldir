@@ -1,0 +1,13 @@
+module qml.components
+AppleButton 1.0 AppleButton.qml
+PillButton 1.0 PillButton.qml
+IconButton 1.0 IconButton.qml
+MessageBubble 1.0 MessageBubble.qml
+ToolCallBadge 1.0 ToolCallBadge.qml
+ImageCard 1.0 ImageCard.qml
+InputBar 1.0 InputBar.qml
+TypingIndicator 1.0 TypingIndicator.qml
+VoiceOrb 1.0 VoiceOrb.qml
+SessionDrawer 1.0 SessionDrawer.qml
+ChatView 1.0 ChatView.qml
+WelcomeScreen 1.0 WelcomeScreen.qml
