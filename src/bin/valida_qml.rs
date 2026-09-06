@@ -22,9 +22,7 @@ fn main() -> Result<()> {
 
     match child.try_wait()? {
         Some(status) => {
-            // Proceso termino. Si salio con codigo != 0 o > 1, fallo
-            let stderr = child.stderr;
-            // (consumimos el stderr implicitamente al finalizar)
+            // Proceso termino. Si salio con codigo != 0, fallo
             if !status.success() {
                 eprintln!("qml6 fallo con {:?}", status);
                 std::process::exit(1);

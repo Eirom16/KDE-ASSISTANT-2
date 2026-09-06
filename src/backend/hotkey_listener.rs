@@ -12,6 +12,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 
 use crate::models::Config;
 
@@ -33,11 +34,6 @@ impl HotkeyAction {
             HotkeyAction::NewSession => "new_session",
         }
     }
-}
-
-pub struct GlobalHotkeyListener {
-    _running: Arc<AtomicBool>,
-    action_tx: mpsc::Sender<HotkeyAction>,
 }
 
 // Estado de modificadores (compartido entre el callback de rdev y el main thread)
@@ -130,20 +126,12 @@ fn write_hotkey_state(action: HotkeyAction) {
     let _ = std::fs::write(&path, content);
 }
 
-pub struct GlobalHotkeyManager {
-    pub handle: Option<std::thread::JoinHandle<()>>,
-    pub rx: mpsc::Receiver<HotkeyAction>,
-}
+pub struct GlobalHotkeyListener;
 
 impl GlobalHotkeyListener {
-    pub async fn new(_config: Arc<tokio::sync::RwLock<Config>>) -> Result<Self> {
-        let _running = Arc::new(AtomicBool::new(false));
-        let (action_tx, _action_rx) = mpsc::channel(32);
-        let _action_tx: mpsc::Sender<HotkeyAction> = action_tx;
-
-        Ok(Self {
-            _running,
-            action_tx: mpsc::channel(32).0,
-        })
+    /// Crea una instancia placeholder. La escucha real se hace con
+    /// `start_listener()` en un thread separado.
+    pub async fn new(_config: Arc<RwLock<Config>>) -> Result<Self> {
+        Ok(Self)
     }
 }

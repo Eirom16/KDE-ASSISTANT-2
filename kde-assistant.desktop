@@ -1,0 +1,30 @@
+[Desktop Entry]
+Type=Application
+Name=KDE Assistant
+GenericName=AI Desktop Assistant
+Comment=Asistente de escritorio con IA para KDE Plasma (piper-tts, tool calling, voz estilo Siri)
+Exec=kde-assistant
+Icon=kde-assistant
+Terminal=false
+Categories=Utility;System;AI;
+Keywords=assistant;ai;kde;plasma;voice;chat;
+StartupNotify=true
+StartupWMClass=kde-assistant
+X-KDE-SubstituteUID=false
+X-KDE-StartupNotify=true
+X-KDE-AutostartAfter=panel
+X-KDE-StartupService=kde-assistant
+MimeType=
+Actions=NewSession;Toggle;Settings;
+
+[Desktop Action NewSession]
+Name=Nueva Sesión
+Exec=kde-assistant --new-session
+
+[Desktop Action Toggle]
+Name=Mostrar/Ocultar
+Exec=kde-assistant --toggle
+
+[Desktop Action Settings]
+Name=Configuración
+Exec=kde-assistant --settings

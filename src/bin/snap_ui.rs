@@ -9,7 +9,7 @@ use std::time::Duration;
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    let width: u32 = args.get(0).and_then(|s| s.parse().ok()).unwrap_or(1280);
+    let width: u32 = args.first().and_then(|s| s.parse().ok()).unwrap_or(1280);
     let height: u32 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(800);
     let qml_file: String = args
         .get(2)

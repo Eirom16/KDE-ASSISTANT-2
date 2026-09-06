@@ -1,21 +1,11 @@
 //! KDE Integration - DBus, System Tray, Global Shortcuts, KWin blur
 //!
 //! Implementation using:
-//! - `global-hotkey` crate for cross-platform global shortcuts (replaces KGlobalAccel)
 //! - `dbus-send` for KWin blur, notifications, theme detection
 //! - `QSystemTrayIcon` in QML for system tray (handled in QML)
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::process::Command;
-
-const DBUS_SEND: &str = "dbus-send";
-const SESSION_BUS: &str = "--session";
-const PATH_PORTAL: &str = "/org/freedesktop/portal/desktop";
-const DEST_PORTAL: &str = "org.freedesktop.portal.Desktop";
-const DEST_KWIN: &str = "org.kde.KWin";
-const PATH_KWIN: &str = "/Compositor";
-const DEST_NOTIFICATIONS: &str = "org.freedesktop.Notifications";
-const PATH_NOTIFICATIONS: &str = "/org/freedesktop/Notifications";
 
 pub struct KdeIntegration {
     pub theme: ThemePreference,

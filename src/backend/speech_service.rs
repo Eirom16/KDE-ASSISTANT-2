@@ -6,7 +6,7 @@
 //!
 //! STT (whisper-rs) queda como placeholder para una fase futura.
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 

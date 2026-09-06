@@ -50,6 +50,7 @@ env_logger = "0.11"
 dirs = "5"
 once_cell = "1"
 hex = "0.4"
+ctrlc = "3"
 
 # Hashing para verificar integridad de descargas (piper)
 sha2 = "0.10"

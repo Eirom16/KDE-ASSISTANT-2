@@ -12,6 +12,7 @@
 use anyhow::{Context, Result};
 use kde_assistant_lib::backend::Backend;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 fn main() -> Result<()> {
@@ -21,7 +22,9 @@ fn main() -> Result<()> {
 
     let args: Vec<String> = std::env::args().collect();
     let ui_off = args.iter().any(|a| a == "--ui-off" || a == "--no-ui");
-    let no_shortcuts = args.iter().any(|a| a == "--no-shortcuts");
+    let no_shortcuts = args
+        .iter()
+        .any(|a| a == "--no-shortcuts" || a == "--no-shortcuts");
 
     // Modo comando: enviar senal y salir
     if let Some(idx) = args.iter().position(|a| a == "--send-msg") {
@@ -66,10 +69,10 @@ fn main() -> Result<()> {
 
     // Init backend en runtime Tokio
     let runtime = tokio::runtime::Runtime::new().context("creando Tokio runtime")?;
-    let _backend = runtime.block_on(async {
-        let b = Backend::new().await?;
+    runtime.block_on(async {
+        let _backend = Backend::new().await?;
         log::info!("Backend inicializado correctamente");
-        Ok::<_, anyhow::Error>(Arc::new(b))
+        Ok::<_, anyhow::Error>(())
     })?;
 
     // Setup KDE integration (theme detection, notifications)
@@ -89,6 +92,14 @@ fn main() -> Result<()> {
     } else {
         log::info!("Global shortcuts deshabilitados (--no-shortcuts)");
     }
+
+    // Señal de apagado limpio
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let shutdown_signal = shutdown.clone();
+    ctrlc::set_handler(move || {
+        shutdown_signal.store(true, Ordering::SeqCst);
+    })
+    .context("setting up ctrl-c handler")?;
 
     // Lanzar UI QML como subproceso
     if !ui_off {

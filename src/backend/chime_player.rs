@@ -9,7 +9,6 @@
 
 use anyhow::{Context, Result};
 use hound::{SampleFormat, WavSpec};
-use rodio::Decoder;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
