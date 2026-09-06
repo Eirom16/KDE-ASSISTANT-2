@@ -19,7 +19,7 @@
 - **DB:** SQLite (rusqlite bundled)
 - **HTTP:** reqwest con streaming SSE
 - **Iconos:** GitHub Primer Octicons (SVG embebidos en .qrc)
-- **Escritorio:** DBus `org.kde.assistant`, QSystemTrayIcon, KGlobalAccel, KWin blur
+- **Escritorio:** DBus `org.kde.assistant`, QSystemTrayIcon, rdev global hotkeys, KWin blur
 
 ## Documentos de Referencia
 

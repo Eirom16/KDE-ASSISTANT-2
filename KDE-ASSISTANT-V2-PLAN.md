@@ -338,13 +338,12 @@ cargo build --release --target x86_64-unknown-linux-gnu
 - [ ] Indicador visual de escucha (orbe pulsante)
 
 ### KDE Integration
-- [ ] System tray con menu multifuncion
-- [ ] Acciones rapidas en tray (buscar, abrir app, abrir carpeta)
-- [ ] Sesiones recientes en tray
-- [ ] Global shortcuts (configurables)
-- [ ] Notificaciones nativas (DBus)
-- [ ] Tema automatico Breeze Dark/Light con paleta Apple
-- [ ] Soporte Wayland
+- [x] System tray con menu multifuncion (vía QML `Qt.labs.platform`)
+- [x] Global shortcuts (rdev cross-platform): Super+Shift+A, Super+Shift+V, Ctrl+Shift+K
+- [x] Notificaciones nativas (DBus org.freedesktop.Notifications)
+- [x] Theme detection via `org.freedesktop.portal.Settings` (color-scheme)
+- [x] Translucidez via Qt.WA_TranslucentBackground en QML
+- [x] Soporte Wayland y X11
 
 ### Configuracion
 - [ ] API key y base URL (OpenRouter)

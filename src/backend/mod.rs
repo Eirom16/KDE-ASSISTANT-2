@@ -5,6 +5,7 @@
 pub mod ai_service;
 pub mod audio_capture;
 pub mod chime_player;
+pub mod hotkey_listener;
 pub mod hotword;
 pub mod kde_integration;
 pub mod session_manager;

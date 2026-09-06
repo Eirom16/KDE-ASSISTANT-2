@@ -1,0 +1,149 @@
+//! Global Hotkey Listener - Cross-platform global shortcut listener
+//!
+//! Usa `rdev` para escuchar teclas globalmente. Funciona en Linux (X11),
+//! Windows y macOS sin necesidad de KGlobalAccel u otros frameworks del SO.
+//!
+//! Para el envío de acciones a la UI QML, emite señales DBus al servicio
+//! `org.kde.assistant` que el QML escucha.
+
+use anyhow::Result;
+use rdev::{listen, Event, EventType, Key};
+use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use tokio::sync::mpsc;
+
+use crate::models::Config;
+
+const DBUS_DEST: &str = "org.kde.assistant";
+const DBUS_PATH: &str = "/Chat";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HotkeyAction {
+    ToggleWindow,
+    PushToTalk,
+    NewSession,
+}
+
+impl HotkeyAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            HotkeyAction::ToggleWindow => "toggle_window",
+            HotkeyAction::PushToTalk => "push_to_talk",
+            HotkeyAction::NewSession => "new_session",
+        }
+    }
+}
+
+pub struct GlobalHotkeyListener {
+    _running: Arc<AtomicBool>,
+    action_tx: mpsc::Sender<HotkeyAction>,
+}
+
+// Estado de modificadores (compartido entre el callback de rdev y el main thread)
+static MOD_SUPER: AtomicBool = AtomicBool::new(false);
+static MOD_SHIFT: AtomicBool = AtomicBool::new(false);
+static MOD_CTRL: AtomicBool = AtomicBool::new(false);
+static MOD_ALT: AtomicBool = AtomicBool::new(false);
+
+pub fn start_listener(action_tx: mpsc::Sender<HotkeyAction>) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        log::info!("Global hotkey listener iniciado");
+        let tx = action_tx.clone();
+        let callback = move |event: Event| match event.event_type {
+            EventType::KeyPress(key) => on_key(key, true, &tx),
+            EventType::KeyRelease(key) => on_key(key, false, &tx),
+            _ => {}
+        };
+        // listen() bloquea hasta error
+        if let Err(e) = listen(callback) {
+            log::warn!("rdev listen() finalizo con error: {e:?}");
+        }
+    })
+}
+
+fn on_key(key: Key, pressed: bool, tx: &mpsc::Sender<HotkeyAction>) {
+    // Actualizar estado de modificadores
+    match key {
+        Key::MetaLeft | Key::MetaRight => MOD_SUPER.store(pressed, Ordering::Relaxed),
+        Key::ShiftLeft | Key::ShiftRight => MOD_SHIFT.store(pressed, Ordering::Relaxed),
+        Key::ControlLeft | Key::ControlRight => MOD_CTRL.store(pressed, Ordering::Relaxed),
+        Key::Alt | Key::AltGr => MOD_ALT.store(pressed, Ordering::Relaxed),
+        _ => {}
+    }
+
+    if !pressed {
+        return;
+    }
+
+    let super_ = MOD_SUPER.load(Ordering::Relaxed);
+    let shift = MOD_SHIFT.load(Ordering::Relaxed);
+    let ctrl = MOD_CTRL.load(Ordering::Relaxed);
+    let _alt = MOD_ALT.load(Ordering::Relaxed);
+
+    let action = match key {
+        Key::KeyA if super_ && shift => Some(HotkeyAction::ToggleWindow),
+        Key::KeyV if super_ && shift => Some(HotkeyAction::PushToTalk),
+        Key::KeyK if ctrl && shift => Some(HotkeyAction::NewSession),
+        _ => None,
+    };
+
+    if let Some(action) = action {
+        log::info!("Global hotkey detectado: {action:?}");
+        // Emitir via DBus a la UI QML
+        let result = Command::new("dbus-send")
+            .args([
+                "--session",
+                "--type=signal",
+                "--dest=org.kde.assistant",
+                DBUS_PATH,
+                "org.kde.assistant.Chat.HotkeyTriggered",
+                &format!("string:{}", action.as_str()),
+            ])
+            .status();
+        if let Ok(s) = result {
+            if !s.success() {
+                log::debug!("No se pudo emitir HotkeyTriggered (UI no escuchando?)");
+            }
+        }
+        // Tambien escribir a un archivo de estado (para que QML lo lea)
+        write_hotkey_state(action);
+        // Tambien emitir al canal local
+        let _ = tx.try_send(action);
+    }
+}
+
+/// Escribe la accion de hotkey a un archivo de estado que QML puede leer.
+/// Path: ~/.cache/kde-assistant/hotkey.flag
+fn write_hotkey_state(action: HotkeyAction) {
+    let cache_dir = match dirs::cache_dir() {
+        Some(d) => d.join("kde-assistant"),
+        None => return,
+    };
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let path = cache_dir.join("hotkey.state");
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let content = format!("{}|{}", action.as_str(), timestamp);
+    let _ = std::fs::write(&path, content);
+}
+
+pub struct GlobalHotkeyManager {
+    pub handle: Option<std::thread::JoinHandle<()>>,
+    pub rx: mpsc::Receiver<HotkeyAction>,
+}
+
+impl GlobalHotkeyListener {
+    pub async fn new(_config: Arc<tokio::sync::RwLock<Config>>) -> Result<Self> {
+        let _running = Arc::new(AtomicBool::new(false));
+        let (action_tx, _action_rx) = mpsc::channel(32);
+        let _action_tx: mpsc::Sender<HotkeyAction> = action_tx;
+
+        Ok(Self {
+            _running,
+            action_tx: mpsc::channel(32).0,
+        })
+    }
+}

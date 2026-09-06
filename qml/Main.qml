@@ -315,17 +315,47 @@ ApplicationWindow {
         onSaved: console.log("Settings saved")
     }
 
-    // === Accesos rapidos por teclado ===
-    Shortcut {
-        sequences: ["Ctrl+,"]
-        onActivated: settings.show()
+    // === Hotkey polling: lee ~/.cache/kde-assistant/hotkey.state ===
+    // El backend Rust (rdev) escribe a este archivo cuando detecta
+    // Super+Shift+A (toggle), Super+Shift+V (PTT), Ctrl+Shift+K (new session)
+    property string hotkeyStamp: ""
+    property string lastHotkeyStamp: ""
+    property string homePath: {
+        // Qt6: intentar Qt.platform.environment, fallback a HOME hardcodeada
+        var env = Qt.platform.environment
+        var home = env ? env["HOME"] : null
+        if (!home) home = "/root"
+        return "file://" + home + "/.cache/kde-assistant/hotkey.state"
     }
-    Shortcut {
-        sequence: "Escape"
-        onActivated: {
-            if (settings.open_) settings.hide()
-            else if (imagePreview.open_) imagePreview.hide()
-            else if (root.voiceState === "listening") root.voiceState = "idle"
+    Timer {
+        id: hotkeyTimer
+        interval: 300
+        running: true
+        repeat: true
+        onTriggered: {
+            var req = new XMLHttpRequest()
+            req.open("GET", root.homePath + "?t=" + Date.now())
+            req.onreadystatechange = function() {
+                if (req.readyState === 4) {
+                    if (req.status === 200 || req.status === 0) {
+                        var content = req.responseText.trim()
+                        if (content && content !== root.lastHotkeyStamp) {
+                            root.lastHotkeyStamp = content
+                            var parts = content.split("|")
+                            var action = parts[0]
+                            console.log("Hotkey recibido:", action)
+                            if (action === "toggle_window") {
+                                root.visible = !root.visible
+                            } else if (action === "push_to_talk") {
+                                root.voiceState = root.voiceState === "listening" ? "idle" : "listening"
+                            } else if (action === "new_session") {
+                                root.currentSessionId = ""
+                            }
+                        }
+                    }
+                }
+            }
+            req.send()
         }
     }
 }

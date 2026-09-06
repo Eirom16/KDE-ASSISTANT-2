@@ -32,6 +32,10 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 # Audio capture (cpal)
 cpal = "0.15"
 
+# Global hotkeys (cross-platform)
+# rdev escucha teclas globalmente sin necesidad de KGlobalAccel
+rdev = "0.5"
+
 # Chimes + TTS playback (rodio)
 rodio = { version = "0.19", default-features = false, features = ["wav", "mp3"] }
 hound = "3.5"   # WAV writer para chimes sinteticos

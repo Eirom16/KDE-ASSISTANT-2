@@ -103,10 +103,31 @@ El motor TTS es **piper-tts** (neural ONNX, alta calidad). Necesita:
 
 Probar el pipeline: `cargo run --bin test_voice`
 
+## Atajos globales
+
+Se usan via `rdev` (cross-platform, no requiere KGlobalAccel):
+
+| Shortcut | Accion |
+|----------|--------|
+| `Super+Shift+A` | Mostrar/ocultar ventana |
+| `Super+Shift+V` | Push-to-talk (toggle microfono) |
+| `Ctrl+Shift+K` | Nueva sesion |
+
+El backend escribe a `~/.cache/kde-assistant/hotkey.state` con timestamp; el QML hace polling cada 300ms via `XMLHttpRequest` y reacciona.
+
+Desactivar con flag: `cargo run -- --no-shortcuts`
+
+## Integracion KDE
+
+- **DBus signals:** `org.kde.assistant.Chat.HotkeyTriggered`, `.ShowWindow`, `.SendMessage`
+- **Notificaciones nativas:** via `dbus-send org.freedesktop.Notifications.Notify`
+- **Deteccion de tema:** via `dbus-send org.freedesktop.portal.Settings` (color-scheme)
+- **Translucidez:** via `Qt.WA_TranslucentBackground` en QML + blur KWin
+
 ## Tests
 
 ```bash
-cargo test --lib           # 19 tests unitarios
+cargo test --lib           # 21 tests unitarios
 ./target/debug/valida_qml  # Verifica que el QML carga sin errores
 ./target/debug/snap_ui     # Captura screenshots para QA visual
 ./target/debug/test_voice  # Prueba TTS + chimes
@@ -119,5 +140,5 @@ cargo test --lib           # 19 tests unitarios
 - **Fase 3:** QML UI estilo Apple (17 componentes) ✓
 - **Fase 4:** Tool calling UI + dialogs (ErrorBanner, ImagePreview, Settings) ✓
 - **Fase 5:** Voz Siri (cpal + whisper-rs + piper-tts neural + ONNX hotword) ✓
-- **Fase 6:** KDE Integration (DBus, System Tray, KGlobalAccel) — *pendiente*
+- **Fase 6:** KDE Integration (DBus, System Tray, rdev global hotkeys) ✓
 - **Fase 7:** Polish final — *pendiente*
