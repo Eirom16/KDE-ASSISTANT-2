@@ -90,16 +90,23 @@ fn main() -> Result<()> {
     }
 
     // Iniciar pipeline de voz (captura de audio + deteccion de wake word)
-    let voice_events = runtime.block_on(async {
-        match backend.start_voice_pipeline().await {
-            Ok(rx) => Some(rx),
-            Err(e) => {
-                log::warn!("No se pudo iniciar el pipeline de voz: {e}");
-                log::warn!("(verifica que tienes microfono y permisos de audio)");
-                None
+    // Solo si esta habilitado en config (por defecto desactivado por falsos positivos)
+    let cfg = runtime.block_on(async { backend.config.read().await.clone() });
+    let voice_events = if cfg.speech.wake_word_enabled {
+        runtime.block_on(async {
+            match backend.start_voice_pipeline().await {
+                Ok(rx) => Some(rx),
+                Err(e) => {
+                    log::warn!("No se pudo iniciar el pipeline de voz: {e}");
+                    log::warn!("(verifica que tienes microfono y permisos de audio)");
+                    None
+                }
             }
-        }
-    });
+        })
+    } else {
+        log::info!("Wake word desactivado por configuracion. Usa el InputBar para escribir mensajes.");
+        None
+    };
 
     // Handler del wake word: deteccion -> grabacion -> procesamiento
     const MAX_RECORDING_SECS: u64 = 8;
@@ -165,8 +172,9 @@ fn main() -> Result<()> {
     // Lanzar UI QML como subproceso
     if !ui_off {
         log::info!("Lanzando UI QML (qml6)...");
+        // -apptype widget es necesario para QApplication (SystemTrayIcon lo requiere)
         let qml_status = Command::new("qml6")
-            .args(["-I", ".", "qml/Main.qml"])
+            .args(["-apptype", "widget", "-I", ".", "qml/Main.qml"])
             .status()
             .context(
                 "lanzando qml6 (asegurate de tener Qt6 instalado: pacman -S qt6-declarative)",

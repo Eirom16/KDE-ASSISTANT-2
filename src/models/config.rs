@@ -75,6 +75,10 @@ pub struct SpeechConfig {
     pub wake_word: String,
     #[serde(default = "default_threshold")]
     pub wake_word_threshold: f32,
+    /// Habilita la deteccion automatica del wake word al iniciar.
+    /// Si es false, el usuario debe activarlo manualmente.
+    #[serde(default)]
+    pub wake_word_enabled: bool,
     #[serde(default)]
     pub auto_speak: bool,
     #[serde(default = "default_true")]
@@ -182,6 +186,10 @@ fn default_shortcut_ptt() -> String {
 }
 
 impl Config {
+    pub fn voice(&self) -> &SpeechConfig {
+        &self.speech
+    }
+
     /// Carga la configuracion desde ~/.config/kde-assistant/config.json
     /// Si no existe, crea una con valores por defecto.
     /// Tolerante a campos faltantes: rellena con defaults via serde.
@@ -248,6 +256,7 @@ impl Config {
                 piper_speaker: 0,
                 wake_word: default_wake_word(),
                 wake_word_threshold: default_threshold(),
+                wake_word_enabled: false,  // desactivado por defecto (falsos positivos con ruido)
                 auto_speak: false,
                 chimes_enabled: true,
                 wake_word_model_path: default_wake_word_model_path(),

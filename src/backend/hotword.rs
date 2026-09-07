@@ -106,9 +106,9 @@ impl HotwordDetector {
             let mut consecutive_speech_frames = 0u32;
             // Frames de voz requeridos: escala con la confianza configurada.
             // A mayor confianza, mas frames consecutivos para evitar falsos positivos.
-            let required_frames = (confidence * 20.0).round() as u32 + 5;
+            let required_frames = (confidence * 30.0).round() as u32 + 10;
             // RMS minimo para considerar "voz" (rechaza ruido ambiente/hiss del micro).
-            const MIN_RMS: f32 = 0.12;
+            const MIN_RMS: f32 = 0.20;
 
             while let Some(frame) = audio_rx.recv().await {
                 if !running.load(Ordering::Relaxed) {
