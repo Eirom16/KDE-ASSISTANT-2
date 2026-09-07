@@ -92,6 +92,15 @@ Editar `~/.config/kde-assistant/config.json`:
 
 Tambien puedes usar la variable de entorno `OPENROUTER_API_KEY`.
 
+## Cómo funciona (arquitectura)
+
+KDE Assistant v2 usa una arquitectura de dos procesos:
+
+- **Backend Rust** (`kde-assistant`): Tokio runtime que expone el servidor HTTP en `http://127.0.0.1:8765`
+- **UI QML** (`qml6 qml/Main.qml`): Lanzada como subproceso, consume la API HTTP
+
+La UI envía mensajes al backend via `POST /api/chat/complete` y recibe la respuesta del agente (streaming SSE disponible via `/api/chat`). El backend persiste sesiones y mensajes en SQLite.
+
 ## Voz (TTS + STT)
 
 ### TTS (piper-tts)
@@ -142,6 +151,19 @@ cargo test --lib           # 23 tests unitarios
 ./target/debug/test_stt    # Prueba STT (TTS -> whisper round-trip)
 ```
 
+## Endpoints HTTP (localhost:8765)
+
+La UI QML se comunica con el backend Rust via este servidor HTTP:
+
+| Método | Path | Descripción |
+|--------|------|-------------|
+| `GET`  | `/api/health`        | Health check |
+| `POST` | `/api/chat`          | Streaming SSE (token/tool_call/done/error) |
+| `POST` | `/api/chat/complete` | Respuesta JSON completa (usado por QML) |
+| `GET`  | `/api/sessions`      | Lista sesiones |
+| `POST` | `/api/session`       | Crea sesión (body: `{"title":"..."}`) |
+| `GET`  | `/api/messages?session_id=X` | Mensajes de una sesión |
+
 ## Estado
 
 - **Fase 1:** Scaffold ✓
@@ -151,4 +173,5 @@ cargo test --lib           # 23 tests unitarios
 - **Fase 5:** Voz (cpal + whisper-rs STT + piper-tts TTS) ✓
 - **Fase 6:** KDE Integration (System Tray, rdev hotkeys, DBus) ✓
 - **Fase 7:** Pipeline de voz (descarga de modelos + STT + TTS + wake word) ✓
-- **Pendiente:** Conectar chat QML con backend Rust (IPC), wake word ML (openWakeWord)
+- **Fase 8:** IPC QML ↔ Backend via HTTP local (chat funcional) ✓
+- **Pendiente:** wake word ML, push-to-talk real, persistencia de Settings
