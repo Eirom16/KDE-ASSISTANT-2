@@ -15,8 +15,10 @@ pub mod stt;
 pub mod tool_executor;
 pub mod tool_registry;
 pub mod tts;
+pub mod voice_pipeline;
 
 use anyhow::Result;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
@@ -33,6 +35,7 @@ pub struct Backend {
     pub chimes: Arc<chime_player::ChimePlayer>,
     pub hotword: Arc<hotword::HotwordDetector>,
     pub kde: Arc<kde_integration::KdeIntegration>,
+    pub voice: Arc<voice_pipeline::VoicePipeline>,
 }
 
 impl Backend {
@@ -56,6 +59,13 @@ impl Backend {
         let chimes = Arc::new(chime_player::ChimePlayer::new().await?);
         let hotword = Arc::new(hotword::HotwordDetector::new(config.clone()).await?);
         let kde = Arc::new(kde_integration::KdeIntegration::new());
+        let voice = Arc::new(voice_pipeline::VoicePipeline::new(
+            config.clone(),
+            speech.clone(),
+            ai.clone(),
+            tools.clone(),
+            chimes.clone(),
+        ));
 
         log::info!("Todos los subservicios inicializados");
 
@@ -69,7 +79,14 @@ impl Backend {
             chimes,
             hotword,
             kde,
+            voice,
         })
+    }
+
+    /// Procesa un utterance de audio grabado (STT -> LLM -> TTS).
+    /// Retorna (transcript, response).
+    pub async fn process_voice(&self, audio: &[f32]) -> Result<(String, String)> {
+        self.voice.process_utterance(audio, None).await
     }
 
     /// Descarga los modelos ML necesarios si no existen.
@@ -107,25 +124,39 @@ impl Backend {
     }
 
     /// Inicia captura de audio + deteccion de hotword en background.
+    /// La misma captura alimenta tanto el detector de wake word como
+    /// el buffer de grabacion del VoicePipeline (para PTT/wake word).
     /// Retorna un receiver de eventos HotwordEvent.
     pub async fn start_voice_pipeline(&self) -> Result<mpsc::Receiver<hotword::HotwordEvent>> {
         let (audio_tx, audio_rx) = mpsc::channel::<Vec<f32>>(64);
         let (event_tx, event_rx) = mpsc::channel::<hotword::HotwordEvent>(8);
 
+        let voice = self.voice.clone();
+
         // Crear y arrancar audio capture
         let mut cap = audio_capture::AudioCapture::new()?;
-        let meter = cap.meter.clone();
         cap.start(move |frame: &[f32]| {
-            // Reenviar al hotword detector
+            // 1) Alimentar al detector de wake word (try_send: no bloquea el thread de audio)
             let frame_vec = frame.to_vec();
-            let tx = audio_tx.clone();
-            tokio::spawn(async move {
-                let _ = tx.send(frame_vec).await;
-            });
+            if audio_tx.try_send(frame_vec).is_err() {
+                // Channel lleno: descartar frame (aceptable para deteccion de wake word)
+            }
+            // 2) Alimentar al buffer de grabacion (solo si esta grabando)
+            voice.push_audio(frame);
         })?;
+
+        // Registrar sample rate de la captura en el buffer de grabacion
+        let sr = cap.sample_rate;
+        self.voice
+            .buffer
+            .lock()
+            .unwrap()
+            .sample_rate
+            .store(sr, Ordering::SeqCst);
+
         *self.audio.write().await = Some(cap);
 
-        log::info!("Voice pipeline started (meter: {})", meter.get());
+        log::info!("Voice pipeline started (sample_rate={sr})");
 
         // Arrancar hotword
         self.hotword.start(audio_rx, event_tx).await?;
@@ -139,5 +170,34 @@ impl Backend {
             cap.stop();
         }
         self.hotword.stop();
+    }
+
+    /// Inicia la grabacion de voz (para wake word o PTT).
+    /// Reproduce el chime de activacion.
+    pub fn start_listening(&self) {
+        self.chimes.play_activate();
+        // La sample rate ya esta registrada por start_voice_pipeline
+        let sr = self
+            .voice
+            .buffer
+            .lock()
+            .unwrap()
+            .sample_rate
+            .load(Ordering::SeqCst);
+        self.voice.start_recording(sr.max(1));
+        log::info!("Escuchando... (grabacion iniciada)");
+    }
+
+    /// Detiene la grabacion y procesa el utterance (STT -> LLM -> TTS).
+    /// Retorna (transcript, response).
+    pub async fn stop_listening_and_process(&self) -> Result<(String, String)> {
+        self.chimes.play_deactivate();
+        let audio = self.voice.stop_recording();
+        if audio.is_empty() {
+            log::info!("Grabacion vacia, omitiendo procesamiento");
+            return Ok((String::new(), String::new()));
+        }
+        log::info!("Procesando grabacion de {} samples", audio.len());
+        self.voice.process_utterance(&audio, None).await
     }
 }

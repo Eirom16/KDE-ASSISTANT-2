@@ -247,6 +247,45 @@ impl SimpleVad {
     }
 }
 
+/// Resamplea audio mono f32 desde `src_rate` a 16kHz (requerido por whisper).
+/// Usa interpolacion lineal. Retorna un buffer con la duracion preservada.
+pub fn resample_to_16k(samples: &[f32], src_rate: u32) -> Vec<f32> {
+    if src_rate == 16000 {
+        return samples.to_vec();
+    }
+    if samples.len() < 2 {
+        return samples.to_vec();
+    }
+    let ratio = src_rate as f64 / 16000.0;
+    let out_len = (samples.len() as f64 / ratio) as usize;
+    let mut out = Vec::with_capacity(out_len);
+    let last = samples.len() - 1;
+    for i in 0..out_len {
+        let src_idx = i as f64 * ratio;
+        let idx0 = src_idx.floor() as usize;
+        let idx1 = (idx0 + 1).min(last);
+        let frac = (src_idx - idx0 as f64) as f32;
+        let s0 = samples[idx0];
+        let s1 = samples[idx1];
+        out.push(s0 + (s1 - s0) * frac);
+    }
+    out
+}
+
+/// Convierte samples interleaved multi-canal a mono f32.
+pub fn convert_to_mono<T>(interleaved: &[T], channels: usize) -> Vec<f32>
+where
+    T: cpal::Sample + cpal::SizedSample,
+    f32: cpal::FromSample<T>,
+{
+    let mut mono = Vec::with_capacity(interleaved.len() / channels);
+    for sample in interleaved.chunks(channels) {
+        let sum: f32 = sample.iter().map(|s| f32::from_sample(*s)).sum();
+        mono.push(sum / channels as f32);
+    }
+    mono
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -69,11 +69,58 @@ fn main() -> Result<()> {
 
     // Init backend en runtime Tokio
     let runtime = tokio::runtime::Runtime::new().context("creando Tokio runtime")?;
-    runtime.block_on(async {
-        let _backend = Backend::new().await?;
+    let backend = runtime.block_on(async {
+        let b = Backend::new().await?;
         log::info!("Backend inicializado correctamente");
-        Ok::<_, anyhow::Error>(())
+        Ok::<_, anyhow::Error>(Arc::new(b))
     })?;
+
+    // Iniciar pipeline de voz (captura de audio + deteccion de wake word)
+    let voice_events = runtime.block_on(async {
+        match backend.start_voice_pipeline().await {
+            Ok(rx) => Some(rx),
+            Err(e) => {
+                log::warn!("No se pudo iniciar el pipeline de voz: {e}");
+                log::warn!("(verifica que tienes microfono y permisos de audio)");
+                None
+            }
+        }
+    });
+
+    // Handler del wake word: deteccion -> grabacion -> procesamiento
+    const MAX_RECORDING_SECS: u64 = 8;
+    if let Some(mut rx) = voice_events {
+        let vp = backend.voice.clone();
+        runtime.spawn(async move {
+            while let Some(event) = rx.recv().await {
+                match event {
+                    kde_assistant_lib::backend::hotword::HotwordEvent::Detected => {
+                        log::info!("Wake word detectado: 'Hey KDE'");
+                        vp.start_listening();
+                        // Auto-stop tras MAX_RECORDING_SECS y procesar
+                        let vp2 = vp.clone();
+                        tokio::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_secs(MAX_RECORDING_SECS))
+                                .await;
+                            match vp2.stop_and_process().await {
+                                Ok((t, r)) => {
+                                    if !t.is_empty() {
+                                        log::info!("Wake word: '{}' -> '{}'", t, truncate(&r, 80));
+                                    }
+                                }
+                                Err(e) => log::warn!("Procesamiento de voz fallo: {e}"),
+                            }
+                            log::info!("Listo para siguiente wake word");
+                        });
+                    }
+                }
+            }
+        });
+        log::info!(
+            "Voice pipeline de wake word activo (max {}s de grabacion)",
+            MAX_RECORDING_SECS
+        );
+    }
 
     // Setup KDE integration (theme detection, notifications)
     let mut kde = kde_assistant_lib::backend::kde_integration::KdeIntegration::new();
@@ -122,4 +169,14 @@ fn main() -> Result<()> {
 
     log::info!("Apagando KDE Assistant v2...");
     Ok(())
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let mut t: String = s.chars().take(max).collect();
+        t.push_str("...");
+        t
+    }
 }
