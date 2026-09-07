@@ -7,7 +7,7 @@ Asistente de escritorio para KDE Plasma Linux con estetica Apple Design (Cuperti
 - **Backend:** Rust + Tokio
 - **UI:** Qt 6 / QML (lanzada via `qml6`)
 - **AI:** OpenRouter API (compatible con OpenAI, tool calling, SSE streaming)
-- **Voz:** whisper-rs (STT) + piper-tts (TTS neural ONNX) + ONNX openWakeWord
+- **Voz:** whisper-rs (STT local) + piper-tts (TTS neural ONNX) + wake word
 - **DB:** SQLite (rusqlite)
 - **Iconos:** GitHub Primer Octicons
 
@@ -92,16 +92,24 @@ Editar `~/.config/kde-assistant/config.json`:
 
 Tambien puedes usar la variable de entorno `OPENROUTER_API_KEY`.
 
-## Voz (TTS con piper-tts)
+## Voz (TTS + STT)
 
+### TTS (piper-tts)
 El motor TTS es **piper-tts** (neural ONNX, alta calidad). Necesita:
 
-1. **Binario:** `sudo pacman -S piper-tts` (Arch/CachyOS) o descargar de https://github.com/rhasspy/piper/releases
-2. **Modelo de voz:** descargar de https://huggingface.co/rhasspy/piper-voices (ej. `es_ES-sharvard-medium` ~60MB) y colocar en `~/.local/share/kde-assistant/models/piper/`:
-   - `es_ES-sharvard-medium.onnx`
-   - `es_ES-sharvard-medium.onnx.json`
+1. **Binario:** `sudo pacman -S piper-tts` (Arch/CachyOS)
+2. **Modelo de voz:** se descarga **automaticamente** al primer arranque (desde HuggingFace) a `~/.local/share/kde-assistant/models/piper/`
 
-Probar el pipeline: `cargo run --bin test_voice`
+### STT (whisper-rs)
+El reconocimiento de voz usa **whisper-rs** local con modelo `ggml-base.bin` (~140MB), que se descarga **automaticamente** al primer arranque.
+
+- **Idioma:** auto-detecta, o forzar via `speech.stt_language` en config (`"es"`, `"en"`, `"auto"`)
+- El modelo se carga de forma perezosa (solo cuando se usa STT)
+
+### Descarga automatica de modelos
+`model_downloader.rs` descarga los modelos que falten (whisper, piper) al iniciar, con progreso y verificacion sha256. La primera ejecucion puede tardar unos minutos en descargar ~200MB.
+
+Probar el pipeline completo: `cargo run --bin test_stt` (TTS -> STT round-trip)
 
 ## Atajos globales
 
@@ -127,10 +135,11 @@ Desactivar con flag: `cargo run -- --no-shortcuts`
 ## Tests
 
 ```bash
-cargo test --lib           # 21 tests unitarios
+cargo test --lib           # 23 tests unitarios
 ./target/debug/valida_qml  # Verifica que el QML carga sin errores
 ./target/debug/snap_ui     # Captura screenshots para QA visual
 ./target/debug/test_voice  # Prueba TTS + chimes
+./target/debug/test_stt    # Prueba STT (TTS -> whisper round-trip)
 ```
 
 ## Estado
@@ -138,7 +147,8 @@ cargo test --lib           # 21 tests unitarios
 - **Fase 1:** Scaffold ✓
 - **Fase 2:** Backend core (AI, tool executor, agente ReAct) ✓
 - **Fase 3:** QML UI estilo Apple (17 componentes) ✓
-- **Fase 4:** Tool calling UI + dialogs (ErrorBanner, ImagePreview, Settings) ✓
-- **Fase 5:** Voz Siri (cpal + whisper-rs + piper-tts neural + ONNX hotword) ✓
-- **Fase 6:** KDE Integration (DBus, System Tray, rdev global hotkeys) ✓
-- **Fase 7:** Polish final — *pendiente*
+- **Fase 4:** Tool calling UI + dialogs ✓
+- **Fase 5:** Voz (cpal + whisper-rs STT + piper-tts TTS) ✓
+- **Fase 6:** KDE Integration (System Tray, rdev hotkeys, DBus) ✓
+- **Fase 7:** Pipeline de voz (descarga de modelos + STT + TTS + wake word) ✓
+- **Pendiente:** Conectar chat QML con backend Rust (IPC), wake word ML (openWakeWord)
