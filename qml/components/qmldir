@@ -16,3 +16,4 @@ ImagePreviewDialog 1.0 ImagePreviewDialog.qml
 SettingsDialog 1.0 SettingsDialog.qml
 SettingsField 1.0 SettingsField.qml
 SettingsToggle 1.0 SettingsToggle.qml
+TrayMenu 1.0 TrayMenu.qml

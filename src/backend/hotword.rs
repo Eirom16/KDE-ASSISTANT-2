@@ -99,10 +99,16 @@ impl HotwordDetector {
         let cooldown = self.cooldown_ms;
         let last_detected = self.last_detected_ms.clone();
         let running = self.running.clone();
+        // Umbral de confianza (0.0-1.0). Mayor valor => mayor exigencia.
+        let confidence = self.threshold.clamp(0.1, 0.95);
 
         tokio::spawn(async move {
             let mut consecutive_speech_frames = 0u32;
-            const REQUIRED_SPEECH_FRAMES: u32 = 5; // ~500ms de voz
+            // Frames de voz requeridos: escala con la confianza configurada.
+            // A mayor confianza, mas frames consecutivos para evitar falsos positivos.
+            let required_frames = (confidence * 20.0).round() as u32 + 5;
+            // RMS minimo para considerar "voz" (rechaza ruido ambiente/hiss del micro).
+            const MIN_RMS: f32 = 0.12;
 
             while let Some(frame) = audio_rx.recv().await {
                 if !running.load(Ordering::Relaxed) {
@@ -118,12 +124,11 @@ impl HotwordDetector {
                 let rms = (frame.iter().map(|s| s * s).sum::<f32>() / frame.len() as f32).sqrt();
                 let zcr = zero_crossing_rate(&frame);
 
-                // Deteccion de voz: energia por encima de umbral y ZCR no es ruido
-                let is_voice = rms > 0.05 && rms < 0.5 && zcr < 0.25;
+                // Deteccion de voz: energia por encima de MIN_RMS, no saturada, y ZCR de voz.
+                let is_voice = rms > MIN_RMS && rms < 0.9 && zcr < 0.25 && zcr > 0.01;
                 if is_voice {
                     consecutive_speech_frames += 1;
-                    if consecutive_speech_frames >= REQUIRED_SPEECH_FRAMES {
-                        // Trigger wake word
+                    if consecutive_speech_frames >= required_frames {
                         last_detected.store(now_ms, Ordering::Relaxed);
                         consecutive_speech_frames = 0;
                         if event_tx.send(HotwordEvent::Detected).await.is_err() {

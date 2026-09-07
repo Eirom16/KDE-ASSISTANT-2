@@ -315,6 +315,29 @@ ApplicationWindow {
         onSaved: console.log("Settings saved")
     }
 
+    // === System Tray (KDE Plasma) ===
+    TrayMenu {
+        id: tray
+        windowVisible: root.visible
+        onShowRequested: {
+            root.show()
+            root.raise()
+            root.requestActivate()
+        }
+        onHideRequested: root.hide()
+        onNewSessionRequested: {
+            root.currentSessionId = ""
+            root.show()
+            root.raise()
+        }
+        onSettingsRequested: {
+            settings.show()
+            root.show()
+            root.raise()
+        }
+        onQuitRequested: Qt.quit()
+    }
+
     // === Hotkey polling: lee ~/.cache/kde-assistant/hotkey.state ===
     // El backend Rust (rdev) escribe a este archivo cuando detecta
     // Super+Shift+A (toggle), Super+Shift+V (PTT), Ctrl+Shift+K (new session)
