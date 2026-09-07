@@ -8,8 +8,10 @@ pub mod chime_player;
 pub mod hotkey_listener;
 pub mod hotword;
 pub mod kde_integration;
+pub mod model_downloader;
 pub mod session_manager;
 pub mod speech_service;
+pub mod stt;
 pub mod tool_executor;
 pub mod tool_registry;
 pub mod tts;
@@ -41,6 +43,12 @@ impl Backend {
         let config = Arc::new(RwLock::new(config));
         log::info!("Config cargada desde ~/.config/kde-assistant/config.json");
 
+        // Descargar modelos ML si faltan (whisper base, piper voices)
+        // Solo si hay conexion; los errores se loguean pero no bloquean el arranque.
+        if let Err(e) = Self::ensure_models_available().await {
+            log::warn!("No se pudieron descargar los modelos ML: {e}");
+        }
+
         let ai = Arc::new(ai_service::AiService::new(config.clone()).await?);
         let sessions = Arc::new(session_manager::SessionManager::new().await?);
         let tools = Arc::new(tool_executor::ToolExecutor::new(config.clone()));
@@ -62,6 +70,40 @@ impl Backend {
             hotword,
             kde,
         })
+    }
+
+    /// Descarga los modelos ML necesarios si no existen.
+    async fn ensure_models_available() -> Result<()> {
+        let downloader = model_downloader::ModelDownloader::new()?;
+        let models = model_downloader::required_models();
+        let mut missing = Vec::new();
+        for spec in &models {
+            if !downloader.is_downloaded(spec) {
+                missing.push(spec.clone());
+            }
+        }
+
+        if missing.is_empty() {
+            log::info!("Todos los modelos ML estan presentes");
+            return Ok(());
+        }
+
+        log::info!("Descargando {} modelo(s) ML faltantes...", missing.len());
+        for spec in &missing {
+            let progress: model_downloader::ProgressCallback =
+                Arc::new(move |name, done, total| {
+                    if let Some(t) = total {
+                        let pct = (done as f64 / t as f64 * 100.0) as u32;
+                        if done % (t / 20).max(1) < 1024 {
+                            log::debug!("{name}: {pct}% ({done}/{t} bytes)");
+                        }
+                    }
+                });
+            if let Err(e) = downloader.download(spec, Some(progress)).await {
+                log::warn!("Fallo al descargar '{}': {e}", spec.name);
+            }
+        }
+        Ok(())
     }
 
     /// Inicia captura de audio + deteccion de hotword en background.

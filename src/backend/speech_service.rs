@@ -1,21 +1,24 @@
-//! Speech Service - Sintesis (TTS) con piper-tts
+//! Speech Service - Sintesis (TTS) con piper-tts + Reconocimiento (STT) con whisper-rs
 //!
-//! Motor neural local (ONNX), alta calidad y casi humana en espanol.
+//! TTS: motor neural local (ONNX), alta calidad y casi humana en espanol.
+//! STT: whisper-rs con modelo ggml-base.bin (local, auto-descarga).
+//!
 //! El binario `piper-tts` se invoca como subproceso (wrapper en
 //! `crate::backend::tts::piper::PiperEngine`).
-//!
-//! STT (whisper-rs) queda como placeholder para una fase futura.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use crate::backend::stt::WhisperEngine;
 use crate::backend::tts::piper::PiperEngine;
 use crate::models::Config;
 
 pub struct SpeechService {
     pub config: Arc<RwLock<Config>>,
     pub piper: PiperEngine,
+    pub whisper: Arc<WhisperEngine>,
 }
 
 impl SpeechService {
@@ -39,7 +42,29 @@ impl SpeechService {
             );
         }
 
-        Ok(Self { config, piper })
+        // Inicializar whisper (STT)
+        let cfg = config.read().await.clone();
+        let whisper_path = whisper_model_path()?;
+        let language_override = if cfg.speech.stt_model == "auto" {
+            None
+        } else {
+            Some(cfg.speech.stt_model.clone())
+        };
+        let whisper = Arc::new(WhisperEngine::new(whisper_path, language_override)?);
+        if whisper.model_exists() {
+            log::info!("SpeechService: whisper con modelo ggml-base.bin listo");
+        } else {
+            log::warn!(
+                "whisper sin modelo en '{}'. Se descargara automaticamente al iniciar.",
+                whisper_path_display()
+            );
+        }
+
+        Ok(Self {
+            config,
+            piper,
+            whisper,
+        })
     }
 
     /// Sintetiza texto a bytes WAV.
@@ -66,9 +91,16 @@ impl SpeechService {
             .await
     }
 
-    /// STT placeholder. En una fase posterior se integrara whisper-rs.
-    pub async fn transcribe(&self, _audio: &[f32]) -> Result<String> {
-        bail!("STT no implementado aun (requiere whisper-rs + modelo ggml-base.bin)")
+    /// STT: transcribe audio (mono f32, 16kHz) a texto.
+    /// Soporta auto-deteccion de idioma y override explicito.
+    pub async fn transcribe(&self, audio: &[f32], language: Option<&str>) -> Result<String> {
+        // whisper es CPU-intensivo; ejecutar en spawn_blocking para no bloquear el runtime
+        let whisper = self.whisper.clone();
+        let audio = audio.to_vec();
+        let language = language.map(|s| s.to_string());
+        tokio::task::spawn_blocking(move || whisper.transcribe(&audio, language.as_deref()))
+            .await
+            .context("whisper transcribe task")?
     }
 
     /// Verifica si piper esta disponible (binario + al menos un modelo).
@@ -81,10 +113,29 @@ impl SpeechService {
         self.piper.list_models().into_iter().map(|m| m.id).collect()
     }
 
+    /// Verifica si el modelo STT (whisper) esta disponible.
+    pub fn stt_model_exists(&self) -> bool {
+        self.whisper.model_exists()
+    }
+
     /// Devuelve un mensaje de ayuda si piper no esta configurado.
     pub fn help_message(&self) -> String {
         PiperEngine::help_message()
     }
+}
+
+/// Path del modelo whisper ggml-base.bin.
+pub fn whisper_model_path() -> Result<PathBuf> {
+    let base = dirs::data_local_dir()
+        .ok_or_else(|| anyhow::anyhow!("no se pudo obtener data_local_dir"))?
+        .join("kde-assistant/models");
+    Ok(base.join("ggml-base.bin"))
+}
+
+fn whisper_path_display() -> String {
+    whisper_model_path()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "~/.local/share/kde-assistant/models/ggml-base.bin".to_string())
 }
 
 /// Reproduce bytes WAV via rodio (sincrono, bloqueante).
