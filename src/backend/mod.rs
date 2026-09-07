@@ -7,6 +7,7 @@ pub mod audio_capture;
 pub mod chime_player;
 pub mod hotkey_listener;
 pub mod hotword;
+pub mod http_server;
 pub mod kde_integration;
 pub mod model_downloader;
 pub mod session_manager;
@@ -19,7 +20,7 @@ pub mod voice_pipeline;
 
 use anyhow::Result;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, RwLock};
 
 use crate::models::Config;
@@ -28,7 +29,7 @@ use crate::models::Config;
 pub struct Backend {
     pub config: Arc<RwLock<Config>>,
     pub ai: Arc<ai_service::AiService>,
-    pub sessions: Arc<session_manager::SessionManager>,
+    pub sessions: Arc<Mutex<session_manager::SessionManager>>,
     pub tools: Arc<tool_executor::ToolExecutor>,
     pub speech: Arc<speech_service::SpeechService>,
     pub audio: Arc<RwLock<Option<audio_capture::AudioCapture>>>,
@@ -53,7 +54,7 @@ impl Backend {
         }
 
         let ai = Arc::new(ai_service::AiService::new(config.clone()).await?);
-        let sessions = Arc::new(session_manager::SessionManager::new().await?);
+        let sessions = Arc::new(Mutex::new(session_manager::SessionManager::new().await?));
         let tools = Arc::new(tool_executor::ToolExecutor::new(config.clone()));
         let speech = Arc::new(speech_service::SpeechService::new(config.clone()).await?);
         let chimes = Arc::new(chime_player::ChimePlayer::new().await?);
@@ -87,6 +88,16 @@ impl Backend {
     /// Retorna (transcript, response).
     pub async fn process_voice(&self, audio: &[f32]) -> Result<(String, String)> {
         self.voice.process_utterance(audio, None).await
+    }
+
+    /// Construye el estado compartido para el servidor HTTP local.
+    pub fn http_state(&self) -> http_server::AppState {
+        http_server::AppState {
+            ai: self.ai.clone(),
+            tools: self.tools.clone(),
+            config: self.config.clone(),
+            sessions: self.sessions.clone(),
+        }
     }
 
     /// Descarga los modelos ML necesarios si no existen.

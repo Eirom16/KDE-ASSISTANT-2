@@ -75,6 +75,20 @@ fn main() -> Result<()> {
         Ok::<_, anyhow::Error>(Arc::new(b))
     })?;
 
+    // Iniciar servidor HTTP local (IPC con la UI QML)
+    const HTTP_PORT: u16 = 8765;
+    {
+        let http_state = backend.http_state();
+        runtime.spawn(async move {
+            if let Err(e) =
+                kde_assistant_lib::backend::http_server::serve(http_state, HTTP_PORT).await
+            {
+                log::error!("Servidor HTTP fallo: {e}");
+            }
+        });
+        log::info!("Servidor HTTP local en http://127.0.0.1:{HTTP_PORT}");
+    }
+
     // Iniciar pipeline de voz (captura de audio + deteccion de wake word)
     let voice_events = runtime.block_on(async {
         match backend.start_voice_pipeline().await {

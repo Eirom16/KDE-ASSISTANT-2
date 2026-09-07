@@ -24,113 +24,151 @@ ApplicationWindow {
     flags: Qt.Window | Qt.WindowStaysOnTopHint
     visible: true
 
-    // === Modelo de datos mock (en produccion vendra de Rust) ===
-    property var mockSessions: [
-        { id: "s1", title: "Conversacion sobre Rust", updatedAt: "hace 2h", count: 12 },
-        { id: "s2", title: "Configurar KDE", updatedAt: "ayer", count: 5 },
-        { id: "s3", title: "Organizacion de archivos", updatedAt: "hace 3d", count: 8 }
-    ]
+    // === Modelo de datos real (conectado al backend Rust) ===
+    property string backendUrl: "http://127.0.0.1:8765"
 
-    property string currentSessionId: "s1"
+    property var sessions: []          // [{id, title, updated_at, message_count}]
+    property string currentSessionId: ""
 
-    // Setter para alternar entre demo (welcome) y conversacion (con mensajes)
-    property bool showDemoConversation: true
+    property var messages: []          // [{role, authorLabel, content, timestamp, isStreaming, toolCalls}]
 
-    property var mockMessages: showDemoConversation ? [
-        {
+    // === Helpers ===
+    function nowTime() {
+        return Qt.formatTime(new Date(), "hh:mm")
+    }
+
+    function appendMessage(msg) {
+        var arr = messages.slice()
+        arr.push(msg)
+        messages = arr
+    }
+
+    function formatServerResponse(text) {
+        // El servidor puede devolver markdown; por ahora mostramos tal cual
+        return text
+    }
+
+    // Envia un mensaje al backend y agrega la respuesta al chat
+    function sendMessage(text) {
+        if (!text || text.trim().length === 0) return
+
+        // Mensaje del usuario
+        appendMessage({
             role: "user",
             authorLabel: "Tu",
-            content: "Hola, puedes abrir Firefox?",
-            timestamp: "10:42",
+            content: text,
+            timestamp: nowTime(),
             isStreaming: false,
             toolCalls: []
-        },
-        {
-            role: "assistant",
-            authorLabel: "KDE Assistant",
-            content: "Claro, abro Firefox ahora mismo.",
-            timestamp: "10:42",
-            isStreaming: false,
-            toolCalls: [
-                { name: "open_app", status: "success", result: "App 'firefox' abierta", imageUrl: "" }
-            ]
-        },
-        {
-            role: "user",
-            authorLabel: "Tu",
-            content: "Buscame el clima de hoy en Madrid",
-            timestamp: "10:43",
-            isStreaming: false,
-            toolCalls: []
-        },
-        {
-            role: "assistant",
-            authorLabel: "KDE Assistant",
-            content: "Estoy consultando... dame un momento.",
-            timestamp: "10:43",
-            isStreaming: false,
-            toolCalls: [
-                {
-                    name: "web_search",
-                    status: "success",
-                    result: "Madrid 22°C, parcialmente nublado",
-                    imageUrl: ""
+        })
+
+        streaming = true
+
+        var xhr = new XMLHttpRequest()
+        xhr.open("POST", backendUrl + "/api/chat/complete")
+        xhr.setRequestHeader("Content-Type", "application/json")
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+                streaming = false
+                if (xhr.status === 200 || xhr.status === 201) {
+                    var resp = JSON.parse(xhr.responseText)
+                    appendMessage({
+                        role: "assistant",
+                        authorLabel: "KDE Assistant",
+                        content: formatServerResponse(resp.response || ""),
+                        timestamp: nowTime(),
+                        isStreaming: false,
+                        toolCalls: []
+                    })
+                    if (resp.session_id && !currentSessionId) {
+                        currentSessionId = resp.session_id
+                    }
+                } else {
+                    var errMsg = "Error de conexión con el asistente"
+                    try {
+                        var err = JSON.parse(xhr.responseText)
+                        if (err && err.error) errMsg = err.error
+                    } catch (e) {}
+                    appendMessage({
+                        role: "assistant",
+                        authorLabel: "KDE Assistant",
+                        content: "⚠ " + errMsg,
+                        timestamp: nowTime(),
+                        isStreaming: false,
+                        toolCalls: []
+                    })
                 }
-            ]
-        },
-        {
-            role: "user",
-            authorLabel: "Tu",
-            content: "Muestrame una imagen del espacio",
-            timestamp: "10:44",
-            isStreaming: false,
-            toolCalls: []
-        },
-        {
-            role: "assistant",
-            authorLabel: "KDE Assistant",
-            content: "Aqui tienes una vista espectacular del espacio profundo captada por el telescopio Hubble.",
-            timestamp: "10:44",
-            isStreaming: false,
-            toolCalls: [
-                {
-                    name: "show_image",
-                    status: "success",
-                    result: "Imagen: Pillars of Creation (NASA/ESA)",
-                    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/68/Pillars_2014_HST_WFC3-UVIS_full-res_denoised.jpg/800px-Pillars_2014_HST_WFC3-UVIS_full-res_denoised.jpg",
-                    caption: "Pillars of Creation - Hubble"
-                }
-            ]
-        },
-        {
-            role: "user",
-            authorLabel: "Tu",
-            content: "Crea un archivo notas.txt con la lista del super",
-            timestamp: "10:46",
-            isStreaming: false,
-            toolCalls: []
-        },
-        {
-            role: "assistant",
-            authorLabel: "KDE Assistant",
-            content: "Listo, archivo creado.",
-            timestamp: "10:46",
-            isStreaming: false,
-            toolCalls: [
-                {
-                    name: "create_file",
-                    status: "success",
-                    result: "/home/user/Documentos/notas.txt",
-                    imageUrl: ""
-                }
-            ]
+            }
         }
-    ] : []
+        var body = JSON.stringify({
+            message: text,
+            session_id: currentSessionId ? currentSessionId : null
+        })
+        xhr.send(body)
+    }
+
+    // Carga las sesiones del backend (o crea una si no hay)
+    function loadSessions() {
+        var xhr = new XMLHttpRequest()
+        xhr.open("GET", backendUrl + "/api/sessions")
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE && (xhr.status === 200 || xhr.status === 201)) {
+                sessions = JSON.parse(xhr.responseText)
+                if (sessions.length > 0) {
+                    currentSessionId = sessions[0].id
+                }
+            }
+        }
+        xhr.send()
+    }
+
+    function newSession() {
+        var xhr = new XMLHttpRequest()
+        xhr.open("POST", backendUrl + "/api/session")
+        xhr.setRequestHeader("Content-Type", "application/json")
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE && (xhr.status === 200 || xhr.status === 201)) {
+                var s = JSON.parse(xhr.responseText)
+                currentSessionId = s.id
+                messages = []
+                loadSessions()
+                drawerOpen = false
+            }
+        }
+        xhr.send(JSON.stringify({ title: "Nueva conversación" }))
+    }
+
+    // Carga los mensajes de una sesion desde el backend
+    function loadMessages(sessionId) {
+        var xhr = new XMLHttpRequest()
+        xhr.open("GET", backendUrl + "/api/messages?session_id=" + encodeURIComponent(sessionId))
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE && (xhr.status === 200 || xhr.status === 201)) {
+                var list = JSON.parse(xhr.responseText)
+                var arr = []
+                for (var i = 0; i < list.length; i++) {
+                    var m = list[i]
+                    arr.push({
+                        role: m.role,
+                        authorLabel: m.role === "user" ? "Tu" : "KDE Assistant",
+                        content: m.content,
+                        timestamp: "",
+                        isStreaming: false,
+                        toolCalls: []
+                    })
+                }
+                messages = arr
+            }
+        }
+        xhr.send()
+    }
 
     // === Estado UI ===
     property bool drawerOpen: false
     property bool streaming: false
     property string voiceState: "idle"  // "idle" | "listening" | "processing" | "speaking"
+
+    Component.onCompleted: loadSessions()
 
     // === Background frosted ===
     Rectangle {
@@ -155,15 +193,15 @@ ApplicationWindow {
             width: drawer.drawerWidth
             height: parent.height
             drawerOpen: root.drawerOpen
-            sessions: root.mockSessions
+            sessions: root.sessions
             currentId: root.currentSessionId
             isDark: Theme.isDark
             onNewSessionClicked: {
-                root.drawerOpen = false
-                root.currentSessionId = ""
+                root.newSession()
             }
             onSessionSelected: function(id) {
                 root.currentSessionId = id
+                root.loadMessages(id)
                 root.drawerOpen = false
             }
             onSettingsClicked: {
@@ -263,10 +301,9 @@ ApplicationWindow {
             ChatView {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                messages: root.mockMessages
+                messages: root.messages
                 onSuggestionClicked: function(text) {
-                    console.log("Sugerencia:", text)
-                    // TODO: enviar a Rust backend
+                    root.sendMessage(text)
                 }
                 onImageClicked: function(url, caption) {
                     imagePreview.show(url, caption)
@@ -284,8 +321,7 @@ ApplicationWindow {
                     streaming: root.streaming
                     recording: root.voiceState === "listening"
                     onSendClicked: function(text) {
-                        console.log("Enviar:", text)
-                        root.streaming = true
+                        root.sendMessage(text)
                     }
                     onMicClicked: {
                         root.voiceState = root.voiceState === "listening" ? "idle" : "listening"
