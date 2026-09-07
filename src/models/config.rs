@@ -56,7 +56,9 @@ fn default_max_iterations() -> u32 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpeechConfig {
     #[serde(default = "default_stt_model")]
-    pub stt_model: String,
+    pub stt_model: String, // Modelo whisper: "base", "tiny", "small"
+    #[serde(default = "default_stt_language")]
+    pub stt_language: String, // Idioma STT: "auto", "es", "en", etc.
     #[serde(default = "default_tts_engine")]
     pub tts_engine: String, // "piper" (unico soportado actualmente)
     #[serde(default = "default_tts_voice")]
@@ -83,6 +85,9 @@ pub struct SpeechConfig {
 
 fn default_stt_model() -> String {
     "base".to_string()
+}
+fn default_stt_language() -> String {
+    "auto".to_string()
 }
 fn default_tts_engine() -> String {
     "piper".to_string()
@@ -234,6 +239,7 @@ impl Config {
             },
             speech: SpeechConfig {
                 stt_model: default_stt_model(),
+                stt_language: default_stt_language(),
                 tts_engine: default_tts_engine(),
                 tts_voice: default_tts_voice(),
                 tts_rate: default_tts_rate(),

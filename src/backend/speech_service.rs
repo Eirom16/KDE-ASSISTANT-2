@@ -45,10 +45,10 @@ impl SpeechService {
         // Inicializar whisper (STT)
         let cfg = config.read().await.clone();
         let whisper_path = whisper_model_path()?;
-        let language_override = if cfg.speech.stt_model == "auto" {
+        let language_override = if cfg.speech.stt_language == "auto" {
             None
         } else {
-            Some(cfg.speech.stt_model.clone())
+            Some(cfg.speech.stt_language.clone())
         };
         let whisper = Arc::new(WhisperEngine::new(whisper_path, language_override)?);
         if whisper.model_exists() {

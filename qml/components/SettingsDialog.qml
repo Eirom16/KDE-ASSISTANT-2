@@ -23,6 +23,9 @@ Rectangle {
     property string piperModel: "es_ES-sharvard-medium"
     property real piperLengthScale: 1.0
 
+    // STT idioma
+    property string sttLanguage: "auto"
+
     signal closed()
     signal saved()
 
@@ -185,6 +188,40 @@ Rectangle {
                         font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0.4)
                         color: Theme.inkMuted
                         Layout.topMargin: Theme.spacingMd
+                    }
+
+                    Text {
+                        text: qsTr("Reconocimiento (STT)")
+                        font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
+                        color: Theme.inkMuted
+                    }
+
+                    // Idioma STT
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingXs
+                        PillButton {
+                            text: qsTr("Auto")
+                            active: root.sttLanguage === "auto"
+                            onClicked: root.sttLanguage = "auto"
+                        }
+                        PillButton {
+                            text: qsTr("Español")
+                            active: root.sttLanguage === "es"
+                            onClicked: root.sttLanguage = "es"
+                        }
+                        PillButton {
+                            text: qsTr("Inglés")
+                            active: root.sttLanguage === "en"
+                            onClicked: root.sttLanguage = "en"
+                        }
+                    }
+
+                    Text {
+                        text: qsTr("Sintesis (TTS)")
+                        font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
+                        color: Theme.inkMuted
+                        Layout.topMargin: Theme.spacingSm
                     }
 
                     SettingsField {

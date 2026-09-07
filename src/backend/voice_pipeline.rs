@@ -161,10 +161,10 @@ impl VoicePipeline {
         self.chimes.play_process();
         let language_override: Option<String> = {
             let cfg = self.config.read().await;
-            if cfg.speech.stt_model == "auto" {
+            if cfg.speech.stt_language == "auto" {
                 None
             } else {
-                Some(cfg.speech.stt_model.clone())
+                Some(cfg.speech.stt_language.clone())
             }
         };
         let transcript = self
