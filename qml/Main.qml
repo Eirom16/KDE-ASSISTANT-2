@@ -347,6 +347,7 @@ ApplicationWindow {
         id: settings
         anchors.fill: parent
         open_: false
+        backendUrl: root.backendUrl
         onClosed: console.log("Settings closed")
         onSaved: console.log("Settings saved")
     }

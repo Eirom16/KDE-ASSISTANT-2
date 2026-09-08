@@ -80,7 +80,31 @@ pub fn router(state: AppState) -> Router {
         .route("/api/sessions", get(list_sessions))
         .route("/api/session", post(create_session))
         .route("/api/messages", get(list_messages))
+        .route("/api/config", get(get_config).post(update_config))
         .with_state(state)
+}
+
+/// Devuelve la configuracion actual (JSON completo).
+async fn get_config(State(state): State<AppState>) -> impl IntoResponse {
+    let cfg = state.config.read().await.clone();
+    Json(cfg).into_response()
+}
+
+/// Actualiza la configuracion y la persiste en config.json.
+async fn update_config(
+    State(state): State<AppState>,
+    Json(new_cfg): Json<Config>,
+) -> impl IntoResponse {
+    // Guardar en memoria y persistir
+    let mut cfg = state.config.write().await;
+    *cfg = new_cfg.clone();
+    match cfg.save().await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "status": "ok" }))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ),
+    }
 }
 
 #[derive(Debug, Deserialize)]

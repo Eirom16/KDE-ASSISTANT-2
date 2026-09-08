@@ -26,6 +26,10 @@ Rectangle {
     // STT idioma
     property string sttLanguage: "auto"
 
+    // Backend
+    property string backendUrl: "http://127.0.0.1:8765"
+    property var rawConfig: ({})   // config completa cargada del backend
+
     signal closed()
     signal saved()
 
@@ -35,10 +39,67 @@ Rectangle {
 
     function show() {
         root.open_ = true
+        root.loadConfig()
     }
+
     function hide() {
         root.open_ = false
         root.closed()
+    }
+
+    // Carga la config del backend y rellena los campos
+    function loadConfig() {
+        var xhr = new XMLHttpRequest()
+        xhr.open("GET", backendUrl + "/api/config")
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
+                var cfg = JSON.parse(xhr.responseText)
+                root.rawConfig = cfg
+                if (!cfg.ai) cfg.ai = {}
+                if (!cfg.speech) cfg.speech = {}
+                if (!cfg.ui) cfg.ui = {}
+                apiKey = cfg.ai.api_key || ""
+                model = cfg.ai.model || ""
+                baseUrl = cfg.ai.base_url || ""
+                toolCallingEnabled = cfg.ai.enable_tool_calling !== false
+                autoSpeak = cfg.speech.auto_speak === true
+                chimesEnabled = cfg.speech.chimes_enabled !== false
+                theme = cfg.ui.theme || "system"
+                piperModel = cfg.speech.piper_model || "es_ES-sharvard-medium"
+                piperLengthScale = cfg.speech.piper_length_scale || 1.0
+                sttLanguage = cfg.speech.stt_language || "auto"
+            }
+        }
+        xhr.send()
+    }
+
+    // Guarda la config en el backend
+    function saveConfig() {
+        var cfg = root.rawConfig
+        if (!cfg.ai) cfg.ai = {}
+        if (!cfg.speech) cfg.speech = {}
+        if (!cfg.ui) cfg.ui = {}
+        cfg.ai.api_key = apiKey
+        cfg.ai.model = model
+        cfg.ai.base_url = baseUrl
+        cfg.ai.enable_tool_calling = toolCallingEnabled
+        cfg.speech.auto_speak = autoSpeak
+        cfg.speech.chimes_enabled = chimesEnabled
+        cfg.speech.piper_model = piperModel
+        cfg.speech.piper_length_scale = piperLengthScale
+        cfg.speech.stt_language = sttLanguage
+        cfg.ui.theme = theme
+
+        var xhr = new XMLHttpRequest()
+        xhr.open("POST", backendUrl + "/api/config")
+        xhr.setRequestHeader("Content-Type", "application/json")
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+                root.saved()
+                root.hide()
+            }
+        }
+        xhr.send(JSON.stringify(cfg))
     }
 
     MouseArea {
@@ -133,6 +194,7 @@ Rectangle {
                         label: qsTr("API URL")
                         value: root.baseUrl
                         placeholder: "https://openrouter.ai/api/v1"
+                        onValueChanged: root.baseUrl = value
                     }
 
                     SettingsField {
@@ -140,18 +202,21 @@ Rectangle {
                         value: root.apiKey
                         placeholder: "sk-or-..."
                         isPassword: true
+                        onValueChanged: root.apiKey = value
                     }
 
                     SettingsField {
                         label: qsTr("Modelo")
                         value: root.model
                         placeholder: "openrouter/z-ai/glm-5.2:free"
+                        onValueChanged: root.model = value
                     }
 
                     SettingsToggle {
                         label: qsTr("Tool calling (agente)")
                         description: qsTr("Permitir al asistente ejecutar herramientas")
                         active: root.toolCallingEnabled
+                        onToggled: root.toolCallingEnabled = !root.toolCallingEnabled
                     }
 
                     // Tema
@@ -228,6 +293,7 @@ Rectangle {
                         label: qsTr("Modelo de voz")
                         value: root.piperModel
                         placeholder: "es_ES-sharvard-medium"
+                        onValueChanged: root.piperModel = value
                     }
 
                     Text {
@@ -274,12 +340,14 @@ Rectangle {
                     SettingsToggle {
                         label: qsTr("Hablar respuestas automaticamente")
                         active: root.autoSpeak
+                        onToggled: root.autoSpeak = !root.autoSpeak
                     }
 
                     SettingsToggle {
                         label: qsTr("Reproducir chimes")
                         description: qsTr("Sonidos sutiles al activar/desactivar voz")
                         active: root.chimesEnabled
+                        onToggled: root.chimesEnabled = !root.chimesEnabled
                     }
                 }
             }
@@ -299,8 +367,7 @@ Rectangle {
                     iconName: "check-16"
                     variant: "primary"
                     onClicked: {
-                        root.saved()
-                        root.hide()
+                        root.saveConfig()
                     }
                 }
             }
