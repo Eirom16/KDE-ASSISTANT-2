@@ -133,7 +133,25 @@ impl VoicePipeline {
             .sample_rate
             .load(Ordering::SeqCst);
         self.start_recording(sr.max(1));
+        Self::write_state("listening");
         log::info!("Escuchando... (grabacion iniciada)");
+    }
+
+    /// Escribe el estado de voz para la UI (`~/.cache/kde-assistant/voice.state`).
+    /// Estados: idle | listening | processing | speaking
+    pub fn write_state(state: &str) {
+        let cache_dir = match dirs::cache_dir() {
+            Some(d) => d.join("kde-assistant"),
+            None => return,
+        };
+        let _ = std::fs::create_dir_all(&cache_dir);
+        let path = cache_dir.join("voice.state");
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let content = format!("{state}|{timestamp}");
+        let _ = std::fs::write(&path, content);
     }
 
     /// Detiene la grabacion y procesa el utterance (STT -> LLM -> TTS).
@@ -152,12 +170,24 @@ impl VoicePipeline {
     /// Procesa un utterance completo: STT -> LLM -> TTS.
     ///
     /// Retorna (transcript, response). Emite eventos por el canal `tx`.
+    /// Siempre deja el estado en "idle" al terminar (incluso con error).
     pub async fn process_utterance(
         &self,
         audio: &[f32],
         tx: Option<tokio::sync::mpsc::Sender<StreamEvent>>,
     ) -> Result<(String, String)> {
+        let r = self.process_utterance_inner(audio, tx).await;
+        Self::write_state("idle");
+        r
+    }
+
+    async fn process_utterance_inner(
+        &self,
+        audio: &[f32],
+        tx: Option<tokio::sync::mpsc::Sender<StreamEvent>>,
+    ) -> Result<(String, String)> {
         // 1. STT
+        Self::write_state("processing");
         self.chimes.play_process();
         let language_override: Option<String> = {
             let cfg = self.config.read().await;
@@ -179,17 +209,14 @@ impl VoicePipeline {
         // 2. LLM (agente con tool calling)
         let response = self.respond(&transcript, tx).await?;
 
-        // 3. TTS (si auto_speak)
+        // 3. TTS (si auto_speak). Se espera a que termine para que
+        // el estado "speaking" sea preciso en la burbuja flotante.
         let auto_speak = self.config.read().await.speech.auto_speak;
         if auto_speak && !response.is_empty() {
-            // TTS en background para no bloquear
-            let speech = self.speech.clone();
-            let resp = response.clone();
-            tokio::spawn(async move {
-                if let Err(e) = speech.speak(&resp).await {
-                    log::warn!("TTS fallo: {e}");
-                }
-            });
+            Self::write_state("speaking");
+            if let Err(e) = self.speech.speak(&response).await {
+                log::warn!("TTS fallo: {e}");
+            }
         }
 
         Ok((transcript, response))

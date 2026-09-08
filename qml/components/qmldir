@@ -8,6 +8,7 @@ ImageCard 1.0 ImageCard.qml
 InputBar 1.0 InputBar.qml
 TypingIndicator 1.0 TypingIndicator.qml
 VoiceOrb 1.0 VoiceOrb.qml
+FloatingOrb 1.0 FloatingOrb.qml
 SessionDrawer 1.0 SessionDrawer.qml
 ChatView 1.0 ChatView.qml
 WelcomeScreen 1.0 WelcomeScreen.qml

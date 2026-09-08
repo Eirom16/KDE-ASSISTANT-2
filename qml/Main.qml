@@ -491,6 +491,12 @@ ApplicationWindow {
         onQuitRequested: Qt.quit()
     }
 
+    // === Burbuja flotante (ventana independiente, visible aunque Main este oculta) ===
+    FloatingOrb {
+        id: floatingOrb
+        voiceState: root.voiceState
+    }
+
     // === Hotkey polling: lee ~/.cache/kde-assistant/hotkey.state ===
     // El backend Rust (rdev) escribe a este archivo cuando detecta
     // Super+Shift+A (toggle), Super+Shift+V mantenido (PTT start/end),
@@ -498,46 +504,77 @@ ApplicationWindow {
     // aqui solo se refleja el estado visual (VoiceOrb).
     property string hotkeyStamp: ""
     property string lastHotkeyStamp: ""
-    property string homePath: {
+    property string lastVoiceStamp: ""
+    property string cacheBase: {
         // Qt6: intentar Qt.platform.environment, fallback a HOME hardcodeada
         var env = Qt.platform.environment
         var home = env ? env["HOME"] : null
         if (!home) home = "/root"
-        return "file://" + home + "/.cache/kde-assistant/hotkey.state"
+        return "file://" + home + "/.cache/kde-assistant/"
     }
+    property string homePath: cacheBase + "hotkey.state"
+    property string voicePath: cacheBase + "voice.state"
     Timer {
         id: hotkeyTimer
         interval: 300
         running: true
         repeat: true
         onTriggered: {
-            var req = new XMLHttpRequest()
-            req.open("GET", root.homePath + "?t=" + Date.now())
-            req.onreadystatechange = function() {
-                if (req.readyState === 4) {
-                    if (req.status === 200 || req.status === 0) {
-                        var content = req.responseText.trim()
-                        if (content && content !== root.lastHotkeyStamp) {
-                            root.lastHotkeyStamp = content
-                            var parts = content.split("|")
-                            var action = parts[0]
-                            console.log("Hotkey recibido:", action)
-                            if (action === "toggle_window") {
-                                root.visible = !root.visible
-                            } else if (action === "push_to_talk_start") {
-                                root.voiceState = "listening"
-                            } else if (action === "push_to_talk_end") {
-                                root.voiceState = "idle"
-                            } else if (action === "push_to_talk") {
-                                root.voiceState = root.voiceState === "listening" ? "idle" : "listening"
-                            } else if (action === "new_session") {
-                                root.currentSessionId = ""
-                            }
+            pollHotkeys()
+            pollVoiceState()
+        }
+    }
+
+    function pollHotkeys() {
+        var req = new XMLHttpRequest()
+        req.open("GET", root.homePath + "?t=" + Date.now())
+        req.onreadystatechange = function() {
+            if (req.readyState === 4) {
+                if (req.status === 200 || req.status === 0) {
+                    var content = req.responseText.trim()
+                    if (content && content !== root.lastHotkeyStamp) {
+                        root.lastHotkeyStamp = content
+                        var parts = content.split("|")
+                        var action = parts[0]
+                        console.log("Hotkey recibido:", action)
+                        if (action === "toggle_window") {
+                            root.visible = !root.visible
+                        } else if (action === "push_to_talk_start") {
+                            root.voiceState = "listening"
+                        } else if (action === "push_to_talk_end") {
+                            root.voiceState = "idle"
+                        } else if (action === "push_to_talk") {
+                            root.voiceState = root.voiceState === "listening" ? "idle" : "listening"
+                        } else if (action === "new_session") {
+                            root.currentSessionId = ""
                         }
                     }
                 }
             }
-            req.send()
         }
+        req.send()
+    }
+
+    // El backend escribe listening|processing|speaking|idle con timestamp.
+    // Solo los estados nuevos pisan el voiceState local.
+    function pollVoiceState() {
+        var req = new XMLHttpRequest()
+        req.open("GET", root.voicePath + "?t=" + Date.now())
+        req.onreadystatechange = function() {
+            if (req.readyState === 4) {
+                if (req.status === 200 || req.status === 0) {
+                    var content = req.responseText.trim()
+                    if (content && content !== root.lastVoiceStamp) {
+                        root.lastVoiceStamp = content
+                        var state = content.split("|")[0]
+                        if (state === "listening" || state === "processing"
+                                || state === "speaking" || state === "idle") {
+                            root.voiceState = state
+                        }
+                    }
+                }
+            }
+        }
+        req.send()
     }
 }

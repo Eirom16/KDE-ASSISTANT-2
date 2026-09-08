@@ -112,13 +112,14 @@ fn main() -> Result<()> {
 
     // Handler del wake word: deteccion -> grabacion -> procesamiento
     const MAX_RECORDING_SECS: u64 = 8;
+    let wake_word_label = cfg.speech.wake_word.clone();
     if let Some(mut rx) = voice_events {
         let vp = backend.voice.clone();
         runtime.spawn(async move {
             while let Some(event) = rx.recv().await {
                 match event {
                     kde_assistant_lib::backend::hotword::HotwordEvent::Detected => {
-                        log::info!("Wake word detectado: 'Hey KDE'");
+                        log::info!("Wake word detectado: '{wake_word_label}'");
                         vp.start_listening();
                         // Auto-stop tras MAX_RECORDING_SECS y procesar
                         let vp2 = vp.clone();
