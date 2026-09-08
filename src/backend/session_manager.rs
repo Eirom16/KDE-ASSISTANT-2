@@ -147,22 +147,34 @@ impl SessionManager {
     }
 
     pub fn add_message(&self, session_id: &str, message: &Message) -> Result<i64> {
-        let (role, content, tool_call_id) = match message {
-            Message::System { content } => ("system", content.clone(), None),
-            Message::User { content } => ("user", content.clone(), None),
-            Message::Assistant { content } => ("assistant", content.clone(), None),
+        let (role, content, tool_call_id, tool_result) = match message {
+            Message::System { content } => ("system", content.clone(), None, None),
+            Message::User { content } => ("user", content.clone(), None, None),
+            Message::Assistant {
+                content,
+                tool_calls,
+            } => {
+                // Persistir los tool calls como JSON para reconstruir el
+                // historial en formato OpenAI (Groq lo exige).
+                let tools_json = if tool_calls.is_empty() {
+                    None
+                } else {
+                    serde_json::to_string(tool_calls).ok()
+                };
+                ("assistant", content.clone(), None, tools_json)
+            }
             Message::Tool {
                 tool_call_id,
                 content,
-            } => ("tool", content.clone(), Some(tool_call_id.clone())),
+            } => ("tool", content.clone(), Some(tool_call_id.clone()), None),
         };
 
         let now = Utc::now().to_rfc3339();
 
         self.conn.execute(
-            "INSERT INTO messages (session_id, role, content, tool_call_id, timestamp)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![session_id, role, content, tool_call_id, now],
+            "INSERT INTO messages (session_id, role, content, tool_call_id, tool_result, timestamp)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![session_id, role, content, tool_call_id, tool_result, now],
         )?;
 
         let id = self.conn.last_insert_rowid();
@@ -172,7 +184,7 @@ impl SessionManager {
 
     pub fn get_messages(&self, session_id: &str) -> Result<Vec<Message>> {
         let mut stmt = self.conn.prepare(
-            "SELECT role, content, tool_call_id FROM messages
+            "SELECT role, content, tool_call_id, tool_result FROM messages
              WHERE session_id = ?1 ORDER BY id ASC",
         )?;
 
@@ -180,16 +192,23 @@ impl SessionManager {
             let role: String = row.get(0)?;
             let content: String = row.get(1)?;
             let tool_call_id: Option<String> = row.get(2)?;
-            Ok((role, content, tool_call_id))
+            let tool_result: Option<String> = row.get(3)?;
+            Ok((role, content, tool_call_id, tool_result))
         })?;
 
         let mut out = Vec::new();
         for r in rows {
-            let (role, content, tool_call_id) = r?;
+            let (role, content, tool_call_id, tool_result) = r?;
             let msg = match role.as_str() {
                 "system" => Message::system(content),
                 "user" => Message::user(content),
-                "assistant" => Message::assistant(content),
+                "assistant" => {
+                    let tool_calls: Vec<crate::models::ToolCall> = tool_result
+                        .as_deref()
+                        .and_then(|j| serde_json::from_str(j).ok())
+                        .unwrap_or_default();
+                    Message::assistant_with_tools(content, tool_calls)
+                }
                 "tool" => Message::tool(
                     tool_call_id.unwrap_or_else(|| "unknown".to_string()),
                     content,

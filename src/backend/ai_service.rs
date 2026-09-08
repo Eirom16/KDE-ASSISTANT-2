@@ -45,20 +45,20 @@ struct OpenAIMessage<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_call_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tool_calls: Option<Vec<OpenAIToolCallRef<'a>>>,
+    tool_calls: Option<Vec<OpenAIToolCallRef>>,
 }
 
 #[derive(Debug, Serialize)]
-struct OpenAIToolCallRef<'a> {
-    id: &'a str,
-    r#type: &'a str,
-    function: OpenAIFunctionCall<'a>,
+struct OpenAIToolCallRef {
+    id: String,
+    r#type: String,
+    function: OpenAIFunctionCall,
 }
 
 #[derive(Debug, Serialize)]
-struct OpenAIFunctionCall<'a> {
-    name: &'a str,
-    arguments: &'a str,
+struct OpenAIFunctionCall {
+    name: String,
+    arguments: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -138,11 +138,33 @@ impl AiService {
                     tool_call_id: None,
                     tool_calls: None,
                 },
-                Message::Assistant { content } => OpenAIMessage {
+                Message::Assistant {
+                    content,
+                    tool_calls,
+                } => OpenAIMessage {
                     role: "assistant",
                     content: Some(content),
                     tool_call_id: None,
-                    tool_calls: None,
+                    // Formato OpenAI: todo mensaje `tool` debe ir precedido de
+                    // un `assistant` con sus `tool_calls` (Groq lo exige).
+                    tool_calls: if tool_calls.is_empty() {
+                        None
+                    } else {
+                        Some(
+                            tool_calls
+                                .iter()
+                                .map(|tc| OpenAIToolCallRef {
+                                    id: tc.id.clone(),
+                                    r#type: "function".to_string(),
+                                    function: OpenAIFunctionCall {
+                                        name: tc.name.clone(),
+                                        arguments: serde_json::to_string(&tc.arguments)
+                                            .unwrap_or_else(|_| "{}".to_string()),
+                                    },
+                                })
+                                .collect(),
+                        )
+                    },
                 },
                 Message::Tool {
                     tool_call_id,
@@ -343,6 +365,13 @@ impl AiService {
 
             // Si hay tool_calls: ejecutar y continuar
             if !pending_tool_calls.is_empty() {
+                // Primero el mensaje assistant con los tool_calls (formato
+                // OpenAI/Groq: los resultados `tool` siempre van precedidos
+                // de su llamada).
+                messages.push(Message::assistant_with_tools(
+                    full_text.clone(),
+                    pending_tool_calls.clone(),
+                ));
                 for tc in &pending_tool_calls {
                     log::info!("Ejecutando tool: {} (id={})", tc.name, tc.id);
                     let result = tools_exec.execute(tc).await.unwrap_or_else(|e| {

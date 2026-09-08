@@ -14,7 +14,14 @@ pub enum Message {
     User { content: String },
 
     #[serde(rename = "assistant")]
-    Assistant { content: String },
+    Assistant {
+        content: String,
+        /// Tool calls emitidos junto a esta respuesta (formato OpenAI:
+        /// todo mensaje `tool` debe ir precedido de un `assistant` con sus
+        /// `tool_calls`; sin esto Groq rechaza la conversacion con 400).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        tool_calls: Vec<ToolCall>,
+    },
 
     #[serde(rename = "tool")]
     Tool {
@@ -39,6 +46,14 @@ impl Message {
     pub fn assistant(content: impl Into<String>) -> Self {
         Self::Assistant {
             content: content.into(),
+            tool_calls: Vec::new(),
+        }
+    }
+
+    pub fn assistant_with_tools(content: impl Into<String>, tool_calls: Vec<ToolCall>) -> Self {
+        Self::Assistant {
+            content: content.into(),
+            tool_calls,
         }
     }
 

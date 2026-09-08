@@ -251,6 +251,16 @@ impl ToolExecutor {
             .await?;
 
         // Extraccion best-effort de resultados (link-title-snippet triples)
+        // DuckDuckGo muestra una pagina anti-bots si detecta uso automatizado.
+        if is_ddg_challenge(&html) {
+            return Ok(ToolResult::success(
+                tc.id.clone(),
+                format!(
+                    "DuckDuckGo bloqueo la busqueda automatica (anti-bots) para: {query}. \
+                     Intentalo de nuevo en unos minutos."
+                ),
+            ));
+        }
         let results = parse_ddg_lite(&html, 5);
 
         if results.is_empty() {
@@ -383,56 +393,131 @@ struct SearchResult {
 }
 
 fn parse_ddg_lite(html: &str, max: usize) -> Vec<SearchResult> {
-    // Parser ligero para DDG Lite. Extrae <a class="result-link"> y siguientes.
+    // Parser tolerante al formato de DDG Lite (el orden de atributos y el
+    // tipo de comillas han cambiado con el tiempo):
+    //   <a rel="nofollow" href="...uddg=<url>&rut=..." class='result-link'>Titulo</a>
+    //   ... <td class='result-snippet'>Extracto</td>
     let mut results = Vec::new();
-    let mut i = 0;
-    let link_marker = "<a rel=\"nofollow\" class=\"result-link\" href=\"";
-    let snippet_marker = "class=\"result-snippet\">";
-
+    let mut pos = 0;
     while results.len() < max {
-        let link_pos = match html[i..].find(link_marker) {
-            Some(p) => i + p,
+        let a_start = match html[pos..].find("<a ") {
+            Some(p) => pos + p,
             None => break,
         };
-        let after_marker = link_pos + link_marker.len();
-        let link_end = match html[after_marker..].find('"') {
-            Some(p) => after_marker + p,
+        let tag_end = match html[a_start..].find('>') {
+            Some(p) => a_start + p,
             None => break,
         };
-        let url = html[after_marker..link_end].to_string();
+        let tag = &html[a_start..=tag_end];
+        if !tag.contains("result-link") {
+            pos = tag_end + 1;
+            continue;
+        }
+        let raw_url = extract_attr(tag, "href").unwrap_or_default();
+        let url = decode_uddg(&raw_url);
 
-        // Buscar </a> para encontrar el titulo (sin atributos de tag)
-        let a_end = match html[link_end..].find("</a>") {
-            Some(p) => link_end + p,
+        let after = tag_end + 1;
+        let a_end = match html[after..].find("</a>") {
+            Some(p) => after + p,
             None => break,
         };
-        let title_raw = &html[link_end..a_end];
-        let title = strip_tags(title_raw).trim().to_string();
-        // Quitar comillas externas que el parser deja
-        let title = title.trim_matches('"').to_string();
+        let title = strip_tags(&html[after..a_end])
+            .trim()
+            .trim_matches('"')
+            .to_string();
 
-        // Snippet
-        let snippet = if let Some(s_pos) = html[link_end..].find(snippet_marker) {
-            let start = link_end + s_pos + snippet_marker.len();
-            let end = html[start..]
-                .find("</td>")
-                .map(|p| start + p)
-                .unwrap_or(start);
-            strip_tags(&html[start..end])
-        } else {
-            String::new()
+        // Extracto: buscar result-snippet despues del enlace
+        let snippet = match html[a_end..].find("result-snippet") {
+            Some(p) => {
+                let marker_end = a_end + p;
+                match html[marker_end..].find('>') {
+                    Some(q) => {
+                        let start = marker_end + q + 1;
+                        let end = html[start..]
+                            .find("</td>")
+                            .map(|r| start + r)
+                            .unwrap_or(start);
+                        strip_tags(&html[start..end]).trim().to_string()
+                    }
+                    None => String::new(),
+                }
+            }
+            None => String::new(),
         };
 
         if !url.is_empty() && !title.is_empty() {
             results.push(SearchResult {
-                title: title.trim().to_string(),
-                url: url.trim().to_string(),
-                snippet: snippet.trim().to_string(),
+                title,
+                url,
+                snippet,
             });
         }
-        i = a_end + 4;
+        pos = a_end + 4;
     }
     results
+}
+
+/// Detecta la pagina anti-bots de DuckDuckGo.
+fn is_ddg_challenge(html: &str) -> bool {
+    html.contains("bots use DuckDuckGo") || html.contains("challenge to confirm")
+}
+
+/// Extrae el valor de un atributo HTML (acepta comillas simples o dobles).
+fn extract_attr(tag: &str, name: &str) -> Option<String> {
+    let key = format!("{name}=");
+    let start = tag.find(&key)? + key.len();
+    let rest = &tag[start..];
+    let quote = rest.chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let end = rest[1..].find(quote)?;
+    Some(rest[1..1 + end].to_string())
+}
+
+/// Si la URL es un redirect de DDG (/l/?uddg=<url>&...), devuelve la URL real.
+fn decode_uddg(url: &str) -> String {
+    let encoded = match url.find("uddg=") {
+        Some(p) => {
+            let rest = &url[p + 5..];
+            match rest.find('&') {
+                Some(q) => &rest[..q],
+                None => rest,
+            }
+        }
+        None => return url.to_string(),
+    };
+    percent_decode(encoded)
+}
+
+/// Decodifica secuencias %XX a nivel de bytes (preserva UTF-8).
+/// Deja '+' intacto: en paths es literal.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(h), Some(l)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
+                out.push(h << 4 | l);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    // Las entidades HTML mas comunes en hrefs de DDG
+    String::from_utf8_lossy(&out).replace("&amp;", "&")
+}
+
+fn hex_val(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn strip_tags(s: &str) -> String {
@@ -502,6 +587,37 @@ mod tests {
         assert_eq!(r.len(), 2);
         assert_eq!(r[0].url, "https://example.com");
         assert_eq!(r[0].title, "Title 1");
+    }
+
+    #[test]
+    fn parse_ddg_new_format_single_quotes() {
+        let html = r#"
+        <tr><td><a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fes.wikipedia.org%2Fwiki%2FPar%C3%ADs&amp;rut=abc" class='result-link'>París - Wikipedia</a></td></tr>
+        <tr><td class='result-snippet'>París es la capital de Francia</td></tr>
+        "#;
+        let r = parse_ddg_lite(html, 5);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].url, "https://es.wikipedia.org/wiki/París");
+        assert_eq!(r[0].title, "París - Wikipedia");
+        assert_eq!(r[0].snippet, "París es la capital de Francia");
+    }
+
+    #[test]
+    fn detects_ddg_challenge() {
+        assert!(is_ddg_challenge(
+            "Unfortunately, bots use DuckDuckGo too. challenge to confirm"
+        ));
+        assert!(!is_ddg_challenge("<a class='result-link'>x</a>"));
+    }
+
+    #[test]
+    fn decode_uddg_extracts_real_url() {
+        let u = "//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fx&amp;rut=1";
+        assert_eq!(decode_uddg(u), "https://example.com/x");
+        assert_eq!(
+            decode_uddg("https://example.com/plain"),
+            "https://example.com/plain"
+        );
     }
 
     #[test]

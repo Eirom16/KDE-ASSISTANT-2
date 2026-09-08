@@ -89,6 +89,33 @@ Item {
                             var maxLines = 4
                             // Heuristica simple: dejamos al control crecer
                         }
+                        // Enter envia (el TextArea multilinea lo consumiria si no)
+                        Keys.onReturnPressed: function(event) {
+                            if (event.modifiers & Qt.ShiftModifier) {
+                                event.accepted = false  // Shift+Enter: salto de linea
+                            } else {
+                                if (root.streaming) {
+                                    root.stopClicked()
+                                } else if (root.canSend) {
+                                    root.sendClicked(input.text)
+                                    input.text = ""
+                                }
+                                event.accepted = true
+                            }
+                        }
+                        Keys.onEnterPressed: function(event) {
+                            if (event.modifiers & Qt.ShiftModifier) {
+                                event.accepted = false
+                            } else {
+                                if (root.streaming) {
+                                    root.stopClicked()
+                                } else if (root.canSend) {
+                                    root.sendClicked(input.text)
+                                    input.text = ""
+                                }
+                                event.accepted = true
+                            }
+                        }
                     }
                 }
             }
@@ -100,7 +127,7 @@ Item {
                 iconSize: Theme.iconSizeMd
                 buttonSize: 40
                 backgroundColor: Theme.surfaceChip
-                color: root.recording ? Theme.inkOnPrimary : Theme.ink
+                iconColor: root.recording ? Theme.inkOnPrimary : Theme.ink
                 active: root.recording
                 activeColor: Theme.error
                 onClicked: {
@@ -116,7 +143,7 @@ Item {
                 iconSize: Theme.iconSizeMd
                 buttonSize: 40
                 backgroundColor: root.canSend || root.streaming ? Theme.primary : Theme.surfaceChip
-                color: root.canSend || root.streaming ? Theme.inkOnPrimary : Theme.inkMuted
+                iconColor: root.canSend || root.streaming ? Theme.inkOnPrimary : Theme.inkMuted
                 active: root.streaming
                 activeColor: Theme.error
                 onClicked: {

@@ -264,7 +264,7 @@ async fn list_messages(
                         role: "user".to_string(),
                         content,
                     }),
-                    Message::Assistant { content } => Some(MessageInfo {
+                    Message::Assistant { content, .. } => Some(MessageInfo {
                         role: "assistant".to_string(),
                         content,
                     }),
