@@ -162,6 +162,15 @@ Desactivar con flag: `cargo run -- --no-shortcuts`
 - **Notificaciones nativas:** via `dbus-send org.freedesktop.Notifications.Notify`
 - **Deteccion de tema:** via `dbus-send org.freedesktop.portal.Settings` (color-scheme)
 - **Translucidez:** via `Qt.WA_TranslucentBackground` en QML + blur KWin
+- **Icono de bandeja:** `assets/icons/kde-assistant.svg` (+ PNG 16–128 generados con `rsvg-convert`); instalar con:
+  ```bash
+  for s in 16 22 24 32 48 64 128; do
+    d=~/.local/share/icons/hicolor/${s}x${s}/apps; mkdir -p "$d"
+    rsvg-convert -w $s -h $s assets/icons/kde-assistant.svg -o "$d/kde-assistant.png"
+  done
+  mkdir -p ~/.local/share/icons/hicolor/scalable/apps
+  cp assets/icons/kde-assistant.svg ~/.local/share/icons/hicolor/scalable/apps/
+  ```
 
 ## Tests
 

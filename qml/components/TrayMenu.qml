@@ -19,8 +19,10 @@ SystemTrayIcon {
     visible: true
     tooltip: qsTr("KDE Assistant v2")
 
-    // Icono: usamos el SVG de hubot desde el filesystem (no qrc aun)
-    icon.source: Qt.resolvedUrl("../assets/octicons/hubot-16.svg")
+    // Icono: nombre del tema hicolor (instalado en
+    // ~/.local/share/icons) con fallback al SVG del repo.
+    icon.name: "kde-assistant"
+    icon.source: Qt.resolvedUrl("../../assets/icons/kde-assistant.svg")
     icon.mask: false
 
     // Menu contextual
