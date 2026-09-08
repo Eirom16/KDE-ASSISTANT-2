@@ -70,9 +70,19 @@ Rectangle {
 
         Image {
             id: img
-            anchors.centerIn: parent
-            width: Math.min(sourceSize.width, parent.width - 40)
-            height: width * (sourceSize.height / Math.max(sourceSize.width, 1))
+            // Tamano encajado en el viewport preservando aspecto.
+            // Se calcula desde flick (estable) y sourceSize, sin anchors
+            // que puedan realimentarse con contentWidth/contentHeight.
+            property real maxW: Math.max(0, flick.width - 40)
+            property real maxH: Math.max(0, flick.height - 40)
+            property real fitScale: {
+                if (sourceSize.width <= 0 || sourceSize.height <= 0) return 0
+                return Math.min(1, Math.min(maxW / sourceSize.width, maxH / sourceSize.height))
+            }
+            width: sourceSize.width > 0 ? sourceSize.width * fitScale : 0
+            height: sourceSize.height > 0 ? sourceSize.height * fitScale : 0
+            x: (flick.width - width) / 2
+            y: (flick.height - height) / 2
             fillMode: Image.PreserveAspectFit
             asynchronous: true
             cache: true

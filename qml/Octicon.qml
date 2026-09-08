@@ -25,7 +25,10 @@ Item {
     height: size
 
     // Path a los SVGs (filesystem; en produccion se embeben via resources.qrc)
-    readonly property string iconPath: Qt.resolvedUrl("../assets/octicons/" + name + ".svg")
+    // Vacio si no hay nombre: el Image se oculta y se muestra el fallback.
+    readonly property string iconPath: root.name !== ""
+        ? Qt.resolvedUrl("../assets/octicons/" + name + ".svg")
+        : ""
 
     // Carga del SVG via Image (Qt SVG renderer)
     Image {
@@ -36,7 +39,7 @@ Item {
         fillMode: Image.PreserveAspectFit
         smooth: true
         antialiasing: true
-        visible: status === Image.Ready
+        visible: root.name !== "" && status === Image.Ready
 
         // Tintar SVG con color (Qt 6.5+)
         layer.enabled: true

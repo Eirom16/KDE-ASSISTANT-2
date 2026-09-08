@@ -112,7 +112,7 @@ fn default_wake_word() -> String {
     "hey jarvis".to_string()
 }
 fn default_threshold() -> f32 {
-    0.8
+    0.5
 }
 fn default_wake_word_model_path() -> String {
     "assets/models/wake_word.onnx".to_string()

@@ -55,7 +55,6 @@ Rectangle {
         color: "transparent"
         border.width: 2
         border.color: root.activeColor
-        opacity: pulseAnim.opacity
 
         SequentialAnimation on opacity {
             id: pulseAnim
@@ -65,7 +64,12 @@ Rectangle {
             NumberAnimation { from: 0.0; to: 0.8; duration: 1 }
         }
 
-        scale: pulseAnim.opacity * 0.3 + 1.0
+        SequentialAnimation on scale {
+            loops: Animation.Infinite
+            running: root.active
+            NumberAnimation { from: 1.0; to: 1.3; duration: 1200; easing.type: Easing.OutCubic }
+            NumberAnimation { from: 1.3; to: 1.0; duration: 1 }
+        }
     }
 
     scale: mouseArea.pressed ? 0.92 : 1.0

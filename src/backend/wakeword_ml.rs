@@ -372,8 +372,6 @@ pub async fn ensure_onnx_runtime_lib() -> Result<PathBuf> {
 
 /// Descarga el .tgz oficial y extrae los .so al directorio de la app.
 async fn download_and_extract_onnx() -> Result<()> {
-    use futures_util::StreamExt;
-
     let dir = onnx_lib_dir()?;
     let tgz_path = dir.join(format!("onnxruntime-{ONNX_VERSION}.tgz"));
 
