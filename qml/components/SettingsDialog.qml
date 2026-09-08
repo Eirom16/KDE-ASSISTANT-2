@@ -1,5 +1,7 @@
 // SettingsDialog.qml - Dialog modal de configuracion
 // Acceso desde el SessionDrawer ("Configuracion") o desde la X del title
+// NOTA: los campos se leen/escriben de forma imperativa (por id) para
+// evitar peleas de bindings con lo que escribe el usuario.
 
 import QtQuick
 import QtQuick.Controls
@@ -11,6 +13,7 @@ Rectangle {
     id: root
 
     property bool open_: false
+    property string provider: "openrouter"   // openrouter | groq | openai | custom
     property string apiKey: ""
     property string model: ""
     property string baseUrl: ""
@@ -47,7 +50,28 @@ Rectangle {
         root.closed()
     }
 
-    // Carga la config del backend y rellena los campos
+    function providerBaseUrl(p) {
+        if (p === "groq") return "https://api.groq.com/openai/v1"
+        if (p === "openai") return "https://api.openai.com/v1"
+        if (p === "openrouter") return "https://openrouter.ai/api/v1"
+        return baseUrlField.value || ""
+    }
+
+    function modelPlaceholder() {
+        if (root.provider === "groq") return "llama-3.3-70b-versatile"
+        if (root.provider === "openai") return "gpt-4o-mini"
+        if (root.provider === "custom") return "nombre-del-modelo"
+        return "openrouter/z-ai/glm-5.2:free"
+    }
+
+    function keyPlaceholder() {
+        if (root.provider === "groq") return "gsk-..."
+        if (root.provider === "openai") return "sk-..."
+        if (root.provider === "custom") return "tu-api-key"
+        return "sk-or-..."
+    }
+
+    // Carga la config del backend y rellena los campos (imperativo, sin bindings)
     function loadConfig() {
         var xhr = new XMLHttpRequest()
         xhr.open("GET", backendUrl + "/api/config")
@@ -58,37 +82,51 @@ Rectangle {
                 if (!cfg.ai) cfg.ai = {}
                 if (!cfg.speech) cfg.speech = {}
                 if (!cfg.ui) cfg.ui = {}
-                apiKey = cfg.ai.api_key || ""
-                model = cfg.ai.model || ""
-                baseUrl = cfg.ai.base_url || ""
-                toolCallingEnabled = cfg.ai.enable_tool_calling !== false
-                autoSpeak = cfg.speech.auto_speak === true
-                chimesEnabled = cfg.speech.chimes_enabled !== false
-                theme = cfg.ui.theme || "system"
-                piperModel = cfg.speech.piper_model || "es_ES-sharvard-medium"
-                piperLengthScale = cfg.speech.piper_length_scale || 1.0
-                sttLanguage = cfg.speech.stt_language || "auto"
+                root.provider = cfg.ai.provider || "openrouter"
+                root.apiKey = cfg.ai.api_key || ""
+                root.model = cfg.ai.model || ""
+                root.baseUrl = cfg.ai.base_url || ""
+                root.toolCallingEnabled = cfg.ai.enable_tool_calling !== false
+                root.autoSpeak = cfg.speech.auto_speak === true
+                root.chimesEnabled = cfg.speech.chimes_enabled !== false
+                root.theme = cfg.ui.theme || "system"
+                root.piperModel = cfg.speech.piper_model || "es_ES-sharvard-medium"
+                root.piperLengthScale = cfg.speech.piper_length_scale || 1.0
+                root.sttLanguage = cfg.speech.stt_language || "auto"
+                // Volcar a los campos (rompe nada: asignacion directa)
+                baseUrlField.value = root.baseUrl
+                apiKeyField.value = root.apiKey
+                modelField.value = root.model
+                piperField.value = root.piperModel
+                speedSlider.value = root.piperLengthScale
             }
         }
         xhr.send()
     }
 
-    // Guarda la config en el backend
+    // Guarda la config en el backend (lee los campos por id)
     function saveConfig() {
         var cfg = root.rawConfig
         if (!cfg.ai) cfg.ai = {}
         if (!cfg.speech) cfg.speech = {}
         if (!cfg.ui) cfg.ui = {}
-        cfg.ai.api_key = apiKey
-        cfg.ai.model = model
-        cfg.ai.base_url = baseUrl
+        cfg.ai.provider = root.provider
+        cfg.ai.api_key = apiKeyField.value
+        cfg.ai.model = modelField.value
+        cfg.ai.base_url = baseUrlField.value
         cfg.ai.enable_tool_calling = toolCallingEnabled
         cfg.speech.auto_speak = autoSpeak
         cfg.speech.chimes_enabled = chimesEnabled
-        cfg.speech.piper_model = piperModel
-        cfg.speech.piper_length_scale = piperLengthScale
+        cfg.speech.piper_model = piperField.value
+        cfg.speech.piper_length_scale = speedSlider.value
         cfg.speech.stt_language = sttLanguage
         cfg.ui.theme = theme
+        // Refrescar props locales para que la UI quede consistente
+        root.apiKey = apiKeyField.value
+        root.model = modelField.value
+        root.baseUrl = baseUrlField.value
+        root.piperModel = piperField.value
+        root.piperLengthScale = speedSlider.value
 
         var xhr = new XMLHttpRequest()
         xhr.open("POST", backendUrl + "/api/config")
@@ -155,32 +193,15 @@ Rectangle {
                 }
             }
 
-            // === Tabs (placeholder simple con pills) ===
-            Flow {
-                Layout.fillWidth: true
-                spacing: Theme.spacingXs
-                PillButton {
-                    text: qsTr("General")
-                    active: true
-                }
-                PillButton {
-                    text: qsTr("Voz")
-                    active: false
-                }
-                PillButton {
-                    text: qsTr("Atajos")
-                    active: false
-                }
-            }
-
             // === Form ===
             ScrollView {
+                id: formScroll
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
 
                 ColumnLayout {
-                    width: parent.width
+                    width: formScroll.availableWidth
                     spacing: Theme.spacingMd
 
                     // AI section
@@ -188,31 +209,74 @@ Rectangle {
                         text: qsTr("Inteligencia Artificial")
                         font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0.4)
                         color: Theme.inkMuted
+                        Layout.fillWidth: true
+                    }
+
+                    Text {
+                        text: qsTr("Proveedor")
+                        font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, -0.05)
+                        color: Theme.inkMuted
+                        Layout.fillWidth: true
+                    }
+
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingXs
+                        PillButton {
+                            text: qsTr("OpenRouter")
+                            active: root.provider === "openrouter"
+                            onClicked: {
+                                root.provider = "openrouter"
+                                baseUrlField.value = providerBaseUrl("openrouter")
+                            }
+                        }
+                        PillButton {
+                            text: qsTr("Groq")
+                            active: root.provider === "groq"
+                            onClicked: {
+                                root.provider = "groq"
+                                baseUrlField.value = providerBaseUrl("groq")
+                            }
+                        }
+                        PillButton {
+                            text: qsTr("OpenAI")
+                            active: root.provider === "openai"
+                            onClicked: {
+                                root.provider = "openai"
+                                baseUrlField.value = providerBaseUrl("openai")
+                            }
+                        }
+                        PillButton {
+                            text: qsTr("Personalizado")
+                            active: root.provider === "custom"
+                            onClicked: root.provider = "custom"
+                        }
                     }
 
                     SettingsField {
+                        id: baseUrlField
+                        Layout.fillWidth: true
                         label: qsTr("API URL")
-                        value: root.baseUrl
-                        placeholder: "https://openrouter.ai/api/v1"
-                        onValueChanged: root.baseUrl = value
+                        placeholder: "https://..."
                     }
 
                     SettingsField {
+                        id: apiKeyField
+                        Layout.fillWidth: true
                         label: qsTr("API Key")
-                        value: root.apiKey
-                        placeholder: "sk-or-..."
+                        placeholder: keyPlaceholder()
                         isPassword: true
-                        onValueChanged: root.apiKey = value
                     }
 
                     SettingsField {
+                        id: modelField
+                        Layout.fillWidth: true
                         label: qsTr("Modelo")
-                        value: root.model
-                        placeholder: "openrouter/z-ai/glm-5.2:free"
-                        onValueChanged: root.model = value
+                        placeholder: modelPlaceholder()
                     }
 
                     SettingsToggle {
+                        Layout.fillWidth: true
                         label: qsTr("Tool calling (agente)")
                         description: qsTr("Permitir al asistente ejecutar herramientas")
                         active: root.toolCallingEnabled
@@ -225,6 +289,7 @@ Rectangle {
                         font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0.4)
                         color: Theme.inkMuted
                         Layout.topMargin: Theme.spacingMd
+                        Layout.fillWidth: true
                     }
 
                     Flow {
@@ -253,12 +318,14 @@ Rectangle {
                         font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0.4)
                         color: Theme.inkMuted
                         Layout.topMargin: Theme.spacingMd
+                        Layout.fillWidth: true
                     }
 
                     Text {
                         text: qsTr("Reconocimiento (STT)")
                         font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
                         color: Theme.inkMuted
+                        Layout.fillWidth: true
                     }
 
                     // Idioma STT
@@ -287,13 +354,14 @@ Rectangle {
                         font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
                         color: Theme.inkMuted
                         Layout.topMargin: Theme.spacingSm
+                        Layout.fillWidth: true
                     }
 
                     SettingsField {
+                        id: piperField
+                        Layout.fillWidth: true
                         label: qsTr("Modelo de voz")
-                        value: root.piperModel
                         placeholder: "es_ES-sharvard-medium"
-                        onValueChanged: root.piperModel = value
                     }
 
                     Text {
@@ -324,8 +392,7 @@ Rectangle {
                                 Layout.fillWidth: true
                                 from: 0.5
                                 to: 1.5
-                                value: root.piperLengthScale
-                                onValueChanged: root.piperLengthScale = value
+                                value: 1.0
                             }
 
                             Text {
@@ -338,12 +405,14 @@ Rectangle {
                     }
 
                     SettingsToggle {
+                        Layout.fillWidth: true
                         label: qsTr("Hablar respuestas automaticamente")
                         active: root.autoSpeak
                         onToggled: root.autoSpeak = !root.autoSpeak
                     }
 
                     SettingsToggle {
+                        Layout.fillWidth: true
                         label: qsTr("Reproducir chimes")
                         description: qsTr("Sonidos sutiles al activar/desactivar voz")
                         active: root.chimesEnabled
@@ -371,12 +440,6 @@ Rectangle {
                     }
                 }
             }
-        }
-
-        // Bloquear propagacion de clicks al backdrop
-        MouseArea {
-            anchors.fill: parent
-            onClicked: {} // absorb
         }
     }
 }

@@ -3,6 +3,7 @@
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import qml 1.0
 import "."
 
@@ -14,8 +15,11 @@ Column {
     property string placeholder: ""
     property bool isPassword: false
 
+    // Ocupa todo el ancho cuando esta dentro de un layout
+    // (sin width explicito para no pelear con el layout)
+    Layout.fillWidth: true
+
     spacing: Theme.spacingXs
-    width: parent ? parent.width : implicitWidth
 
     Text {
         text: root.label

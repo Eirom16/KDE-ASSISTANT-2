@@ -74,9 +74,10 @@ Editar `~/.config/kde-assistant/config.json`:
 ```json
 {
   "ai": {
-    "base_url": "https://openrouter.ai/api/v1",
+    "provider": "groq",
+    "base_url": "https://api.groq.com/openai/v1",
     "api_key": "<tu-api-key>",
-    "model": "openrouter/z-ai/glm-5.2:free",
+    "model": "llama-3.3-70b-versatile",
     "enable_tool_calling": true
   },
   "speech": {
@@ -88,7 +89,21 @@ Editar `~/.config/kde-assistant/config.json`:
 }
 ```
 
-Tambien puedes usar la variable de entorno `OPENROUTER_API_KEY`.
+Tambien puedes usar variables de entorno (`OPENROUTER_API_KEY`, `GROQ_API_KEY` u `OPENAI_API_KEY` segun el proveedor).
+
+## Proveedores LLM
+
+El backend habla el dialecto OpenAI (`/chat/completions` + SSE + tool calling).
+En Configuracion elige proveedor y la app rellena la URL:
+
+| Proveedor | URL | API key |
+|---|---|---|
+| OpenRouter | `https://openrouter.ai/api/v1` | `sk-or-...` o `OPENROUTER_API_KEY` |
+| Groq | `https://api.groq.com/openai/v1` | `gsk-...` o `GROQ_API_KEY` |
+| OpenAI | `https://api.openai.com/v1` | `sk-...` o `OPENAI_API_KEY` |
+| Personalizado | la que escribas | la que corresponda |
+
+Nota: el tool calling necesita un modelo capaz (ej. en Groq, `llama-3.3-70b-versatile`).
 
 ## Cómo funciona (arquitectura)
 

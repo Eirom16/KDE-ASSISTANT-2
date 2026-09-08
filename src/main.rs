@@ -22,9 +22,7 @@ fn main() -> Result<()> {
 
     let args: Vec<String> = std::env::args().collect();
     let ui_off = args.iter().any(|a| a == "--ui-off" || a == "--no-ui");
-    let no_shortcuts = args
-        .iter()
-        .any(|a| a == "--no-shortcuts" || a == "--no-shortcuts");
+    let no_shortcuts = args.iter().any(|a| a == "--no-shortcuts");
 
     // Modo comando: enviar senal y salir
     if let Some(idx) = args.iter().position(|a| a == "--send-msg") {

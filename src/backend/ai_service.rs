@@ -1,4 +1,8 @@
-//! AI Service - Cliente HTTP para OpenRouter API con streaming SSE
+//! AI Service - Cliente HTTP OpenAI-compatible con streaming SSE
+//!
+//! Soporta varios proveedores (OpenRouter, Groq, OpenAI, personalizado)
+//! segun `ai.provider` en la configuracion. Solo OpenRouter recibe los
+//! headers extra HTTP-Referer/X-Title.
 //!
 //! Implementa:
 //! - POST a /chat/completions con stream: true
@@ -103,7 +107,11 @@ impl AiService {
             .timeout(std::time::Duration::from_secs(120))
             .user_agent("KDE-Assistant/2.0")
             .build()?;
-        log::info!("AiService: cliente OpenRouter listo");
+        let provider = config
+            .try_read()
+            .map(|c| crate::models::AiConfig::provider_name(c.ai.provider_id()).to_string())
+            .unwrap_or_else(|_| "OpenRouter".to_string());
+        log::info!("AiService: cliente {provider} listo");
         Ok(Self { config, http })
     }
 
@@ -160,8 +168,12 @@ impl AiService {
         tx: &mpsc::Sender<StreamEvent>,
     ) -> Result<String> {
         let cfg = self.snapshot();
-        if cfg.ai.api_key.is_empty() {
-            bail!("API key no configurada. Ve a ~/.config/kde-assistant/config.json o configura OPENROUTER_API_KEY");
+        let provider_id = cfg.ai.provider_id().to_string();
+        let provider_name = crate::models::AiConfig::provider_name(&provider_id);
+        let api_key = cfg.ai.effective_api_key();
+        if api_key.trim().is_empty() {
+            let env_var = crate::models::AiConfig::provider_env_var(&provider_id);
+            bail!("API key no configurada. Ponla en Configuracion o configura {env_var} (proveedor actual: {provider_name})");
         }
 
         let url = format!("{}/chat/completions", cfg.ai.base_url.trim_end_matches('/'));
@@ -174,22 +186,28 @@ impl AiService {
             tools: tools.to_vec(),
         };
 
-        let response = self
+        let mut req_builder = self
             .http
             .post(&url)
-            .header("Authorization", format!("Bearer {}", cfg.ai.api_key))
-            .header("Content-Type", "application/json")
-            .header("HTTP-Referer", "https://kde-assistant.local")
-            .header("X-Title", "KDE Assistant")
+            .header("Authorization", format!("Bearer {api_key}"))
+            .header("Content-Type", "application/json");
+        // OpenRouter pide identificacion extra; el resto de proveedores
+        // OpenAI-compatibles (Groq, OpenAI, custom) no la necesitan.
+        if provider_id == "openrouter" {
+            req_builder = req_builder
+                .header("HTTP-Referer", "https://kde-assistant.local")
+                .header("X-Title", "KDE Assistant");
+        }
+        let response = req_builder
             .json(&req)
             .send()
             .await
-            .context("enviando request a OpenRouter")?;
+            .with_context(|| format!("enviando request a {provider_name}"))?;
 
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            bail!("OpenRouter {}: {}", status, body);
+            bail!("{provider_name} {status}: {body}");
         }
 
         let mut stream = response.bytes_stream();

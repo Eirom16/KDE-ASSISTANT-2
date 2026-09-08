@@ -10,7 +10,7 @@
 
 - **Backend:** Rust 1.75+ con Tokio async
 - **UI:** Qt 6.11+ / QML con QtQuick Controls 2
-- **API LLM:** OpenRouter (`https://openrouter.ai/api/v1/chat/completions`) — compatible con OpenAI, tool calling y SSE streaming
+- **API LLM:** OpenRouter / Groq / OpenAI / personalizado (`/chat/completions`, OpenAI-compatible) — tool calling y SSE streaming. El campo `ai.provider` decide headers extra (solo OpenRouter lleva `HTTP-Referer`/`X-Title`) y la env var de fallback (`OPENROUTER_API_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`).
 - **STT:** whisper-rs (local, modelo ggml-base.bin)
 - **TTS:** piper-tts (motor neural) (local)
 - **Chimes:** rodio (WAVs embebidos)

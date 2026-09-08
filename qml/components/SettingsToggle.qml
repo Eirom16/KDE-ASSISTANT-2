@@ -1,6 +1,7 @@
 // SettingsToggle.qml - Toggle on/off estilo Apple para SettingsDialog
 
 import QtQuick
+import QtQuick.Layouts
 import qml 1.0
 import "."
 
@@ -13,8 +14,10 @@ Item {
 
     signal toggled()
 
+    // Ocupa todo el ancho cuando esta dentro de un layout
+    Layout.fillWidth: true
+
     implicitHeight: column.implicitHeight + Theme.spacingXs * 2
-    width: parent ? parent.width : implicitWidth
 
     Row {
         id: row

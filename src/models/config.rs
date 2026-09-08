@@ -21,6 +21,11 @@ impl Default for Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiConfig {
+    /// Proveedor: "openrouter" | "groq" | "openai" | "custom".
+    /// Solo afecta a headers extra y a la variable de entorno de fallback.
+    /// La URL siempre sale de `base_url`.
+    #[serde(default = "default_provider")]
+    pub provider: String,
     pub base_url: String,
     #[serde(default)]
     pub api_key: String,
@@ -37,6 +42,10 @@ pub struct AiConfig {
     pub max_tool_iterations: u32,
 }
 
+fn default_provider() -> String {
+    "openrouter".to_string()
+}
+
 fn default_temperature() -> f32 {
     0.7
 }
@@ -51,6 +60,56 @@ fn default_true() -> bool {
 }
 fn default_max_iterations() -> u32 {
     8
+}
+
+impl AiConfig {
+    /// Normaliza el proveedor ("", mayusculas, etc.) a un id conocido.
+    pub fn provider_id(&self) -> &str {
+        match self.provider.trim().to_lowercase().as_str() {
+            "groq" => "groq",
+            "openai" => "openai",
+            "custom" | "personalizado" => "custom",
+            _ => "openrouter",
+        }
+    }
+
+    /// URL base del preset del proveedor (solo referencia; la URL real
+    /// siempre sale de `base_url` para no sorprender al usuario).
+    pub fn provider_preset_url(provider_id: &str) -> &'static str {
+        match provider_id {
+            "groq" => "https://api.groq.com/openai/v1",
+            "openai" => "https://api.openai.com/v1",
+            "custom" => "",
+            _ => "https://openrouter.ai/api/v1",
+        }
+    }
+
+    /// Variable de entorno de fallback para la API key segun proveedor.
+    pub fn provider_env_var(provider_id: &str) -> &'static str {
+        match provider_id {
+            "groq" => "GROQ_API_KEY",
+            "openai" => "OPENAI_API_KEY",
+            _ => "OPENROUTER_API_KEY",
+        }
+    }
+
+    /// Nombre legible del proveedor para logs y errores.
+    pub fn provider_name(provider_id: &str) -> &'static str {
+        match provider_id {
+            "groq" => "Groq",
+            "openai" => "OpenAI",
+            "custom" => "proveedor personalizado",
+            _ => "OpenRouter",
+        }
+    }
+
+    /// API key efectiva: la de config, o la variable de entorno del proveedor.
+    pub fn effective_api_key(&self) -> String {
+        if !self.api_key.trim().is_empty() {
+            return self.api_key.clone();
+        }
+        std::env::var(Self::provider_env_var(self.provider_id())).unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,6 +295,7 @@ impl Config {
     fn default_internal() -> Self {
         Self {
             ai: AiConfig {
+                provider: default_provider(),
                 base_url: "https://openrouter.ai/api/v1".to_string(),
                 api_key: std::env::var("OPENROUTER_API_KEY").unwrap_or_default(),
                 model: "openrouter/z-ai/glm-5.2:free".to_string(),
