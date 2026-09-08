@@ -44,14 +44,75 @@ ApplicationWindow {
     }
 
     function formatServerResponse(text) {
-        // El servidor puede devolver markdown; por ahora mostramos tal cual
-        return text
+        return markdownToHtml(text || "")
     }
 
-    // Envia un mensaje al backend y agrega la respuesta al chat
+    // Convierte markdown basico a HTML para renderizar en el chat
+    function markdownToHtml(md) {
+        if (!md) return ""
+        var html = md
+
+        // Escapar HTML primero para evitar inyeccion
+        html = html.replace(/&/g, "&amp;")
+                   .replace(/</g, "&lt;")
+                   .replace(/>/g, "&gt;")
+
+        // Code blocks: ```lang \n ... \n ```
+        html = html.replace(/```[\s\S]*?```/g, function(m) {
+            var code = m.replace(/```[a-zA-Z]*\n?/g, "").replace(/```/g, "")
+            return "<pre><code>" + code + "</code></pre>"
+        })
+
+        // Inline code: `code`
+        html = html.replace(/`([^`]+)`/g, "<code>$1</code>")
+
+        // Bold: **text**
+        html = html.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+
+        // Italic: *text*
+        html = html.replace(/\*([^*]+)\*/g, "<i>$1</i>")
+
+        // Headers: ### text, ## text, # text
+        html = html.replace(/^###\s+(.+)$/gm, "<b>$1</b>")
+        html = html.replace(/^##\s+(.+)$/gm, "<b>$1</b>")
+        html = html.replace(/^#\s+(.+)$/gm, "<b>$1</b>")
+
+        // List items: - item  or  * item
+        html = html.replace(/^[-*]\s+(.+)$/gm, "• $1")
+
+        // Line breaks
+        html = html.replace(/\n/g, "<br>")
+
+        return html
+    }
+
+    // Envia un mensaje al backend con streaming SSE y agrega la respuesta al chat
     function sendMessage(text) {
         if (!text || text.trim().length === 0) return
+        if (streaming) return
 
+        // Si no hay sesion, crearla primero y luego enviar
+        if (!currentSessionId) {
+            var cxhr = new XMLHttpRequest()
+            cxhr.open("POST", backendUrl + "/api/session")
+            cxhr.setRequestHeader("Content-Type", "application/json")
+            cxhr.onreadystatechange = function() {
+                if (cxhr.readyState === XMLHttpRequest.DONE && (cxhr.status === 200 || cxhr.status === 201)) {
+                    try {
+                        var s = JSON.parse(cxhr.responseText)
+                        currentSessionId = s.id
+                        loadSessions()
+                    } catch (e) {}
+                    sendMessageStream(text)
+                }
+            }
+            cxhr.send(JSON.stringify({ title: "Nueva conversación" }))
+            return
+        }
+        sendMessageStream(text)
+    }
+
+    function sendMessageStream(text) {
         // Mensaje del usuario
         appendMessage({
             role: "user",
@@ -62,41 +123,96 @@ ApplicationWindow {
             toolCalls: []
         })
 
+        // Placeholder del asistente en modo streaming
+        appendMessage({
+            role: "assistant",
+            authorLabel: "KDE Assistant",
+            content: "",
+            timestamp: nowTime(),
+            isStreaming: true,
+            toolCalls: []
+        })
+
         streaming = true
+        var assistantIdx = messages.length - 1
+        var rawText = ""
+        var toolArr = []
+        var processedLen = 0
+        var pending = ""
+        var sawError = ""
+
+        function refreshUI(stillStreaming) {
+            var arr = messages.slice()
+            if (assistantIdx >= 0 && assistantIdx < arr.length) {
+                var old = arr[assistantIdx]
+                arr[assistantIdx] = {
+                    role: "assistant",
+                    authorLabel: "KDE Assistant",
+                    content: rawText ? markdownToHtml(rawText) : (stillStreaming ? "" : "⚠ Sin respuesta del asistente"),
+                    timestamp: old.timestamp,
+                    isStreaming: stillStreaming,
+                    toolCalls: toolArr.slice()
+                }
+                messages = arr
+            }
+        }
+
+        function processBlock(block) {
+            var lines = block.split("\n")
+            var ev = ""
+            var dataStr = ""
+            for (var i = 0; i < lines.length; i++) {
+                var ln = lines[i].trim()
+                if (ln.indexOf("event:") === 0) ev = ln.substring(6).trim()
+                else if (ln.indexOf("data:") === 0) dataStr += ln.substring(5).trim()
+            }
+            if (!ev || !dataStr) return
+            var obj = null
+            try { obj = JSON.parse(dataStr) } catch (e) { return }
+            if (ev === "token") {
+                if (obj && obj.content) rawText += obj.content
+            } else if (ev === "tool_call") {
+                if (obj) toolArr.push({ id: obj.id || "", name: obj.name || "tool", status: "running", result: "", imageUrl: "", caption: "" })
+            } else if (ev === "tool_result") {
+                if (obj) {
+                    for (var j = 0; j < toolArr.length; j++) {
+                        if (toolArr[j].id === obj.tool_call_id) {
+                            toolArr[j].status = "success"
+                            toolArr[j].result = obj.content || ""
+                            break
+                        }
+                    }
+                }
+            } else if (ev === "done") {
+                if (obj && obj.full_content && !rawText) rawText = obj.full_content
+            } else if (ev === "error") {
+                if (obj && obj.message) sawError = obj.message
+            }
+        }
 
         var xhr = new XMLHttpRequest()
-        xhr.open("POST", backendUrl + "/api/chat/complete")
+        xhr.open("POST", backendUrl + "/api/chat")
         xhr.setRequestHeader("Content-Type", "application/json")
         xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE) {
-                streaming = false
-                if (xhr.status === 200 || xhr.status === 201) {
-                    var resp = JSON.parse(xhr.responseText)
-                    appendMessage({
-                        role: "assistant",
-                        authorLabel: "KDE Assistant",
-                        content: formatServerResponse(resp.response || ""),
-                        timestamp: nowTime(),
-                        isStreaming: false,
-                        toolCalls: []
-                    })
-                    if (resp.session_id && !currentSessionId) {
-                        currentSessionId = resp.session_id
+            if (xhr.readyState === 3 || xhr.readyState === 4) {
+                var full = xhr.responseText || ""
+                var newPart = full.substring(processedLen)
+                processedLen = full.length
+                pending += newPart
+                var parts = pending.split("\n\n")
+                pending = parts.pop()
+                for (var k = 0; k < parts.length; k++) {
+                    processBlock(parts[k])
+                }
+                refreshUI(true)
+                if (xhr.readyState === 4) {
+                    if (pending && pending.indexOf("event:") >= 0) {
+                        processBlock(pending)
+                        pending = ""
                     }
-                } else {
-                    var errMsg = "Error de conexión con el asistente"
-                    try {
-                        var err = JSON.parse(xhr.responseText)
-                        if (err && err.error) errMsg = err.error
-                    } catch (e) {}
-                    appendMessage({
-                        role: "assistant",
-                        authorLabel: "KDE Assistant",
-                        content: "⚠ " + errMsg,
-                        timestamp: nowTime(),
-                        isStreaming: false,
-                        toolCalls: []
-                    })
+                    if (sawError && !rawText) rawText = "⚠ " + sawError
+                    streaming = false
+                    refreshUI(false)
                 }
             }
         }
@@ -151,7 +267,7 @@ ApplicationWindow {
                     arr.push({
                         role: m.role,
                         authorLabel: m.role === "user" ? "Tu" : "KDE Assistant",
-                        content: m.content,
+                        content: m.role === "assistant" ? markdownToHtml(m.content) : m.content,
                         timestamp: "",
                         isStreaming: false,
                         toolCalls: []
