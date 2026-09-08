@@ -169,6 +169,7 @@ impl AiService {
                 Message::Tool {
                     tool_call_id,
                     content,
+                    image_url: _,
                 } => OpenAIMessage {
                     role: "tool",
                     content: Some(content),
@@ -381,12 +382,14 @@ impl AiService {
                         .send(StreamEvent::ToolResult {
                             tool_call_id: result.tool_call_id.clone(),
                             content: result.content.clone(),
+                            image_url: result.image_url.clone(),
                         })
                         .await;
-                    messages.push(Message::Tool {
-                        tool_call_id: result.tool_call_id,
-                        content: result.content,
-                    });
+                    messages.push(Message::tool_with_image(
+                        result.tool_call_id,
+                        result.content,
+                        result.image_url,
+                    ));
                 }
                 continue; // siguiente iteracion
             }

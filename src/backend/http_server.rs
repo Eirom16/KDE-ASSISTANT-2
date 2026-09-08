@@ -267,6 +267,8 @@ pub struct MessagesQuery {
 pub struct MessageInfo {
     pub role: String,
     pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_url: Option<String>,
 }
 
 /// Lista los mensajes de una sesion.
@@ -283,10 +285,22 @@ async fn list_messages(
                     Message::User { content } => Some(MessageInfo {
                         role: "user".to_string(),
                         content,
+                        image_url: None,
                     }),
                     Message::Assistant { content, .. } => Some(MessageInfo {
                         role: "assistant".to_string(),
                         content,
+                        image_url: None,
+                    }),
+                    // Solo los tool con imagen interesan a la UI (para reinyectarlas)
+                    Message::Tool {
+                        content,
+                        image_url: Some(u),
+                        ..
+                    } => Some(MessageInfo {
+                        role: "tool".to_string(),
+                        content,
+                        image_url: Some(u),
                     }),
                     _ => None,
                 })
@@ -553,9 +567,10 @@ fn sse_event(ev: StreamEvent) -> (&'static str, String) {
         StreamEvent::ToolResult {
             tool_call_id,
             content,
+            image_url,
         } => (
             "tool_result",
-            serde_json::json!({ "tool_call_id": tool_call_id, "content": content }).to_string(),
+            serde_json::json!({ "tool_call_id": tool_call_id, "content": content, "image_url": image_url }).to_string(),
         ),
         StreamEvent::Done { full_content } => (
             "done",

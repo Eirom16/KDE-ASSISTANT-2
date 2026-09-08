@@ -179,6 +179,7 @@ ApplicationWindow {
                         if (toolArr[j].id === obj.tool_call_id) {
                             toolArr[j].status = "success"
                             toolArr[j].result = obj.content || ""
+                            if (obj.image_url) toolArr[j].imageUrl = obj.image_url
                             break
                         }
                     }
@@ -280,6 +281,21 @@ ApplicationWindow {
                 var arr = []
                 for (var i = 0; i < list.length; i++) {
                     var m = list[i]
+                    // Las imagenes (role tool con image_url) se adjuntan como
+                    // toolCalls del assistant anterior para que se vean en el chat
+                    if (m.role === "tool" && m.image_url) {
+                        for (var k = arr.length - 1; k >= 0; k--) {
+                            if (arr[k].role === "assistant") {
+                                arr[k].toolCalls.push({
+                                    id: "", name: "show_image", status: "success",
+                                    result: m.content || "", imageUrl: m.image_url, caption: ""
+                                })
+                                break
+                            }
+                        }
+                        continue
+                    }
+                    if (m.role !== "user" && m.role !== "assistant") continue
                     arr.push({
                         role: m.role,
                         authorLabel: m.role === "user" ? "Tu" : "KDE Assistant",

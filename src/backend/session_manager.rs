@@ -147,9 +147,9 @@ impl SessionManager {
     }
 
     pub fn add_message(&self, session_id: &str, message: &Message) -> Result<i64> {
-        let (role, content, tool_call_id, tool_result) = match message {
-            Message::System { content } => ("system", content.clone(), None, None),
-            Message::User { content } => ("user", content.clone(), None, None),
+        let (role, content, tool_call_id, tool_result, image_url) = match message {
+            Message::System { content } => ("system", content.clone(), None, None, None),
+            Message::User { content } => ("user", content.clone(), None, None, None),
             Message::Assistant {
                 content,
                 tool_calls,
@@ -161,20 +161,35 @@ impl SessionManager {
                 } else {
                     serde_json::to_string(tool_calls).ok()
                 };
-                ("assistant", content.clone(), None, tools_json)
+                ("assistant", content.clone(), None, tools_json, None)
             }
             Message::Tool {
                 tool_call_id,
                 content,
-            } => ("tool", content.clone(), Some(tool_call_id.clone()), None),
+                image_url,
+            } => (
+                "tool",
+                content.clone(),
+                Some(tool_call_id.clone()),
+                None,
+                image_url.clone(),
+            ),
         };
 
         let now = Utc::now().to_rfc3339();
 
         self.conn.execute(
-            "INSERT INTO messages (session_id, role, content, tool_call_id, tool_result, timestamp)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![session_id, role, content, tool_call_id, tool_result, now],
+            "INSERT INTO messages (session_id, role, content, tool_call_id, tool_result, image_url, timestamp)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                session_id,
+                role,
+                content,
+                tool_call_id,
+                tool_result,
+                image_url,
+                now
+            ],
         )?;
 
         let id = self.conn.last_insert_rowid();
@@ -184,7 +199,7 @@ impl SessionManager {
 
     pub fn get_messages(&self, session_id: &str) -> Result<Vec<Message>> {
         let mut stmt = self.conn.prepare(
-            "SELECT role, content, tool_call_id, tool_result FROM messages
+            "SELECT role, content, tool_call_id, tool_result, image_url FROM messages
              WHERE session_id = ?1 ORDER BY id ASC",
         )?;
 
@@ -193,12 +208,13 @@ impl SessionManager {
             let content: String = row.get(1)?;
             let tool_call_id: Option<String> = row.get(2)?;
             let tool_result: Option<String> = row.get(3)?;
-            Ok((role, content, tool_call_id, tool_result))
+            let image_url: Option<String> = row.get(4)?;
+            Ok((role, content, tool_call_id, tool_result, image_url))
         })?;
 
         let mut out = Vec::new();
         for r in rows {
-            let (role, content, tool_call_id, tool_result) = r?;
+            let (role, content, tool_call_id, tool_result, image_url) = r?;
             let msg = match role.as_str() {
                 "system" => Message::system(content),
                 "user" => Message::user(content),
@@ -209,9 +225,10 @@ impl SessionManager {
                         .unwrap_or_default();
                     Message::assistant_with_tools(content, tool_calls)
                 }
-                "tool" => Message::tool(
+                "tool" => Message::tool_with_image(
                     tool_call_id.unwrap_or_else(|| "unknown".to_string()),
                     content,
+                    image_url,
                 ),
                 _ => continue,
             };

@@ -63,8 +63,9 @@ async fn chat_with_openrouter() {
             StreamEvent::ToolResult {
                 tool_call_id,
                 content,
+                image_url,
             } => {
-                eprintln!("\n[tool_result] {tool_call_id} -> {content}");
+                eprintln!("\n[tool_result] {tool_call_id} -> {content} {image_url:?}");
             }
             StreamEvent::Done { full_content } => {
                 eprintln!("\n[done] len={}", full_content.len());

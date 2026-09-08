@@ -27,6 +27,10 @@ pub enum Message {
     Tool {
         tool_call_id: String,
         content: String,
+        /// URL/ruta local de imagen (solo show_image). Display-only:
+        /// no se envia a la API, solo a la UI y a SQLite.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image_url: Option<String>,
     },
 }
 
@@ -61,6 +65,19 @@ impl Message {
         Self::Tool {
             tool_call_id: tool_call_id.into(),
             content: content.into(),
+            image_url: None,
+        }
+    }
+
+    pub fn tool_with_image(
+        tool_call_id: impl Into<String>,
+        content: impl Into<String>,
+        image_url: Option<String>,
+    ) -> Self {
+        Self::Tool {
+            tool_call_id: tool_call_id.into(),
+            content: content.into(),
+            image_url,
         }
     }
 }
@@ -79,6 +96,8 @@ pub enum StreamEvent {
     ToolResult {
         tool_call_id: String,
         content: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image_url: Option<String>,
     },
 
     /// Stream completo
