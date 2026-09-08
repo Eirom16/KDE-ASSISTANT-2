@@ -152,11 +152,38 @@ fn main() -> Result<()> {
 
     // Start global hotkey listener (rdev, en thread separado)
     if !no_shortcuts {
-        let (action_tx, _action_rx) = tokio::sync::mpsc::channel::<
+        let (action_tx, mut action_rx) = tokio::sync::mpsc::channel::<
             kde_assistant_lib::backend::hotkey_listener::HotkeyAction,
         >(32);
         let _handle = kde_assistant_lib::backend::hotkey_listener::start_listener(action_tx);
-        log::info!("Global hotkey listener: Super+Shift+A (toggle), Super+Shift+V (PTT), Ctrl+Shift+K (new session)");
+        // Consumir acciones: PTT start/stop conectan con la grabacion real
+        let vp = backend.voice.clone();
+        runtime.spawn(async move {
+            use kde_assistant_lib::backend::hotkey_listener::HotkeyAction;
+            while let Some(action) = action_rx.recv().await {
+                match action {
+                    HotkeyAction::PushToTalkStart => {
+                        log::info!("PTT: inicio de grabacion");
+                        vp.start_listening();
+                    }
+                    HotkeyAction::PushToTalkEnd => {
+                        log::info!("PTT: fin de grabacion, procesando...");
+                        match vp.stop_and_process().await {
+                            Ok((t, r)) => {
+                                if !t.is_empty() {
+                                    log::info!("PTT: '{}' -> '{}'", t, truncate(&r, 80));
+                                } else {
+                                    log::info!("PTT: grabacion vacia");
+                                }
+                            }
+                            Err(e) => log::warn!("PTT: procesamiento fallo: {e}"),
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        });
+        log::info!("Global hotkey listener: Super+Shift+A (toggle), Super+Shift+V (PTT mantener), Ctrl+Shift+K (new session)");
     } else {
         log::info!("Global shortcuts deshabilitados (--no-shortcuts)");
     }

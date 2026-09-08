@@ -22,7 +22,8 @@ const DBUS_PATH: &str = "/Chat";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HotkeyAction {
     ToggleWindow,
-    PushToTalk,
+    PushToTalkStart,
+    PushToTalkEnd,
     NewSession,
 }
 
@@ -30,7 +31,8 @@ impl HotkeyAction {
     pub fn as_str(self) -> &'static str {
         match self {
             HotkeyAction::ToggleWindow => "toggle_window",
-            HotkeyAction::PushToTalk => "push_to_talk",
+            HotkeyAction::PushToTalkStart => "push_to_talk_start",
+            HotkeyAction::PushToTalkEnd => "push_to_talk_end",
             HotkeyAction::NewSession => "new_session",
         }
     }
@@ -41,6 +43,7 @@ static MOD_SUPER: AtomicBool = AtomicBool::new(false);
 static MOD_SHIFT: AtomicBool = AtomicBool::new(false);
 static MOD_CTRL: AtomicBool = AtomicBool::new(false);
 static MOD_ALT: AtomicBool = AtomicBool::new(false);
+static PTT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 pub fn start_listener(action_tx: mpsc::Sender<HotkeyAction>) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
@@ -59,6 +62,14 @@ pub fn start_listener(action_tx: mpsc::Sender<HotkeyAction>) -> std::thread::Joi
 }
 
 fn on_key(key: Key, pressed: bool, tx: &mpsc::Sender<HotkeyAction>) {
+    // Push-to-talk por release: si se suelta V mientras PTT estaba activo,
+    // terminar aunque los modificadores ya se hayan soltado.
+    if !pressed && matches!(key, Key::KeyV) && PTT_ACTIVE.load(Ordering::Relaxed) {
+        PTT_ACTIVE.store(false, Ordering::Relaxed);
+        emit_action(HotkeyAction::PushToTalkEnd, tx);
+        return;
+    }
+
     // Actualizar estado de modificadores
     match key {
         Key::MetaLeft | Key::MetaRight => MOD_SUPER.store(pressed, Ordering::Relaxed),
@@ -77,36 +88,48 @@ fn on_key(key: Key, pressed: bool, tx: &mpsc::Sender<HotkeyAction>) {
     let ctrl = MOD_CTRL.load(Ordering::Relaxed);
     let _alt = MOD_ALT.load(Ordering::Relaxed);
 
+    // Push-to-talk por press: Super+Shift+V mantenido inicia la grabacion.
+    if matches!(key, Key::KeyV) && super_ && shift {
+        if !PTT_ACTIVE.load(Ordering::Relaxed) {
+            PTT_ACTIVE.store(true, Ordering::Relaxed);
+            emit_action(HotkeyAction::PushToTalkStart, tx);
+        }
+        return;
+    }
+
     let action = match key {
         Key::KeyA if super_ && shift => Some(HotkeyAction::ToggleWindow),
-        Key::KeyV if super_ && shift => Some(HotkeyAction::PushToTalk),
         Key::KeyK if ctrl && shift => Some(HotkeyAction::NewSession),
         _ => None,
     };
 
     if let Some(action) = action {
-        log::info!("Global hotkey detectado: {action:?}");
-        // Emitir via DBus a la UI QML
-        let result = Command::new("dbus-send")
-            .args([
-                "--session",
-                "--type=signal",
-                "--dest=org.kde.assistant",
-                DBUS_PATH,
-                "org.kde.assistant.Chat.HotkeyTriggered",
-                &format!("string:{}", action.as_str()),
-            ])
-            .status();
-        if let Ok(s) = result {
-            if !s.success() {
-                log::debug!("No se pudo emitir HotkeyTriggered (UI no escuchando?)");
-            }
-        }
-        // Tambien escribir a un archivo de estado (para que QML lo lea)
-        write_hotkey_state(action);
-        // Tambien emitir al canal local
-        let _ = tx.try_send(action);
+        emit_action(action, tx);
     }
+}
+
+fn emit_action(action: HotkeyAction, tx: &mpsc::Sender<HotkeyAction>) {
+    log::info!("Global hotkey detectado: {action:?}");
+    // Emitir via DBus a la UI QML
+    let result = Command::new("dbus-send")
+        .args([
+            "--session",
+            "--type=signal",
+            "--dest=org.kde.assistant",
+            DBUS_PATH,
+            "org.kde.assistant.Chat.HotkeyTriggered",
+            &format!("string:{}", action.as_str()),
+        ])
+        .status();
+    if let Ok(s) = result {
+        if !s.success() {
+            log::debug!("No se pudo emitir HotkeyTriggered (UI no escuchando?)");
+        }
+    }
+    // Tambien escribir a un archivo de estado (para que QML lo lea)
+    write_hotkey_state(action);
+    // Tambien emitir al canal local
+    let _ = tx.try_send(action);
 }
 
 /// Escribe la accion de hotkey a un archivo de estado que QML puede leer.

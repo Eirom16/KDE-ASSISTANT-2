@@ -493,7 +493,9 @@ ApplicationWindow {
 
     // === Hotkey polling: lee ~/.cache/kde-assistant/hotkey.state ===
     // El backend Rust (rdev) escribe a este archivo cuando detecta
-    // Super+Shift+A (toggle), Super+Shift+V (PTT), Ctrl+Shift+K (new session)
+    // Super+Shift+A (toggle), Super+Shift+V mantenido (PTT start/end),
+    // Ctrl+Shift+K (new session). El backend ya graba/procesa el audio;
+    // aqui solo se refleja el estado visual (VoiceOrb).
     property string hotkeyStamp: ""
     property string lastHotkeyStamp: ""
     property string homePath: {
@@ -522,6 +524,10 @@ ApplicationWindow {
                             console.log("Hotkey recibido:", action)
                             if (action === "toggle_window") {
                                 root.visible = !root.visible
+                            } else if (action === "push_to_talk_start") {
+                                root.voiceState = "listening"
+                            } else if (action === "push_to_talk_end") {
+                                root.voiceState = "idle"
                             } else if (action === "push_to_talk") {
                                 root.voiceState = root.voiceState === "listening" ? "idle" : "listening"
                             } else if (action === "new_session") {
