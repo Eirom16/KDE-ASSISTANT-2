@@ -65,7 +65,12 @@ fn default_max_iterations() -> u32 {
 impl AiConfig {
     /// Normaliza el proveedor ("", mayusculas, etc.) a un id conocido.
     pub fn provider_id(&self) -> &str {
-        match self.provider.trim().to_lowercase().as_str() {
+        Self::normalize_provider_id(&self.provider)
+    }
+
+    /// Version estatica para normalizar valores que vienen de fuera (ej. requests HTTP).
+    pub fn normalize_provider_id(s: &str) -> &'static str {
+        match s.trim().to_lowercase().as_str() {
             "groq" => "groq",
             "openai" => "openai",
             "custom" | "personalizado" => "custom",

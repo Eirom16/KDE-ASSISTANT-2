@@ -81,6 +81,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/session", post(create_session))
         .route("/api/messages", get(list_messages))
         .route("/api/config", get(get_config).post(update_config))
+        .route("/api/ai-models", post(list_ai_models))
         .with_state(state)
 }
 
@@ -89,7 +90,6 @@ async fn get_config(State(state): State<AppState>) -> impl IntoResponse {
     let cfg = state.config.read().await.clone();
     Json(cfg).into_response()
 }
-
 /// Actualiza la configuracion y la persiste en config.json.
 async fn update_config(
     State(state): State<AppState>,
@@ -105,6 +105,137 @@ async fn update_config(
             Json(serde_json::json!({ "error": e.to_string() })),
         ),
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AiModelsRequest {
+    #[serde(default)]
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub provider: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AiModelsResponse {
+    pub models: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Modelos que claramente no son de chat (audio, embeddings, imagen, moderacion).
+fn is_non_chat_model(id: &str) -> bool {
+    let lower = id.to_lowercase();
+    [
+        "whisper",
+        "tts",
+        "embed",
+        "moderation",
+        "guard",
+        "dall-e",
+        "dall·e",
+    ]
+    .iter()
+    .any(|k| lower.contains(k))
+}
+
+/// Lista los modelos que ofrece la API del proveedor (`GET {base}/models`).
+/// Acepta overrides opcionales para probar credenciales sin guardar.
+/// Siempre responde 200 con `{models, error?}` para que la UI lo parsee facil.
+async fn list_ai_models(
+    State(state): State<AppState>,
+    Json(body): Json<AiModelsRequest>,
+) -> impl IntoResponse {
+    use crate::models::AiConfig;
+
+    let cfg = state.config.read().await.clone();
+    let provider_id: String = match body.provider.as_deref().map(str::trim) {
+        Some(s) if !s.is_empty() => AiConfig::normalize_provider_id(s).to_string(),
+        _ => cfg.ai.provider_id().to_string(),
+    };
+    let provider_name = AiConfig::provider_name(&provider_id);
+
+    let base_url = match body.base_url.as_deref().map(str::trim) {
+        Some(u) if !u.is_empty() => u.to_string(),
+        _ => cfg.ai.base_url.clone(),
+    };
+    let api_key = match body.api_key.as_deref().map(str::trim) {
+        Some(k) if !k.is_empty() => k.to_string(),
+        _ => cfg.ai.effective_api_key(),
+    };
+    if api_key.trim().is_empty() {
+        let env_var = AiConfig::provider_env_var(&provider_id);
+        return Json(AiModelsResponse {
+            models: vec![],
+            error: Some(format!("Falta API key (campo o variable {env_var})")),
+        });
+    }
+
+    let url = format!("{}/models", base_url.trim_end_matches('/'));
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .user_agent("KDE-Assistant/2.0")
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return Json(AiModelsResponse {
+                models: vec![],
+                error: Some(format!("No se pudo crear cliente HTTP: {e}")),
+            })
+        }
+    };
+
+    let response = match client
+        .get(&url)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return Json(AiModelsResponse {
+                models: vec![],
+                error: Some(format!("No se pudo contactar {provider_name}: {e}")),
+            })
+        }
+    };
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        let snippet: String = body.chars().take(200).collect();
+        return Json(AiModelsResponse {
+            models: vec![],
+            error: Some(format!("{provider_name} {status}: {snippet}")),
+        });
+    }
+
+    let json: serde_json::Value = match response.json().await {
+        Ok(v) => v,
+        Err(e) => {
+            return Json(AiModelsResponse {
+                models: vec![],
+                error: Some(format!("Respuesta inesperada de {provider_name}: {e}")),
+            })
+        }
+    };
+    let mut models: Vec<String> = json
+        .get("data")
+        .and_then(|d| d.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| m.get("id").and_then(|id| id.as_str()).map(str::to_string))
+                .filter(|id| !is_non_chat_model(id))
+                .collect()
+        })
+        .unwrap_or_default();
+    models.sort();
+    models.dedup();
+    Json(AiModelsResponse {
+        models,
+        error: None,
+    })
 }
 
 #[derive(Debug, Deserialize)]

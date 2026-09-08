@@ -32,6 +32,7 @@ Rectangle {
     // Backend
     property string backendUrl: "http://127.0.0.1:8765"
     property var rawConfig: ({})   // config completa cargada del backend
+    property var modelList: []     // modelos ofrecidos por la API
 
     signal closed()
     signal saved()
@@ -99,9 +100,47 @@ Rectangle {
                 modelField.value = root.model
                 piperField.value = root.piperModel
                 speedSlider.value = root.piperLengthScale
+                // Listar lo que ofrece la API (usa la key recien cargada)
+                fetchModels()
             }
         }
         xhr.send()
+    }
+
+    // Pide al backend la lista de modelos de la API (usa los campos actuales,
+    // sin necesidad de haber guardado). Rellena el desplegable.
+    function fetchModels() {
+        modelHint.text = qsTr("Cargando modelos…")
+        var xhr = new XMLHttpRequest()
+        xhr.open("POST", backendUrl + "/api/ai-models")
+        xhr.setRequestHeader("Content-Type", "application/json")
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+                if (xhr.status === 200) {
+                    try {
+                        var resp = JSON.parse(xhr.responseText)
+                        var list = resp.models || []
+                        root.modelList = list
+                        if (list.length > 0) {
+                            modelHint.text = qsTr("%n modelo(s) disponibles", "", list.length)
+                        } else if (resp.error) {
+                            modelHint.text = resp.error
+                        } else {
+                            modelHint.text = qsTr("La API no devolvio modelos")
+                        }
+                    } catch (e) {
+                        modelHint.text = qsTr("Respuesta invalida del servidor")
+                    }
+                } else {
+                    modelHint.text = qsTr("No se pudo contactar al backend")
+                }
+            }
+        }
+        xhr.send(JSON.stringify({
+            base_url: baseUrlField.value,
+            api_key: apiKeyField.value,
+            provider: root.provider
+        }))
     }
 
     // Guarda la config en el backend (lee los campos por id)
@@ -228,6 +267,7 @@ Rectangle {
                             onClicked: {
                                 root.provider = "openrouter"
                                 baseUrlField.value = providerBaseUrl("openrouter")
+                                if (apiKeyField.value !== "") fetchModels()
                             }
                         }
                         PillButton {
@@ -236,6 +276,7 @@ Rectangle {
                             onClicked: {
                                 root.provider = "groq"
                                 baseUrlField.value = providerBaseUrl("groq")
+                                if (apiKeyField.value !== "") fetchModels()
                             }
                         }
                         PillButton {
@@ -244,6 +285,7 @@ Rectangle {
                             onClicked: {
                                 root.provider = "openai"
                                 baseUrlField.value = providerBaseUrl("openai")
+                                if (apiKeyField.value !== "") fetchModels()
                             }
                         }
                         PillButton {
@@ -273,6 +315,82 @@ Rectangle {
                         Layout.fillWidth: true
                         label: qsTr("Modelo")
                         placeholder: modelPlaceholder()
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingXs
+
+                        ComboBox {
+                            id: modelPicker
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 36
+                            model: [qsTr("Elegir de la API…")].concat(root.modelList)
+                            font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
+                            onActivated: function(index) {
+                                if (index > 0) {
+                                    modelField.value = modelPicker.currentText
+                                    modelPicker.currentIndex = 0
+                                }
+                            }
+                            background: Rectangle {
+                                radius: Theme.radiusMd
+                                color: modelPicker.hovered || modelPicker.activeFocus ? Theme.surface : Theme.surfacePearl
+                                border.width: 1
+                                border.color: modelPicker.activeFocus ? Theme.primary : Theme.hairline
+                            }
+                            contentItem: Text {
+                                leftPadding: Theme.spacingMd
+                                rightPadding: Theme.spacingMd
+                                verticalAlignment: Text.AlignVCenter
+                                text: modelPicker.currentIndex <= 0 ? qsTr("Elegir de la API…") : modelPicker.currentText
+                                font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
+                                color: modelPicker.currentIndex <= 0 ? Theme.inkMuted : Theme.ink
+                                elide: Text.ElideRight
+                            }
+                            popup: Popup {
+                                y: modelPicker.height
+                                width: modelPicker.width
+                                padding: 4
+                                background: Rectangle {
+                                    color: Theme.surface
+                                    border.color: Theme.hairline
+                                    border.width: 1
+                                    radius: Theme.radiusMd
+                                }
+                                contentItem: ListView {
+                                    clip: true
+                                    implicitHeight: Math.min(contentHeight, 280)
+                                    model: modelPicker.popup.visible ? modelPicker.delegateModel : null
+                                    currentIndex: modelPicker.highlightedIndex
+                                    ScrollIndicator.vertical: ScrollIndicator { }
+                                }
+                            }
+                            delegate: ItemDelegate {
+                                width: modelPicker.width
+                                text: modelData
+                                font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
+                                highlighted: modelPicker.highlightedIndex === index
+                            }
+                        }
+
+                        IconButton {
+                            iconName: "sync-16"
+                            iconSize: 18
+                            buttonSize: 36
+                            backgroundColor: Theme.surfacePearl
+                            iconColor: Theme.ink
+                            onClicked: fetchModels()
+                        }
+                    }
+
+                    Text {
+                        id: modelHint
+                        text: ""
+                        font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                        color: Theme.inkMuted
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
                     }
 
                     SettingsToggle {

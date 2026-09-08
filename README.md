@@ -185,6 +185,7 @@ La UI QML se comunica con el backend Rust via este servidor HTTP:
 | `GET`  | `/api/sessions`      | Lista sesiones |
 | `POST` | `/api/session`       | Crea sesión (body: `{"title":"..."}`) |
 | `GET`  | `/api/messages?session_id=X` | Mensajes de una sesión |
+| `POST` | `/api/ai-models` | Lista modelos de la API (`{base_url?, api_key?, provider?}`) |
 
 ## Estado
 
