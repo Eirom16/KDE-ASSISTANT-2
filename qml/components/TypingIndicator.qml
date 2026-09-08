@@ -27,7 +27,6 @@ Item {
                 height: width
                 radius: width / 2
                 color: root.color
-                opacity: active ? opacity1.value : 0.0
 
                 SequentialAnimation on opacity {
                     id: opacity1

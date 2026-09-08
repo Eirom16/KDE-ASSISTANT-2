@@ -339,15 +339,9 @@ Rectangle {
                                 border.width: 1
                                 border.color: modelPicker.activeFocus ? Theme.primary : Theme.hairline
                             }
-                            contentItem: Text {
-                                leftPadding: Theme.spacingMd
-                                rightPadding: Theme.spacingMd
-                                verticalAlignment: Text.AlignVCenter
-                                text: modelPicker.currentIndex <= 0 ? qsTr("Elegir de la API…") : modelPicker.currentText
-                                font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
-                                color: modelPicker.currentIndex <= 0 ? Theme.inkMuted : Theme.ink
-                                elide: Text.ElideRight
-                            }
+                            // NOTA: sin contentItem personalizado; el estilo del
+                            // sistema (Breeze) espera un TextInput con
+                            // positionToRectangle() y rompe con un Text plano.
                             popup: Popup {
                                 y: modelPicker.height
                                 width: modelPicker.width
