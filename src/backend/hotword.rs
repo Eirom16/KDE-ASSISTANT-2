@@ -1,21 +1,21 @@
-//! Hotword Detector - Deteccion de wake word "Hey KDE"
+//! Hotword Detector - Deteccion de wake word ("hey jarvis" via ML, fallback heuristico)
 //!
-//! Implementacion simple basada en energia + zero-crossing rate (ZCR).
+//! Dos niveles:
+//! 1. **ML (openWakeWord ONNX)**: preciso, <0.5 falsos positivos/hora.
+//!    Requiere libonnxruntime.so + los 3 modelos en
+//!    `~/.local/share/kde-assistant/models/wakeword/` (auto-descarga).
+//! 2. **Heuristico (energia + ZCR)**: fallback ligero si el ML no esta disponible.
 //!
-//! NOTA: Para una deteccion robusta en produccion se deberia usar un modelo ML
-//! (ONNX openWakeWord, ~50MB). Aqui proveemos una alternativa ligera:
-//! - Detecta picos de energia sostenida (voz presente)
-//! - Heuristica de "dos silabas" (Hey = fuerte pausa KDE = fuerte)
-//! - Retorna eventos cuando se cumplen los patrones
-//!
-//! Para activar ML real, descomentar la seccion ONNX abajo y descargar
-//! un modelo wake word compatible.
+//! El audio de entrada puede venir a cualquier sample rate; para el ML se
+//! remuestrea a 16kHz mono (requerido por openWakeWord).
 
 use anyhow::Result;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, RwLock};
 
+use crate::backend::audio_capture::resample_to_16k;
+use crate::backend::wakeword_ml::OwwDetector;
 use crate::models::Config;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -29,18 +29,54 @@ pub struct HotwordDetector {
     pub cooldown_ms: u32,
     last_detected_ms: Arc<AtomicU32>,
     running: Arc<AtomicBool>,
+    ml: Arc<Mutex<Option<OwwDetector>>>,
+    src_rate: Arc<AtomicU32>,
+    pending_16k: Arc<Mutex<Vec<f32>>>,
 }
 
 impl HotwordDetector {
     pub async fn new(config: Arc<RwLock<Config>>) -> Result<Self> {
         let cfg = config.read().await.clone();
-        Ok(Self {
+        let det = Self {
             config,
             threshold: cfg.speech.wake_word_threshold,
             cooldown_ms: 2000,
             last_detected_ms: Arc::new(AtomicU32::new(0)),
             running: Arc::new(AtomicBool::new(false)),
-        })
+            ml: Arc::new(Mutex::new(None)),
+            src_rate: Arc::new(AtomicU32::new(0)),
+            pending_16k: Arc::new(Mutex::new(Vec::new())),
+        };
+        // Intentar cargar el modelo ML (no bloquea el arranque si falla)
+        det.try_load_ml();
+        Ok(det)
+    }
+
+    /// Intenta cargar el detector ML. Si falla, se usa el heuristico.
+    pub fn try_load_ml(&self) {
+        let models_dir = match dirs::data_local_dir() {
+            Some(d) => d.join("kde-assistant/models/wakeword"),
+            None => return,
+        };
+        match OwwDetector::new(&models_dir, self.threshold) {
+            Ok(ml) => {
+                *self.ml.lock().unwrap() = Some(ml);
+                log::info!("HotwordDetector: ML openWakeWord (hey jarvis) activo");
+            }
+            Err(e) => {
+                log::warn!("HotwordDetector: ML no disponible ({e}); usando heuristico");
+            }
+        }
+    }
+
+    /// Indica si el detector ML esta activo.
+    pub fn ml_active(&self) -> bool {
+        self.ml.lock().unwrap().is_some()
+    }
+
+    /// Registra el sample rate de la captura (para remuestrear a 16kHz).
+    pub fn set_sample_rate(&self, rate: u32) {
+        self.src_rate.store(rate, Ordering::Relaxed);
     }
 
     pub fn set_threshold(&mut self, threshold: f32) {
@@ -86,7 +122,8 @@ impl HotwordDetector {
     }
 
     /// Inicia loop de deteccion en background. Recibe un canal de audio
-    /// (samples f32) y envia eventos al `event_tx`.
+    /// (samples f32 mono a la tasa de la captura) y envia eventos al `event_tx`.
+    /// Usa el modelo ML si esta disponible, si no el heuristico.
     pub async fn start(
         &self,
         mut audio_rx: mpsc::Receiver<Vec<f32>>,
@@ -101,6 +138,16 @@ impl HotwordDetector {
         let running = self.running.clone();
         // Umbral de confianza (0.0-1.0). Mayor valor => mayor exigencia.
         let confidence = self.threshold.clamp(0.1, 0.95);
+        let ml = self.ml.clone();
+        let src_rate = self.src_rate.clone();
+        let pending_16k = self.pending_16k.clone();
+
+        // Avisar que motor se usa
+        if ml.lock().unwrap().is_some() {
+            log::info!("HotwordDetector: usando ML openWakeWord (hey jarvis)");
+        } else {
+            log::info!("HotwordDetector: usando heuristico energia+ZCR");
+        }
 
         tokio::spawn(async move {
             let mut consecutive_speech_frames = 0u32;
@@ -115,6 +162,52 @@ impl HotwordDetector {
                     break;
                 }
 
+                // --- Ruta ML (si disponible) ---
+                if ml.lock().unwrap().is_some() {
+                    let rate = src_rate.load(Ordering::Relaxed).max(1);
+                    let chunk_16k = resample_to_16k(&frame, rate);
+                    // Extraer bloques completos de 1280 samples (sin mantener el lock)
+                    let blocks: Vec<Vec<f32>> = {
+                        let mut pend = pending_16k.lock().unwrap();
+                        pend.extend_from_slice(&chunk_16k);
+                        let mut blocks = Vec::new();
+                        while pend.len() >= 1280 {
+                            blocks.push(pend.drain(..1280).collect());
+                        }
+                        blocks
+                    };
+                    // Inferencia ML (sin awaits dentro del lock)
+                    let mut best: Option<f32> = None;
+                    {
+                        let mut guard = ml.lock().unwrap();
+                        if let Some(det) = guard.as_mut() {
+                            for block in &blocks {
+                                match det.feed(block) {
+                                    Ok(Some(s)) => best = Some(best.map_or(s, |b: f32| b.max(s))),
+                                    Ok(None) => {}
+                                    Err(e) => log::warn!("wakeword ML: {e}"),
+                                }
+                            }
+                        }
+                    }
+                    // Decidir con cooldown (aqui si hay awaits, sin locks activos)
+                    if let Some(s) = best {
+                        let now_ms = chrono::Utc::now().timestamp_millis() as u32;
+                        let last = last_detected.load(Ordering::Relaxed);
+                        if s >= confidence && now_ms.saturating_sub(last) >= cooldown {
+                            last_detected.store(now_ms, Ordering::Relaxed);
+                            log::info!("Wake word ML detectado (score={s:.2})");
+                            if event_tx.send(HotwordEvent::Detected).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    // Limitar CPU: 10ms entre frames
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    continue;
+                }
+
+                // --- Ruta heuristica (fallback) ---
                 let now_ms = chrono::Utc::now().timestamp_millis() as u32;
                 let last = last_detected.load(Ordering::Relaxed);
                 if now_ms.saturating_sub(last) < cooldown {
@@ -211,6 +304,9 @@ mod tests {
             cooldown_ms: 2000,
             last_detected_ms: Arc::new(AtomicU32::new(0)),
             running: Arc::new(AtomicBool::new(false)),
+            ml: Arc::new(Mutex::new(None)),
+            src_rate: Arc::new(AtomicU32::new(16000)),
+            pending_16k: Arc::new(Mutex::new(Vec::new())),
         };
         // Frame con onda senoidal realista
         let frame: Vec<f32> = (0..512).map(|i| (i as f32 * 0.05).sin() * 0.2).collect();

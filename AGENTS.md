@@ -155,9 +155,15 @@ src/
 │   ├── tool_executor.rs      # Ejecucion segura de herramientas
 │   ├── session_manager.rs    # SQLite CRUD (sessions, messages)
 │   ├── speech_service.rs     # STT (whisper-rs) + TTS (piper-tts)
+│   ├── stt.rs                # WhisperEngine (lazy load ggml-base.bin)
+│   ├── voice_pipeline.rs     # Orquesta STT -> LLM -> TTS + buffer grabacion
+│   ├── model_downloader.rs   # Descarga automatica de modelos (whisper/piper/oww)
+│   ├── wakeword_ml.rs        # openWakeWord ONNX (hey jarvis) via ort load-dynamic
 │   ├── audio_capture.rs      # cpal input + VAD + nivel de amplitud
 │   ├── chime_player.rs       # rodio playback de chimes
-│   ├── hotword.rs            # Wake word ONNX
+│   ├── hotword.rs            # Wake word ML (con fallback heuristico energia+ZCR)
+│   ├── hotkey_listener.rs    # Atajos globales via rdev (PTT press/release)
+│   ├── http_server.rs        # API HTTP local para la UI QML (chat/sessions/config)
 │   └── kde_integration.rs    # DBus, tray, atajos, KWin
 └── models/
     ├── mod.rs                # Re-exports
@@ -275,7 +281,7 @@ cargo build --release
 - **"Qt platform plugin could not be initialized"** — Instalar `qt6-wayland` o variables `QT_QPA_PLATFORM=wayland`/`xcb`.
 - **"libonnxruntime not found"** — Instalar paquete `onnxruntime` del sistema.
 - **Whisper model no descargado** — Descarga manual desde HuggingFace o esperar primer arranque (descarga automatica).
-- **Wake word no detecta** — Verificar que el modelo ONNX existe en `assets/models/wake_word.onnx`. Verificar umbral (bajar de 0.8 si es muy estricto).
+- **Wake Word no detecta** — Verificar que los 3 modelos ONNX existen en `~/.local/share/kde-assistant/models/wakeword/` (hey_jarvis_v0.1.onnx, melspectrogram.onnx, embedding_model.onnx). Verificar `libonnxruntime.so` (pacman -S onnxruntime o ORT_DYLIB_PATH). Verificar umbral `wake_word_threshold` (default 0.8; bajar si es muy estricto, subir si hay falsos positivos).
 - **Tool call no ejecuta** — Verificar que `enableToolCalling: true` en config y que la API key tiene acceso a modelos con tool calling.
 - **TTS suena robotico** — Asegurarse de que `piper-tts` esta instalado (no espeak-ng). En Arch: `sudo pacman -S piper-tts`. Descargar un modelo neural de https://huggingface.co/rhasspy/piper-voices (ej. `es_ES-sharvard-medium`) a `~/.local/share/kde-assistant/models/piper/`.
 - **"piper-tts no encontrado"** — Verificar `which piper-tts`. Si no esta, instalar con el gestor de paquetes o descargar binario desde https://github.com/rhasspy/piper/releases.

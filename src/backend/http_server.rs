@@ -269,7 +269,9 @@ async fn create_session(
     Json(body): Json<CreateSessionRequest>,
 ) -> impl IntoResponse {
     let sessions = state.sessions.lock().unwrap();
-    let title = body.title.unwrap_or_else(|| "Nueva conversación".to_string());
+    let title = body
+        .title
+        .unwrap_or_else(|| "Nueva conversación".to_string());
     match sessions.create_session(title) {
         Ok(s) => (
             StatusCode::CREATED,
@@ -304,9 +306,7 @@ async fn chat(
     let tools_exec = state.tools.clone();
     let tools = tool_registry::all_tools();
     let msgs = messages.clone();
-    let agent_task = tokio::spawn(async move {
-        ai.run_agent(msgs, tools, tools_exec, tx).await
-    });
+    let agent_task = tokio::spawn(async move { ai.run_agent(msgs, tools, tools_exec, tx).await });
 
     // Persistir el mensaje del usuario
     if let Some(sid) = &req.session_id {
@@ -363,7 +363,10 @@ fn sse_event(ev: StreamEvent) -> (&'static str, String) {
             "token",
             serde_json::json!({ "content": content }).to_string(),
         ),
-        StreamEvent::ToolCall { tool } => ("tool_call", serde_json::to_string(&tool).unwrap_or_default()),
+        StreamEvent::ToolCall { tool } => (
+            "tool_call",
+            serde_json::to_string(&tool).unwrap_or_default(),
+        ),
         StreamEvent::ToolResult {
             tool_call_id,
             content,
@@ -384,9 +387,10 @@ fn sse_event(ev: StreamEvent) -> (&'static str, String) {
 
 /// Convierte un mpsc::Receiver en un Stream.
 fn stream_from_receiver(rx: mpsc::Receiver<StreamEvent>) -> impl Stream<Item = StreamEvent> {
-    futures_util::stream::unfold(rx, |mut rx| async move {
-        rx.recv().await.map(|ev| (ev, rx))
-    })
+    futures_util::stream::unfold(
+        rx,
+        |mut rx| async move { rx.recv().await.map(|ev| (ev, rx)) },
+    )
 }
 
 fn truncate(s: &str, max: usize) -> String {

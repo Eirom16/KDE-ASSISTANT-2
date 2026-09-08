@@ -17,6 +17,7 @@ pub mod tool_executor;
 pub mod tool_registry;
 pub mod tts;
 pub mod voice_pipeline;
+pub mod wakeword_ml;
 
 use anyhow::Result;
 use std::sync::atomic::Ordering;
@@ -157,6 +158,7 @@ impl Backend {
         })?;
 
         // Registrar sample rate de la captura en el buffer de grabacion
+        // y en el detector de wake word (para remuestrear a 16kHz)
         let sr = cap.sample_rate;
         self.voice
             .buffer
@@ -164,6 +166,7 @@ impl Backend {
             .unwrap()
             .sample_rate
             .store(sr, Ordering::SeqCst);
+        self.hotword.set_sample_rate(sr);
 
         *self.audio.write().await = Some(cap);
 

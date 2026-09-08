@@ -7,7 +7,7 @@ Asistente de escritorio para KDE Plasma Linux con estetica Apple Design (Cuperti
 - **Backend:** Rust + Tokio
 - **UI:** Qt 6 / QML (lanzada via `qml6`)
 - **AI:** OpenRouter API (compatible con OpenAI, tool calling, SSE streaming)
-- **Voz:** whisper-rs (STT local) + piper-tts (TTS neural ONNX) + wake word
+- **Voz:** whisper-rs (STT local) + piper-tts (TTS neural ONNX) + wake word ML (openWakeWord "hey jarvis")
 - **DB:** SQLite (rusqlite)
 - **Iconos:** GitHub Primer Octicons
 
@@ -118,6 +118,16 @@ El reconocimiento de voz usa **whisper-rs** local con modelo `ggml-base.bin` (~1
 ### Descarga automatica de modelos
 `model_downloader.rs` descarga los modelos que falten (whisper, piper) al iniciar, con progreso y verificacion sha256. La primera ejecucion puede tardar unos minutos en descargar ~200MB.
 
+### Wake word ("hey jarvis", ML)
+La deteccion usa el modelo openWakeWord `hey_jarvis_v0.1.onnx` (~1.3MB) mas `melspectrogram.onnx` y `embedding_model.onnx` (~2.3MB). Se descargan automaticamente a `~/.local/share/kde-assistant/models/wakeword/`.
+
+Requiere `libonnxruntime.so` en el sistema. Opciones:
+- `sudo pacman -S onnxruntime` (recomendado, Arch/CachyOS)
+- O se autodetecta desde el paquete python `onnxruntime`
+- O define `ORT_DYLIB_PATH` con la ruta a la libreria
+
+Di "hey jarvis" para activar la escucha. Umbral configurable en `speech.wake_word_threshold` (default 0.8).
+
 Probar el pipeline completo: `cargo run --bin test_stt` (TTS -> STT round-trip)
 
 ## Atajos globales
@@ -174,4 +184,5 @@ La UI QML se comunica con el backend Rust via este servidor HTTP:
 - **Fase 6:** KDE Integration (System Tray, rdev hotkeys, DBus) ✓
 - **Fase 7:** Pipeline de voz (descarga de modelos + STT + TTS + wake word) ✓
 - **Fase 8:** IPC QML ↔ Backend via HTTP local (chat funcional) ✓
-- **Pendiente:** wake word ML, push-to-talk real, persistencia de Settings
+- **Fase 9:** Wake word ML openWakeWord ("hey jarvis") ✓
+- **Nota:** push-to-talk (press/release) y persistencia de Settings ya implementados en fases previas

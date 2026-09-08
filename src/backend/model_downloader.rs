@@ -208,6 +208,24 @@ pub fn required_models() -> Vec<ModelSpec> {
             rel_path: "piper/es_ES-sharvard-medium.onnx.json",
             sha256: None,
         },
+        ModelSpec {
+            name: "oww-hey-jarvis",
+            url: "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/hey_jarvis_v0.1.onnx",
+            rel_path: "wakeword/hey_jarvis_v0.1.onnx",
+            sha256: None,
+        },
+        ModelSpec {
+            name: "oww-melspectrogram",
+            url: "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/melspectrogram.onnx",
+            rel_path: "wakeword/melspectrogram.onnx",
+            sha256: None,
+        },
+        ModelSpec {
+            name: "oww-embedding",
+            url: "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.onnx",
+            rel_path: "wakeword/embedding_model.onnx",
+            sha256: None,
+        },
     ]
 }
 

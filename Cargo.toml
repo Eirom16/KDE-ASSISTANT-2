@@ -45,6 +45,12 @@ hound = "3.5"
 # STT (whisper-rs, requiere cmake + clang para compilar whisper.cpp)
 whisper-rs = "0.16"
 
+# Wake word ML (openWakeWord via ONNX Runtime, carga dinamica en runtime)
+# Requiere libonnxruntime.so en el sistema (pacman -S onnxruntime)
+# o se autodetecta desde el paquete python onnxruntime.
+ort = { version = "2.0.0-rc.13", default-features = false, features = ["load-dynamic", "std"] }
+ndarray = "0.16"
+
 # Utilities
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }

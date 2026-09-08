@@ -104,7 +104,9 @@ fn main() -> Result<()> {
             }
         })
     } else {
-        log::info!("Wake word desactivado por configuracion. Usa el InputBar para escribir mensajes.");
+        log::info!(
+            "Wake word desactivado por configuracion. Usa el InputBar para escribir mensajes."
+        );
         None
     };
 

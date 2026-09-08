@@ -76,8 +76,8 @@ pub struct SpeechConfig {
     #[serde(default = "default_threshold")]
     pub wake_word_threshold: f32,
     /// Habilita la deteccion automatica del wake word al iniciar.
-    /// Si es false, el usuario debe activarlo manualmente.
-    #[serde(default)]
+    /// Con el modelo ML (hey jarvis) la tasa de falsos positivos es <0.5/hora.
+    #[serde(default = "default_true")]
     pub wake_word_enabled: bool,
     #[serde(default)]
     pub auto_speak: bool,
@@ -109,7 +109,7 @@ fn default_length_scale() -> f32 {
     1.0
 }
 fn default_wake_word() -> String {
-    "hey kde".to_string()
+    "hey jarvis".to_string()
 }
 fn default_threshold() -> f32 {
     0.8
@@ -256,7 +256,7 @@ impl Config {
                 piper_speaker: 0,
                 wake_word: default_wake_word(),
                 wake_word_threshold: default_threshold(),
-                wake_word_enabled: false,  // desactivado por defecto (falsos positivos con ruido)
+                wake_word_enabled: true, // ML hey_jarvis activo por defecto
                 auto_speak: false,
                 chimes_enabled: true,
                 wake_word_model_path: default_wake_word_model_path(),
