@@ -115,7 +115,7 @@ fn emit_action(action: HotkeyAction, tx: &mpsc::Sender<HotkeyAction>) {
         .args([
             "--session",
             "--type=signal",
-            "--dest=org.kde.assistant",
+            &format!("--dest={DBUS_DEST}"),
             DBUS_PATH,
             "org.kde.assistant.Chat.HotkeyTriggered",
             &format!("string:{}", action.as_str()),
