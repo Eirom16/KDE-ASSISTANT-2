@@ -78,7 +78,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/chat", post(chat))
         .route("/api/chat/complete", post(chat_complete))
         .route("/api/sessions", get(list_sessions))
-        .route("/api/session", post(create_session))
+        .route("/api/session", post(create_session).delete(delete_session))
         .route("/api/messages", get(list_messages))
         .route("/api/config", get(get_config).post(update_config))
         .route("/api/ai-models", post(list_ai_models))
@@ -239,6 +239,26 @@ async fn list_ai_models(
 }
 
 #[derive(Debug, Deserialize)]
+pub struct DeleteSessionQuery {
+    pub session_id: String,
+}
+
+/// Elimina una sesion y sus mensajes.
+async fn delete_session(
+    State(state): State<AppState>,
+    Query(q): Query<DeleteSessionQuery>,
+) -> impl IntoResponse {
+    let sessions = state.sessions.lock().unwrap();
+    match sessions.delete_session(&q.session_id) {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "status": "ok" }))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ),
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub struct MessagesQuery {
     pub session_id: String,
 }
@@ -344,6 +364,7 @@ async fn chat_complete(
     if let Some(sid) = &req.session_id {
         let sessions = state.sessions.lock().unwrap();
         let _ = sessions.add_message(sid, &Message::user(req.message.clone()));
+        maybe_auto_title(&sessions, sid, &req.message);
         let _ = sessions.add_message(sid, &Message::assistant(response.clone()));
     }
 
@@ -443,6 +464,7 @@ async fn chat(
     if let Some(sid) = &req.session_id {
         let sessions = state.sessions.lock().unwrap();
         let _ = sessions.add_message(sid, &Message::user(req.message.clone()));
+        maybe_auto_title(&sessions, sid, &req.message);
     }
 
     // Convertir el receiver a stream SSE
@@ -467,6 +489,36 @@ async fn chat(
     });
 
     Sse::new(sse_stream).keep_alive(KeepAlive::default())
+}
+
+/// Si la sesion aun tiene el titulo por defecto, lo reemplaza por el
+/// inicio del primer mensaje del usuario (max ~8 palabras / 42 chars).
+fn maybe_auto_title(
+    sessions: &std::sync::MutexGuard<SessionManager>,
+    session_id: &str,
+    user_text: &str,
+) {
+    let is_default = sessions
+        .get_session(session_id)
+        .ok()
+        .flatten()
+        .map(|s| {
+            let t = s.title.trim().to_string();
+            t == "Nueva conversación" || t == "New conversation" || t.is_empty()
+        })
+        .unwrap_or(false);
+    if !is_default {
+        return;
+    }
+    let title: String = user_text
+        .split_whitespace()
+        .take(8)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let title: String = title.chars().take(42).collect();
+    if !title.trim().is_empty() {
+        let _ = sessions.update_session_title(session_id, title.trim());
+    }
 }
 
 async fn build_messages(state: &AppState, req: &ChatRequest) -> Vec<Message> {

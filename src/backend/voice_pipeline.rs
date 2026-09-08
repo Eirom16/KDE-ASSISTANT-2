@@ -123,6 +123,27 @@ impl VoicePipeline {
         self.buffer.lock().unwrap().len()
     }
 
+    /// Sample rate de la captura actual (0 si no hay).
+    pub fn sample_rate(&self) -> u32 {
+        self.buffer
+            .lock()
+            .unwrap()
+            .sample_rate
+            .load(Ordering::Relaxed)
+    }
+
+    /// RMS de los ultimos `n` samples grabados (0.0 si no hay).
+    /// Sirve para detectar silencio y cortar la grabacion antes del maximo.
+    pub fn recent_rms(&self, n: usize) -> f32 {
+        let buf = self.buffer.lock().unwrap();
+        if buf.samples.is_empty() {
+            return 0.0;
+        }
+        let start = buf.samples.len().saturating_sub(n);
+        let slice = &buf.samples[start..];
+        (slice.iter().map(|s| s * s).sum::<f32>() / slice.len() as f32).sqrt()
+    }
+
     /// Inicia la grabacion (chime + buffer + recording=true).
     pub fn start_listening(&self) {
         self.chimes.play_activate();

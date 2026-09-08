@@ -57,6 +57,13 @@ impl WhisperEngine {
         self.model_path.exists()
     }
 
+    /// Carga el modelo en memoria (para pre-warm en background al arrancar).
+    /// Es idempotente: si ya esta cargado no hace nada.
+    pub fn ensure_loaded(&self) -> Result<()> {
+        self.load_context()?;
+        Ok(())
+    }
+
     /// Transcribe audio (mono f32, 16kHz) a texto.
     ///
     /// Si `language` es None, whisper auto-detecta el idioma.

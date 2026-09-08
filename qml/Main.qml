@@ -254,6 +254,22 @@ ApplicationWindow {
         xhr.send(JSON.stringify({ title: "Nueva conversación" }))
     }
 
+    // Elimina una sesion en el backend y refresca la lista
+    function deleteSession(sessionId) {
+        var xhr = new XMLHttpRequest()
+        xhr.open("DELETE", backendUrl + "/api/session?session_id=" + encodeURIComponent(sessionId))
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE && (xhr.status === 200 || xhr.status === 201)) {
+                if (currentSessionId === sessionId) {
+                    currentSessionId = ""
+                    messages = []
+                }
+                loadSessions()
+            }
+        }
+        xhr.send()
+    }
+
     // Carga los mensajes de una sesion desde el backend
     function loadMessages(sessionId) {
         var xhr = new XMLHttpRequest()
@@ -319,6 +335,9 @@ ApplicationWindow {
                 root.currentSessionId = id
                 root.loadMessages(id)
                 root.drawerOpen = false
+            }
+            onSessionDeleteRequested: function(id) {
+                root.deleteSession(id)
             }
             onSettingsClicked: {
                 root.drawerOpen = false

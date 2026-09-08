@@ -3,6 +3,7 @@
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import qml 1.0
 
 Rectangle {
@@ -11,11 +12,12 @@ Rectangle {
     // === Props ===
     property bool drawerOpen: false
     property int drawerWidth: Theme.drawerWidth
-    property var sessions: []   // Array de {id, title, updatedAt, count}
+    property var sessions: []   // Array de {id, title, updated_at, message_count}
     property string currentId: ""
     property bool isDark: true
 
     signal sessionSelected(string id)
+    signal sessionDeleteRequested(string id)
     signal newSessionClicked()
     signal settingsClicked()
 
@@ -67,18 +69,45 @@ Rectangle {
             width: parent.width
             spacing: Theme.spacingXs
 
-            Repeater {
-                model: root.sessions
-                delegate: PillButton {
-                    required property var modelData
-                    width: root.drawerWidth - Theme.spacingMd * 2
-                    text: modelData.title || qsTr("Sin titulo")
-                    iconName: modelData.id === root.currentId ? "hubot-16" : "history-16"
-                    active: modelData.id === root.currentId
-                    textSize: Theme.fontSizeBodySmall
-                    onClicked: root.sessionSelected(modelData.id)
+                Repeater {
+                    model: root.sessions
+                    delegate: Item {
+                        required property var modelData
+                        width: root.drawerWidth - Theme.spacingMd * 2
+                        height: 36
+
+                        RowLayout {
+                            anchors.fill: parent
+                            spacing: Theme.spacingXs
+
+                            PillButton {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                text: {
+                                    var t = modelData.title || qsTr("Sin titulo")
+                                    var n = modelData.message_count || 0
+                                    return n > 0 ? t + "  ·  " + n : t
+                                }
+                                iconName: modelData.id === root.currentId ? "hubot-16" : "history-16"
+                                active: modelData.id === root.currentId
+                                textSize: Theme.fontSizeBodySmall
+                                onClicked: root.sessionSelected(modelData.id)
+                            }
+
+                            IconButton {
+                                Layout.preferredWidth: 28
+                                Layout.preferredHeight: 28
+                                Layout.alignment: Qt.AlignVCenter
+                                iconName: "trash-16"
+                                iconSize: 14
+                                buttonSize: 28
+                                backgroundColor: "transparent"
+                                iconColor: Theme.inkMuted
+                                onClicked: root.sessionDeleteRequested(modelData.id)
+                            }
+                        }
+                    }
                 }
-            }
 
             // Empty state
             Column {

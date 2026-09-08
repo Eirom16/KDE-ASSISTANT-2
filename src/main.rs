@@ -73,6 +73,22 @@ fn main() -> Result<()> {
         Ok::<_, anyhow::Error>(Arc::new(b))
     })?;
 
+    // Pre-warm de whisper en background (el modelo de 147MB tarda
+    // varios segundos en cargar; mejor al arrancar que en la primera voz)
+    {
+        let speech = backend.speech.clone();
+        runtime.spawn(async move {
+            if speech.stt_model_exists() {
+                let whisper = speech.whisper.clone();
+                match tokio::task::spawn_blocking(move || whisper.ensure_loaded()).await {
+                    Ok(Ok(())) => log::info!("Whisper pre-cargado en background"),
+                    Ok(Err(e)) => log::warn!("Pre-warm de whisper fallo: {e}"),
+                    Err(e) => log::warn!("Task de pre-warm fallo: {e}"),
+                }
+            }
+        });
+    }
+
     // Iniciar servidor HTTP local (IPC con la UI QML)
     const HTTP_PORT: u16 = 8765;
     {
@@ -119,11 +135,33 @@ fn main() -> Result<()> {
                     kde_assistant_lib::backend::hotword::HotwordEvent::Detected => {
                         log::info!("Wake word detectado: '{wake_word_label}'");
                         vp.start_listening();
-                        // Auto-stop tras MAX_RECORDING_SECS y procesar
+                        // Auto-stop: corta ante ~1.2s de silencio sostenido
+                        // (tras un minimo de 1.5s), con tope de MAX_RECORDING_SECS.
                         let vp2 = vp.clone();
                         tokio::spawn(async move {
-                            tokio::time::sleep(std::time::Duration::from_secs(MAX_RECORDING_SECS))
-                                .await;
+                            const MIN_SECS: f32 = 1.5;
+                            const SILENCE_RMS: f32 = 0.02;
+                            const SILENCE_POLLS: u32 = 6;
+                            const POLL_MS: u64 = 200;
+                            let mut silent_polls = 0u32;
+                            let mut elapsed_ms = 0u64;
+                            loop {
+                                tokio::time::sleep(std::time::Duration::from_millis(POLL_MS)).await;
+                                elapsed_ms += POLL_MS;
+                                let sr = vp2.sample_rate().max(1) as f32;
+                                let recorded_secs = vp2.recording_len() as f32 / sr;
+                                let rms = vp2.recent_rms((sr * 0.4) as usize);
+                                if recorded_secs >= MIN_SECS && rms < SILENCE_RMS {
+                                    silent_polls += 1;
+                                } else {
+                                    silent_polls = 0;
+                                }
+                                if silent_polls >= SILENCE_POLLS
+                                    || elapsed_ms >= MAX_RECORDING_SECS * 1000
+                                {
+                                    break;
+                                }
+                            }
                             match vp2.stop_and_process().await {
                                 Ok((t, r)) => {
                                     if !t.is_empty() {
