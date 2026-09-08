@@ -272,6 +272,12 @@ pub fn ensure_onnx_lib() -> Result<PathBuf> {
             return Ok(PathBuf::from(p));
         }
     }
+    // 2. Copia incluida por la app (version fijada y probada, auto-descargada)
+    if let Some(p) = bundled_lib_path() {
+        std::env::set_var("ORT_DYLIB_PATH", &p);
+        log::info!("ONNX Runtime incluido: {}", p.display());
+        return Ok(p);
+    }
     // 2. Sistema (ldconfig)
     if let Ok(out) = std::process::Command::new("ldconfig").arg("-p").output() {
         let stdout = String::from_utf8_lossy(&out.stdout);
@@ -305,12 +311,10 @@ pub fn ensure_onnx_lib() -> Result<PathBuf> {
         }
     }
     // 4. Fallback: copia incluida en el paquete python onnxruntime
-    if let Ok(entries) = glob_python_onnx_lib() {
-        for p in entries {
-            std::env::set_var("ORT_DYLIB_PATH", &p);
-            log::info!("ONNX Runtime (fallback paquete python): {}", p.display());
-            return Ok(p);
-        }
+    if let Some(p) = python_lib_paths().first() {
+        std::env::set_var("ORT_DYLIB_PATH", p);
+        log::info!("ONNX Runtime (fallback paquete python): {}", p.display());
+        return Ok(p.clone());
     }
     bail!(
         "libonnxruntime.so no encontrada. Instala con: sudo pacman -S onnxruntime\n\
@@ -318,9 +322,174 @@ pub fn ensure_onnx_lib() -> Result<PathBuf> {
     )
 }
 
-fn glob_python_onnx_lib() -> Result<Vec<PathBuf>> {
+/// Version de ONNX Runtime fijada y probada por el proyecto.
+/// Se descarga automaticamente; el usuario no instala nada.
+pub const ONNX_VERSION: &str = "1.29.0";
+const ONNX_TGZ_URL: &str = "https://github.com/microsoft/onnxruntime/releases/download/v1.29.0/onnxruntime-linux-x64-1.29.0.tgz";
+
+/// Directorio donde la app guarda su copia de libonnxruntime.so.
+pub fn onnx_lib_dir() -> Result<PathBuf> {
+    let dir = dirs::data_local_dir()
+        .ok_or_else(|| anyhow!("no se pudo obtener data_local_dir"))?
+        .join("kde-assistant/lib");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// Ruta a la copia incluida por la app, si existe.
+pub fn bundled_lib_path() -> Option<PathBuf> {
+    let dir = onnx_lib_dir().ok()?;
+    let versioned = dir.join(format!("libonnxruntime.so.{ONNX_VERSION}"));
+    if versioned.exists() {
+        return Some(versioned);
+    }
+    let unversioned = dir.join("libonnxruntime.so");
+    if unversioned.exists() {
+        return Some(unversioned);
+    }
+    None
+}
+
+/// Garantiza que hay una copia usable de libonnxruntime.
+/// Si no hay ninguna (ni incluida, ni sistema, ni python), descarga
+/// el .tgz oficial, extrae los .so y los deja en el directorio de la app.
+pub async fn ensure_onnx_runtime_lib() -> Result<PathBuf> {
+    // 1. Ya tenemos copia incluida
+    if let Some(p) = bundled_lib_path() {
+        return Ok(p);
+    }
+    // 2. Hay alguna usable en el sistema (no hace falta descargar)
+    if system_lib_path().is_some() || python_lib_paths().first().is_some() {
+        log::info!("ONNX Runtime del sistema disponible, omitiendo descarga");
+        return ensure_onnx_lib();
+    }
+    // 3. Descargar y extraer
+    log::info!("Descargando ONNX Runtime v{ONNX_VERSION} (~11MB)...");
+    download_and_extract_onnx().await?;
+    bundled_lib_path()
+        .ok_or_else(|| anyhow!("descarga completa pero no se encontro libonnxruntime.so"))
+}
+
+/// Descarga el .tgz oficial y extrae los .so al directorio de la app.
+async fn download_and_extract_onnx() -> Result<()> {
+    use futures_util::StreamExt;
+
+    let dir = onnx_lib_dir()?;
+    let tgz_path = dir.join(format!("onnxruntime-{ONNX_VERSION}.tgz"));
+
+    // Descarga con reintentos (hasta 3 veces)
+    let mut last_err = String::new();
+    for attempt in 1..=3 {
+        match download_onnx_tgz(&tgz_path).await {
+            Ok(()) => {
+                last_err.clear();
+                break;
+            }
+            Err(e) => {
+                last_err = e.to_string();
+                log::warn!("Intento {attempt}/3 fallo: {last_err}");
+                let _ = tokio::fs::remove_file(&tgz_path).await;
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+        }
+    }
+    if !last_err.is_empty() {
+        bail!("No se pudo descargar ONNX Runtime: {last_err}");
+    }
+
+    // Extraer solo lib/*.so*
+    let file = std::fs::File::open(&tgz_path)?;
+    let gz = flate2::read::GzDecoder::new(file);
+    let mut archive = tar::Archive::new(gz);
+    let mut extracted = 0;
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let path = entry.path()?.to_string_lossy().to_string();
+        if !path.contains("/lib/libonnxruntime") {
+            continue;
+        }
+        if let Some(name) = Path::new(&path).file_name() {
+            let dest = dir.join(name);
+            entry.unpack(&dest)?;
+            log::info!("ONNX Runtime extraido: {}", dest.display());
+            extracted += 1;
+        }
+    }
+    let _ = std::fs::remove_file(&tgz_path);
+    if extracted == 0 {
+        bail!("el .tgz no contenia libonnxruntime.so");
+    }
+    Ok(())
+}
+
+async fn download_onnx_tgz(dest: &Path) -> Result<()> {
+    use futures_util::StreamExt;
+
+    if let Some(parent) = dest.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    let client = reqwest::Client::builder()
+        .user_agent("KDE-Assistant/2.0")
+        .build()?;
+    let response = client.get(ONNX_TGZ_URL).send().await?;
+    if !response.status().is_success() {
+        bail!("HTTP {} al descargar ONNX Runtime", response.status());
+    }
+    let total = response.content_length();
+    let mut stream = response.bytes_stream();
+    let mut file = tokio::fs::File::create(dest).await?;
+    let mut downloaded: u64 = 0;
+    while let Some(chunk) = stream.next().await {
+        let bytes = chunk?;
+        tokio::io::AsyncWriteExt::write_all(&mut file, &bytes).await?;
+        downloaded += bytes.len() as u64;
+        if let Some(t) = total {
+            if downloaded % (t / 10).max(1) < 65536 {
+                log::info!(
+                    "ONNX Runtime: {:.1} MB / {:.1} MB",
+                    downloaded as f64 / 1024.0 / 1024.0,
+                    t as f64 / 1024.0 / 1024.0
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Busca libonnxruntime.so en el sistema via ldconfig.
+fn system_lib_path() -> Option<PathBuf> {
+    if let Ok(out) = std::process::Command::new("ldconfig").arg("-p").output() {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        for line in stdout.lines() {
+            if line.contains("libonnxruntime.so")
+                && !line.contains("Python")
+                && !line.contains("steam")
+                && !line.contains("flatpak")
+            {
+                if let Some(path) = line.split("=>").nth(1) {
+                    let p = path.trim().to_string();
+                    if Path::new(&p).exists() {
+                        return Some(PathBuf::from(p));
+                    }
+                }
+            }
+        }
+    }
+    for p in [
+        "/usr/lib/libonnxruntime.so",
+        "/usr/lib64/libonnxruntime.so",
+        "/usr/local/lib/libonnxruntime.so",
+    ] {
+        if Path::new(p).exists() {
+            return Some(PathBuf::from(p));
+        }
+    }
+    None
+}
+
+/// Busca la copia incluida en el paquete python onnxruntime (fallback).
+fn python_lib_paths() -> Vec<PathBuf> {
     let mut out = Vec::new();
-    // Buscar en site-packages de las versiones de python instaladas
     if let Ok(dir) = std::fs::read_dir("/usr/lib") {
         for entry in dir.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
@@ -339,10 +508,30 @@ fn glob_python_onnx_lib() -> Result<Vec<PathBuf>> {
             }
         }
     }
-    // Preferir la version sin sufijo, si no la mas reciente
     out.sort_by_key(|p| {
         let s = p.to_string_lossy().to_string();
         (if s.ends_with(".so") { 0 } else { 1 }, std::cmp::Reverse(s))
     });
-    Ok(out)
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn download_and_extract_onnx_runtime() {
+        // Descarga real (~11MB). Deja la copia incluida lista para la app.
+        if bundled_lib_path().is_some() {
+            return; // ya existe, nada que probar
+        }
+        download_and_extract_onnx()
+            .await
+            .expect("descarga+extraccion de ONNX Runtime");
+        let p = bundled_lib_path().expect("lib incluida tras descargar");
+        assert!(p.exists());
+        // Verificar que es un ELF valido
+        let bytes = std::fs::read(&p).unwrap();
+        assert!(bytes.starts_with(b"\x7fELF"), "no es un ELF valido");
+    }
 }

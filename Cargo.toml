@@ -66,6 +66,10 @@ ctrlc = "3"
 # Hashing para verificar integridad de descargas
 sha2 = "0.10"
 
+# Extraccion de archivos .tar.gz (libreria ONNX Runtime auto-descargada)
+flate2 = "1"
+tar = "0.4"
+
 [build-dependencies]
 
 [profile.release]

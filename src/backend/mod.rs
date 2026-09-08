@@ -114,23 +114,28 @@ impl Backend {
 
         if missing.is_empty() {
             log::info!("Todos los modelos ML estan presentes");
-            return Ok(());
+        } else {
+            log::info!("Descargando {} modelo(s) ML faltantes...", missing.len());
+            for spec in &missing {
+                let progress: model_downloader::ProgressCallback =
+                    Arc::new(move |name, done, total| {
+                        if let Some(t) = total {
+                            let pct = (done as f64 / t as f64 * 100.0) as u32;
+                            if done % (t / 20).max(1) < 1024 {
+                                log::debug!("{name}: {pct}% ({done}/{t} bytes)");
+                            }
+                        }
+                    });
+                if let Err(e) = downloader.download(spec, Some(progress)).await {
+                    log::warn!("Fallo al descargar '{}': {e}", spec.name);
+                }
+            }
         }
 
-        log::info!("Descargando {} modelo(s) ML faltantes...", missing.len());
-        for spec in &missing {
-            let progress: model_downloader::ProgressCallback =
-                Arc::new(move |name, done, total| {
-                    if let Some(t) = total {
-                        let pct = (done as f64 / t as f64 * 100.0) as u32;
-                        if done % (t / 20).max(1) < 1024 {
-                            log::debug!("{name}: {pct}% ({done}/{t} bytes)");
-                        }
-                    }
-                });
-            if let Err(e) = downloader.download(spec, Some(progress)).await {
-                log::warn!("Fallo al descargar '{}': {e}", spec.name);
-            }
+        // ONNX Runtime (libreria nativa para el wake word ML).
+        // Si ya hay alguna usable (incluida, sistema o python), no descarga nada.
+        if let Err(e) = wakeword_ml::ensure_onnx_runtime_lib().await {
+            log::warn!("ONNX Runtime no disponible: {e}");
         }
         Ok(())
     }

@@ -26,10 +26,8 @@ Asistente de escritorio para KDE Plasma Linux con estetica Apple Design (Cuperti
 sudo pacman -S rust cargo qt6-declarative cmake alsa-lib piper-tts
 ```
 
-Para los modelos ML (Fase 5+):
-```bash
-sudo pacman -S onnxruntime
-```
+> ONNX Runtime, modelos Whisper/Piper/wakeword: la app los descarga sola
+> al primer arranque. No hay que instalar nada mas.
 
 ### Compilar y ejecutar
 
@@ -121,10 +119,9 @@ El reconocimiento de voz usa **whisper-rs** local con modelo `ggml-base.bin` (~1
 ### Wake word ("hey jarvis", ML)
 La deteccion usa el modelo openWakeWord `hey_jarvis_v0.1.onnx` (~1.3MB) mas `melspectrogram.onnx` y `embedding_model.onnx` (~2.3MB). Se descargan automaticamente a `~/.local/share/kde-assistant/models/wakeword/`.
 
-Requiere `libonnxruntime.so` en el sistema. Opciones:
-- `sudo pacman -S onnxruntime` (recomendado, Arch/CachyOS)
-- O se autodetecta desde el paquete python `onnxruntime`
-- O define `ORT_DYLIB_PATH` con la ruta a la libreria
+Requiere `libonnxruntime.so` v1.29.0, que la app descarga y gestiona sola
+(~11MB a `~/.local/share/kde-assistant/lib/`). No hay que instalar nada:
+si ya tienes `onnxruntime` del sistema lo usa, si no lo descarga.
 
 Di "hey jarvis" para activar la escucha. Umbral configurable en `speech.wake_word_threshold` (default 0.8).
 

@@ -279,7 +279,7 @@ cargo build --release
 ## Troubleshooting Comun
 
 - **"Qt platform plugin could not be initialized"** — Instalar `qt6-wayland` o variables `QT_QPA_PLATFORM=wayland`/`xcb`.
-- **"libonnxruntime not found"** — Instalar paquete `onnxruntime` del sistema.
+- **"libonnxruntime not found"** — La app lo descarga sola (~11MB a `~/.local/share/kde-assistant/lib/`). Si falla la descarga, instalar paquete `onnxruntime` del sistema o definir `ORT_DYLIB_PATH`.
 - **Whisper model no descargado** — Descarga manual desde HuggingFace o esperar primer arranque (descarga automatica).
 - **Wake Word no detecta** — Verificar que los 3 modelos ONNX existen en `~/.local/share/kde-assistant/models/wakeword/` (hey_jarvis_v0.1.onnx, melspectrogram.onnx, embedding_model.onnx). Verificar `libonnxruntime.so` (pacman -S onnxruntime o ORT_DYLIB_PATH). Verificar umbral `wake_word_threshold` (default 0.8; bajar si es muy estricto, subir si hay falsos positivos).
 - **Tool call no ejecuta** — Verificar que `enableToolCalling: true` en config y que la API key tiene acceso a modelos con tool calling.
