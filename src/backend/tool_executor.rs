@@ -986,34 +986,96 @@ impl ToolExecutor {
         if text.trim().is_empty() {
             bail!("Texto vacío");
         }
-        let secs = (minutes * 60.0) as u64;
+        let fire_at = chrono::Utc::now() + chrono::Duration::seconds((minutes * 60.0) as i64);
+        let fire_at_str = fire_at.to_rfc3339();
+        // Persistir (sobrevive reinicios; el scheduler los dispara al arrancar).
+        let reminder_id = self.sessions.as_ref().and_then(|s| {
+            s.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .add_reminder(&fire_at_str, &text)
+                .ok()
+        });
         let text_for_task = text.clone();
+        let sessions_for_task = self.sessions.clone();
         tokio::spawn(async move {
+            let secs = (minutes * 60.0) as u64;
             tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
-            let _ = std::process::Command::new("dbus-send")
-                .args([
-                    "--session",
-                    "--print-reply",
-                    "--dest=org.freedesktop.Notifications",
-                    "--type=method_call",
-                    "/org/freedesktop/Notifications",
-                    "org.freedesktop.Notifications.Notify",
-                    "string:KDE Assistant",
-                    "uint32:0",
-                    "string:kde-assistant",
-                    "string:Recordatorio",
-                    &format!("string:{text_for_task}"),
-                    "string:",
-                    "array:string:",
-                    "dict:string:",
-                    "int32:-1",
-                ])
-                .status();
+            send_desktop_notification("Recordatorio", &text_for_task);
+            if let (Some(sessions), Some(id)) = (sessions_for_task, reminder_id) {
+                let _ = sessions
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .mark_reminder_done(id);
+            }
         });
         Ok(ToolResult::success(
             tc.id.clone(),
-            format!("Recordatorio en {minutes} min: {text} (solo mientras la app siga abierta)"),
+            format!("Recordatorio en {minutes} min: {text} (persistente)"),
         ))
+    }
+}
+
+/// Envía una notificación KDE (helper compartido, F6).
+pub fn send_desktop_notification(title: &str, body: &str) {
+    let _ = std::process::Command::new("dbus-send")
+        .args([
+            "--session",
+            "--print-reply",
+            "--dest=org.freedesktop.Notifications",
+            "--type=method_call",
+            "/org/freedesktop/Notifications",
+            "org.freedesktop.Notifications.Notify",
+            "string:KDE Assistant",
+            "uint32:0",
+            "string:kde-assistant",
+            &format!("string:{title}"),
+            &format!("string:{body}"),
+            "string:",
+            "array:string:",
+            "dict:string:",
+            "int32:-1",
+        ])
+        .status();
+}
+
+/// Dispara al arrancar los recordatorios pendientes (F6).
+/// Los vencidos suenan con "(pendiente)"; los futuros se programan.
+pub async fn fire_pending_reminders(
+    sessions: std::sync::Arc<std::sync::Mutex<crate::backend::session_manager::SessionManager>>,
+) {
+    let pending = sessions
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .pending_reminders()
+        .unwrap_or_default();
+    if pending.is_empty() {
+        return;
+    }
+    log::info!("Scheduler: {} recordatorio(s) pendiente(s)", pending.len());
+    for r in pending {
+        let now = chrono::Utc::now();
+        let fire_at = chrono::DateTime::parse_from_rfc3339(&r.fire_at)
+            .map(|d| d.with_timezone(&chrono::Utc))
+            .unwrap_or(now);
+        let sessions_c = sessions.clone();
+        if fire_at <= now {
+            send_desktop_notification("Recordatorio (pendiente)", &r.text);
+            let _ = sessions_c
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .mark_reminder_done(r.id);
+        } else {
+            let wait = (fire_at - now).num_seconds().max(0) as u64;
+            let text = r.text.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                send_desktop_notification("Recordatorio", &text);
+                let _ = sessions_c
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .mark_reminder_done(r.id);
+            });
+        }
     }
 }
 

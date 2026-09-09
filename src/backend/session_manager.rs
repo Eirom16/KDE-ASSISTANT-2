@@ -55,6 +55,14 @@ pub struct UserFact {
     pub updated_at: String,
 }
 
+/// Recordatorio persistente (F6).
+#[derive(Debug, Clone)]
+pub struct Reminder {
+    pub id: i64,
+    pub fire_at: String,
+    pub text: String,
+}
+
 pub struct SessionManager {
     conn: Connection,
     #[allow(dead_code)]
@@ -121,6 +129,16 @@ impl SessionManager {
                 value TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            -- F6: recordatorios persistentes (sobreviven reinicios).
+            CREATE TABLE IF NOT EXISTS reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fire_at TEXT NOT NULL,
+                text TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                done INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_reminders_fire ON reminders(done, fire_at);
             "#,
         )?;
 
@@ -316,6 +334,43 @@ impl SessionManager {
             "UPDATE sessions SET summary = ?1, summary_count = ?2 WHERE id = ?3",
             params![summary, count, session_id],
         )?;
+        Ok(())
+    }
+
+    // === Recordatorios persistentes (F6) ===
+
+    /// Crea un recordatorio para `fire_at` (RFC3339). Retorna el id.
+    pub fn add_reminder(&self, fire_at: &str, text: &str) -> Result<i64> {
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO reminders (fire_at, text, created_at, done) VALUES (?1, ?2, ?3, 0)",
+            params![fire_at, text, now],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Recordatorios pendientes (done=0), ordenados por hora.
+    pub fn pending_reminders(&self) -> Result<Vec<Reminder>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, fire_at, text FROM reminders WHERE done = 0 ORDER BY fire_at ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(Reminder {
+                id: row.get(0)?,
+                fire_at: row.get(1)?,
+                text: row.get(2)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    pub fn mark_reminder_done(&self, id: i64) -> Result<()> {
+        self.conn
+            .execute("UPDATE reminders SET done = 1 WHERE id = ?1", params![id])?;
         Ok(())
     }
 
@@ -547,6 +602,13 @@ mod tests {
                 value TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+            CREATE TABLE reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fire_at TEXT NOT NULL,
+                text TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                done INTEGER NOT NULL DEFAULT 0
+            );
             "#,
         )?;
         Ok(SessionManager {
@@ -686,5 +748,20 @@ mod tests {
         // Menos de 40 nuevos desde el último resumen: no.
         assert!(!should_summarize(99, 60));
         assert!(should_summarize(100, 60));
+    }
+
+    #[test]
+    fn reminders_roundtrip() {
+        let m = test_db().unwrap();
+        assert!(m.pending_reminders().unwrap().is_empty());
+        let id = m
+            .add_reminder("2030-01-01T00:00:00+00:00", "Año nuevo")
+            .unwrap();
+        assert!(id > 0);
+        let pending = m.pending_reminders().unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].text, "Año nuevo");
+        m.mark_reminder_done(id).unwrap();
+        assert!(m.pending_reminders().unwrap().is_empty());
     }
 }

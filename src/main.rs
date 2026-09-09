@@ -89,6 +89,14 @@ fn main() -> Result<()> {
         });
     }
 
+    // F6: disparar recordatorios pendientes de sesiones anteriores.
+    {
+        let sessions = backend.sessions.clone();
+        runtime.spawn(async move {
+            kde_assistant_lib::backend::tool_executor::fire_pending_reminders(sessions).await;
+        });
+    }
+
     // Iniciar servidor HTTP local (IPC con la UI QML)
     const HTTP_PORT: u16 = 8765;
     // Token local F0-3 para que el QML se autentique en /api/*.
