@@ -67,7 +67,21 @@ Item {
             cacheBuffer: 800
             boundsBehavior: Flickable.StopAtBounds
 
-            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.vertical: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                width: 6
+                padding: 0
+                // Sin pista ni linea separadora: solo el thumb flotante.
+                background: Item {}
+                contentItem: Rectangle {
+                    radius: 3
+                    color: Theme.inkMuted
+                    opacity: parent.active ? 0.65 : 0.35
+                    Behavior on opacity {
+                        NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutCubic }
+                    }
+                }
+            }
             ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AlwaysOff }
 
             // Seguir abajo solo si el usuario ya estaba al final.

@@ -429,6 +429,21 @@ Rectangle {
                 Layout.fillHeight: true
                 clip: true
                 ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                ScrollBar.vertical: ScrollBar {
+                    policy: ScrollBar.AsNeeded
+                    width: 6
+                    padding: 0
+                    // Sin pista ni linea separadora: solo el thumb flotante.
+                    background: Item {}
+                    contentItem: Rectangle {
+                        radius: 3
+                        color: Theme.inkMuted
+                        opacity: parent.active ? 0.65 : 0.35
+                        Behavior on opacity {
+                            NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutCubic }
+                        }
+                    }
+                }
 
                 ColumnLayout {
                     width: formScroll.availableWidth
