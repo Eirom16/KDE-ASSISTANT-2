@@ -570,6 +570,23 @@ ApplicationWindow {
             console.warn("HOME no disponible: polling de hotkey/voz desactivado")
             filePollingEnabled = false
         }
+        // Rescate: si la ventana quedó oculta (recreación por flags en
+        // Wayland), forzar visible + diagnóstico de geometría.
+        rescueTimer.start()
+    }
+    Timer {
+        id: rescueTimer
+        interval: 1500
+        repeat: false
+        onTriggered: {
+            if (!root.visible) {
+                console.warn("ventana oculta al arrancar: forzando show")
+                root.show()
+                root.raise()
+                root.requestActivate()
+            }
+            console.log("ventana:", root.visible, root.width + "x" + root.height, "en", root.x + "," + root.y)
+        }
     }
 
     function backendStatusText() {
@@ -681,8 +698,16 @@ ApplicationWindow {
                     // system: no forzar; el usuario puede alternar desde Breeze
                     // (fase 2: leer portal color-scheme vía backend y exponerlo aquí).
                     if (cfg.ui && cfg.ui.always_on_top !== undefined) {
-                        root.alwaysOnTop = cfg.ui.always_on_top !== false
-                        root.flags = root.alwaysOnTop ? (Qt.Window | Qt.WindowStaysOnTopHint) : Qt.Window
+                        var wantTop = cfg.ui.always_on_top !== false
+                        // Cambiar flags recrea la ventana nativa (en Wayland la
+                        // oculta): solo tocar si cambia y re-mostrar después.
+                        if (root.alwaysOnTop !== wantTop) {
+                            root.alwaysOnTop = wantTop
+                            root.flags = wantTop ? (Qt.Window | Qt.WindowStaysOnTopHint) : Qt.Window
+                            root.show()
+                            root.raise()
+                            root.requestActivate()
+                        }
                     }
                     if (cfg.shortcuts && cfg.shortcuts.push_to_talk) {
                         root.pttShortcut = String(cfg.shortcuts.push_to_talk)
