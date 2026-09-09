@@ -7,6 +7,7 @@ import QtQuick.Window
 import QtQuick.Layouts
 import qml 1.0
 import qml.components 1.0
+import qml.auth 1.0
 
 ApplicationWindow {
     id: root
@@ -26,11 +27,16 @@ ApplicationWindow {
 
     // === Modelo de datos real (conectado al backend Rust) ===
     property string backendUrl: "http://127.0.0.1:8765"
-    // Token local F0-3 (inyectado por main.rs vía env KDE_ASSISTANT_TOKEN).
+    // Token local: módulo generado por main.rs (qml.auth) y, como
+    // respaldo, env KDE_ASSISTANT_TOKEN (Qt.platform.environment es null
+    // en algunas sesiones qml6: sin token todo da 401).
     property string authToken: {
         try {
-            var e = Qt.platform.environment
-            var t = e ? e["KDE_ASSISTANT_TOKEN"] : null
+            if (AuthToken.token) return String(AuthToken.token)
+        } catch (e) {}
+        try {
+            var env = Qt.platform.environment
+            var t = env ? env["KDE_ASSISTANT_TOKEN"] : null
             return t ? String(t) : ""
         } catch (err) { return "" }
     }
@@ -761,39 +767,51 @@ ApplicationWindow {
                     color: Theme.ink
                 }
 
-                // Status indicator (refleja /api/health + key)
-                Row {
+                // Status indicator (refleja /api/health + key).
+                // Item con ancho acotado + clip: el texto largo (proveedor +
+                // modelo) nunca se sale del campo visible.
+                Item {
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.rightMargin: Theme.spacingMd
-                    spacing: 6
+                    width: Math.min(statusRow.implicitWidth, parent.width * 0.5)
+                    height: 20
+                    clip: true
 
-                    Rectangle {
-                        width: 6; height: 6; radius: 3
-                        color: backendStatusColor()
+                    Row {
+                        id: statusRow
+                        anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        SequentialAnimation on opacity {
-                            running: root.backendStatus === "online"
-                            loops: Animation.Infinite
-                            NumberAnimation { from: 1.0; to: 0.4; duration: 1200 }
-                            NumberAnimation { from: 0.4; to: 1.0; duration: 1200 }
+                        spacing: 6
+
+                        Rectangle {
+                            width: 6; height: 6; radius: 3
+                            color: backendStatusColor()
+                            anchors.verticalCenter: parent.verticalCenter
+                            SequentialAnimation on opacity {
+                                running: root.backendStatus === "online"
+                                loops: Animation.Infinite
+                                NumberAnimation { from: 1.0; to: 0.4; duration: 1200 }
+                                NumberAnimation { from: 0.4; to: 1.0; duration: 1200 }
+                            }
+                        }
+                        Text {
+                            text: {
+                                var t = backendStatusText()
+                                var prov = providerLabel()
+                                var mod = modelShort()
+                                if (prov && mod) return t + " · " + prov + " · " + mod
+                                if (mod) return t + " · " + mod
+                                return t
+                            }
+                            font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
+                            color: Theme.inkMuted
+                            anchors.verticalCenter: parent.verticalCenter
+                            elide: Text.ElideRight
+                            maximumLineCount: 1
                         }
                     }
-                    Text {
-                        text: {
-                            var t = backendStatusText()
-                            var prov = providerLabel()
-                            var mod = modelShort()
-                            if (prov && mod) return t + " · " + prov + " · " + mod
-                            if (mod) return t + " · " + mod
-                            return t
-                        }
-                        font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
-                        color: Theme.inkMuted
-                        anchors.verticalCenter: parent.verticalCenter
-                        elide: Text.ElideRight
-                        maximumLineCount: 1
-                    }
+
                     // Reintentar health al hacer click
                     MouseArea {
                         anchors.fill: parent
@@ -1014,13 +1032,17 @@ ApplicationWindow {
     // (Sin side-effects dentro del binding: el flag se calcula en onCompleted.)
     property bool filePollingEnabled: true
     property string cacheBase: {
-        var env = null
-        try { env = Qt.platform.environment } catch (e) { env = null }
-        var home = env ? env["HOME"] : null
-        if (!home || String(home).trim() === "") {
-            return ""
-        }
-        return "file://" + home + "/.cache/kde-assistant/"
+        try {
+            if (AuthToken.cacheDir) return AuthToken.cacheDir
+        } catch (e) {}
+        try {
+            var env = Qt.platform.environment
+            var home = env ? env["HOME"] : null
+            if (home && String(home).trim() !== "") {
+                return "file://" + home + "/.cache/kde-assistant/"
+            }
+        } catch (err) {}
+        return ""
     }
     property string homePath: cacheBase + "hotkey.state"
     property real voiceLevel: 0.0

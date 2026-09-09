@@ -248,9 +248,25 @@ fn main() -> Result<()> {
         // -apptype widget es necesario para QApplication (SystemTrayIcon lo requiere)
         // QML_XHR_ALLOW_FILE_READ=1 permite al polling de hotkeys leer el
         // archivo de estado via file:// (deshabilitado por defecto en QML)
-        // KDE_ASSISTANT_TOKEN autentica al QML en /api/* (F0-3).
-        let qml_status = Command::new("qml6")
-            .args(["-apptype", "widget", "-I", ".", "qml/Main.qml"])
+        // Módulo qml.auth: token + cacheDir sin depender de
+        // Qt.platform.environment (nulo en algunas sesiones qml6).
+        // KDE_ASSISTANT_TOKEN queda como respaldo.
+        let auth_inc = kde_assistant_lib::backend::auth::write_qml_auth_module(&local_token)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|e| {
+                log::warn!("No se pudo generar el módulo QML de auth: {e}");
+                String::new()
+            });
+        let mut qml_cmd = Command::new("qml6");
+        // El módulo generado va PRIMERO para que eclipse al fallback de
+        // qml/auth (vacío, solo para dev/valida_qml).
+        if !auth_inc.is_empty() {
+            qml_cmd.args(["-apptype", "widget", "-I", &auth_inc, "-I", "."]);
+        } else {
+            qml_cmd.args(["-apptype", "widget", "-I", "."]);
+        }
+        let qml_status = qml_cmd
+            .arg("qml/Main.qml")
             .env("QML_XHR_ALLOW_FILE_READ", "1")
             .env("KDE_ASSISTANT_TOKEN", &local_token)
             .status()

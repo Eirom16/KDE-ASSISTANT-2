@@ -7,6 +7,7 @@ import QtQuick
 import QtQuick.Controls
 import qml 1.0
 import QtQuick.Layouts
+import qml.auth 1.0
 import "."
 
 Rectangle {
@@ -55,11 +56,15 @@ Rectangle {
 
     // Backend
     property string backendUrl: "http://127.0.0.1:8765"
-    // Token local F0-3 (misma env que Main; se reinyecta desde Main si se usa embebido).
+    // Token local F0-3/FIX: módulo generado por main.rs y, como
+    // respaldo, env KDE_ASSISTANT_TOKEN.
     property string authToken: {
         try {
-            var e = Qt.platform.environment
-            var t = e ? e["KDE_ASSISTANT_TOKEN"] : null
+            if (AuthToken.token) return String(AuthToken.token)
+        } catch (e) {}
+        try {
+            var env = Qt.platform.environment
+            var t = env ? env["KDE_ASSISTANT_TOKEN"] : null
             return t ? String(t) : ""
         } catch (err) { return "" }
     }

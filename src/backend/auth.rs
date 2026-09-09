@@ -7,11 +7,12 @@
 //! - `Authorization: Bearer <token>` en todo `/api/*` excepto `/api/health`
 //! - Check de `Host` (solo 127.0.0.1/localhost) y `Origin` (solo vacío/null/local)
 //!
-//! La UI QML recibe el token por env `KDE_ASSISTANT_TOKEN` (inyectado por main.rs
-//! al lanzar `qml6`) y lo envía en cada XHR.
+//! La UI QML recibe el token vía módulo generado `qml.auth`
+//! (ver `write_qml_auth_module`); el env `KDE_ASSISTANT_TOKEN` queda como
+//! respaldo para sesiones donde sí existe `Qt.platform.environment`.
 
 use anyhow::{Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const TOKEN_BYTES_HEX: usize = 64;
 
@@ -69,6 +70,72 @@ pub fn path_requires_auth(path: &str) -> bool {
         return false;
     }
     path.starts_with("/api/")
+}
+
+/// Escribe el módulo QML `qml.auth` con el token y el cacheDir.
+///
+/// Por qué: `Qt.platform.environment` no existe en todas las sesiones qml6
+/// (devuelve null → token vacío → 401 en todo). En vez de leer env en QML,
+/// el backend genera este módulo en `~/.cache/kde-assistant/qml/auth/` y
+/// main.rs lo añade con `qml6 -I <dir>` ANTES que `-I .`. El QML lo importa
+/// como `import qml.auth 1.0` → `AuthToken.token`, `AuthToken.cacheDir`.
+/// En repo hay un fallback vacío (`qml/auth/`) para dev/valida_qml.
+///
+/// Retorna el directorio a pasar con `-I`.
+pub fn write_qml_auth_module(token: &str) -> Result<PathBuf> {
+    let dir = dirs::cache_dir()
+        .ok_or_else(|| anyhow::anyhow!("sin cache_dir"))?
+        .join("kde-assistant/qml-generated");
+    write_qml_auth_module_to(token, &dir)?;
+    Ok(dir)
+}
+
+fn write_qml_auth_module_to(token: &str, dir: &Path) -> Result<()> {
+    use std::fmt::Write as _;
+    // Módulo `qml.auth`: <dir>/qml/auth/{qmldir,AuthToken.qml}.
+    let mod_dir = dir.join("qml/auth");
+    std::fs::create_dir_all(&mod_dir).context("creando dir qml auth")?;
+    // Escapar el token para QML (solo hex esperado, pero sin sorpresas).
+    let mut lit = String::with_capacity(token.len() + 2);
+    lit.push('"');
+    for c in token.chars() {
+        match c {
+            '"' => lit.push_str("\\\""),
+            '\\' => lit.push_str("\\\\"),
+            '\n' => lit.push_str("\\n"),
+            c => lit.push(c),
+        }
+    }
+    lit.push('"');
+    let cache_dir = dir
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let mut cache_lit = String::from("\"file://");
+    for c in cache_dir.chars() {
+        match c {
+            '"' => cache_lit.push_str("\\\""),
+            '\\' => cache_lit.push_str("\\\\"),
+            c => cache_lit.push(c),
+        }
+    }
+    let _ = write!(cache_lit, "/\"");
+    std::fs::write(
+        mod_dir.join("qmldir"),
+        "module qml.auth\nsingleton AuthToken 1.0 AuthToken.qml\n",
+    )
+    .context("qmldir auth")?;
+    let qml = format!(
+        "// Generado por kde-assistant al arrancar. No editar.\n\
+         pragma Singleton\n\
+         import QtQuick\n\
+         QtObject {{\n\
+         \x20   readonly property string token: {lit}\n\
+         \x20   readonly property string cacheDir: {cache_lit}\n\
+         }}\n"
+    );
+    std::fs::write(mod_dir.join("AuthToken.qml"), qml).context("AuthToken.qml")?;
+    Ok(())
 }
 
 /// Valida `Authorization: Bearer <token>` con comparación constante (anti-timing).
@@ -189,5 +256,23 @@ mod tests {
             HeaderValue::from_str("null").unwrap(),
         );
         assert!(valid_origin(&ok));
+    }
+
+    #[test]
+    fn qml_module_writes_token_and_cache() {
+        let dir = std::env::temp_dir().join(format!("kda_qmlauth_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        write_qml_auth_module_to("abc123\"\\", &dir).unwrap();
+        let mod_dir = dir.join("qml/auth");
+        let qmldir = std::fs::read_to_string(mod_dir.join("qmldir")).unwrap();
+        assert!(qmldir.contains("module qml.auth"));
+        let qml = std::fs::read_to_string(mod_dir.join("AuthToken.qml")).unwrap();
+        // Token escapado para QML y cacheDir con esquema file://.
+        assert!(qml.contains("abc123\\\"\\\\"));
+        assert!(qml.contains("pragma Singleton"));
+        assert!(qml.contains("file://"));
+        assert!(qml.contains("readonly property string token"));
+        assert!(qml.contains("readonly property string cacheDir"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

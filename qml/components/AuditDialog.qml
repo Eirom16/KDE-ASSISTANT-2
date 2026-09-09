@@ -5,6 +5,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import qml 1.0
+import qml.auth 1.0
 import "."
 
 Rectangle {
@@ -14,8 +15,11 @@ Rectangle {
     property string backendUrl: "http://127.0.0.1:8765"
     property string authToken: {
         try {
-            var e = Qt.platform.environment
-            var t = e ? e["KDE_ASSISTANT_TOKEN"] : null
+            if (AuthToken.token) return String(AuthToken.token)
+        } catch (e) {}
+        try {
+            var env = Qt.platform.environment
+            var t = env ? env["KDE_ASSISTANT_TOKEN"] : null
             return t ? String(t) : ""
         } catch (err) { return "" }
     }

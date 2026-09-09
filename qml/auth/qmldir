@@ -1,0 +1,2 @@
+module qml.auth
+singleton AuthToken 1.0 AuthToken.qml
