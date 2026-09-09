@@ -120,9 +120,12 @@
 - [ ] Embeddings locales + recall semántico (pospuesto: requiere modelo de embeddings y búsqueda vectorial; facts + resumen cubren continuidad)
 - [ ] `system_prompt` editable en UI (pospuesto a pulido: hoy vía config.json)
 
-## Fase 6 — Avanzadas (futuro)
+## Fase 6 — Avanzadas
 
-- [ ] KDE Connect, RAG local, LLM local offline, plugins WASM, rutinas, AT-SPI
+- [x] KDE Connect (`kdeconnect` devices/ping/ring/share_url/share_file/sms, 🟡, 17 tools total)
+- [x] Recordatorios persistentes (tabla `reminders`, scheduler al arrancar, vencidos con aviso)
+- [x] Todo habilitado por defecto (17 tools, confirmaciones, wake word, `auto_listen`, memoria)
+- [ ] RAG local, LLM offline (llama.cpp), plugins WASM, rutinas por evento, AT-SPI (pospuesto: alcance de meses, documentado en auditoría §5-Nivel 4)
 
 ---
 
@@ -143,5 +146,6 @@
 | 2026-09-09 | F3 | Push voz SSE (`VoiceSignal` broadcast + `/api/voice/stream`, throttle nivel), escucha continua (`auto_listen`, `record/wait/continue`, wake+PTT), micro seleccionable (`/api/audio/*`, VU en Settings) | 56 passed, `valida_qml` OK | pendiente |
 | 2026-09-09 | F4 | Permisos 🟢🟡🔴 + `ApprovalManager` + `approval_needed` + botones badge, 5 tools sistema (16 total), auditoría SQLite + `/api/tools/audit` + diálogos | 64 passed, QML OK | pendiente |
 | 2026-09-09 | F5 | Facts (`user_facts` + `/api/memory/facts` + pestaña Memoria) y resumen auto (`summary`, trigger 60/40, `simple_completion`) | 67 passed, QML OK | pendiente |
+| 2026-09-09 | F6 | `kdeconnect` (17 tools), recordatorios persistentes + scheduler, todo habilitado por defecto | 71 passed, QML OK | pendiente |
 
 > Cómo marcar: cambia `- [ ]` a `- [x]` y agrega fila en Registro con `cargo test --lib`, `cargo clippy`, `valida_qml`.

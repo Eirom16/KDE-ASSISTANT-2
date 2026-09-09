@@ -153,7 +153,7 @@ pub struct SpeechConfig {
     pub auto_speak: bool,
     /// F3-2: tras responder por voz, seguir escuchando unos segundos para
     /// encadenar turnos sin repetir el wake word.
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub auto_listen: bool,
     /// Ventana de escucha continua en segundos (F3-2).
     #[serde(default = "default_listen_window")]
@@ -427,7 +427,7 @@ impl Config {
                 wake_word_threshold: default_threshold(),
                 wake_word_enabled: true, // ML hey_jarvis activo por defecto
                 auto_speak: false,
-                auto_listen: false,
+                auto_listen: true,
                 listen_window_secs: default_listen_window(),
                 chimes_enabled: true,
                 wake_word_model_path: default_wake_word_model_path(),

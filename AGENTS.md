@@ -239,7 +239,8 @@ loop {
 | `volume(action, level?)` | Volumen get/set/mute/unmute | `unmute-16.svg` | 🟡 |
 | `brightness(action, level?)` | Brillo get/set | `sun-16.svg`* | 🟡 |
 | `network_status()` | Red/bluetooth (solo lectura) | `terminal-16.svg` | 🟢 |
-| `remind_in(minutes, text)` | Recordatorio (en memoria) | `bell-16.svg` | 🟡 |
+| `remind_in(minutes, text)` | Recordatorio (persistente) | `bell-16.svg` | 🟡 |
+| `kdeconnect(action, ...)` | Móvil: devices/ping/ring/share/sms | `tools-16.svg` | 🟡 |
 
 \* `sun-16.svg` no existe en assets: el badge usa `tools-16.svg` hasta añadir el icono.
 Permisos: 🟢 auto · 🟡 confirma (`tools.confirm_sensitive`, modo potencia en false) · 🔴 siempre confirma. En voz manos-libres las 🟡 van en auto y las 🔴 se deniegan al momento.
