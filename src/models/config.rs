@@ -278,6 +278,9 @@ pub struct ToolsConfig {
     /// F4-2: recordatorios en memoria.
     #[serde(default = "default_true")]
     pub remind_in: bool,
+    /// F6: KDE Connect (kdeconnect-cli).
+    #[serde(default = "default_true")]
+    pub kdeconnect: bool,
     #[serde(default = "default_allowed_paths")]
     pub allowed_paths: Vec<String>,
 }
@@ -456,6 +459,7 @@ impl Config {
                 brightness: true,
                 network_status: true,
                 remind_in: true,
+                kdeconnect: true,
                 allowed_paths: default_allowed_paths(),
             },
             shortcuts: ShortcutsConfig {

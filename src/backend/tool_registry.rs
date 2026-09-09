@@ -56,6 +56,7 @@ pub fn all_tools() -> Vec<Tool> {
         brightness_tool(),
         network_status_tool(),
         remind_in_tool(),
+        kdeconnect_tool(),
     ]
 }
 
@@ -535,12 +536,52 @@ fn remind_in_tool() -> Tool {
         tool_type: "function".to_string(),
         function: ToolFunction {
             name: "remind_in".to_string(),
-            description: "Crea un recordatorio con notificación nativa. Solo funciona mientras la app siga abierta."
-                .to_string(),
+            description:
+                "Crea un recordatorio persistente con notificación nativa. Sobrevive reinicios."
+                    .to_string(),
             parameters: ToolParameters {
                 param_type: "object".to_string(),
                 properties,
                 required: vec!["minutes".to_string(), "text".to_string()],
+            },
+        },
+    }
+}
+
+fn kdeconnect_tool() -> Tool {
+    let mut properties = HashMap::new();
+    properties.insert(
+        "action".to_string(),
+        enum_prop(
+            "Acción KDE Connect",
+            &["devices", "ping", "ring", "share_url", "share_file", "sms"],
+        ),
+    );
+    properties.insert(
+        "device".to_string(),
+        str_prop("Id del móvil (ver devices). Requerido salvo en devices."),
+    );
+    properties.insert("url".to_string(), str_prop("URL http(s) para share_url"));
+    properties.insert(
+        "path".to_string(),
+        str_prop("Ruta local (allowed_paths) para share_file"),
+    );
+    properties.insert("number".to_string(), str_prop("Número destino para sms"));
+    properties.insert(
+        "text".to_string(),
+        str_prop("Texto para sms (máx 500 chars)"),
+    );
+
+    Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "kdeconnect".to_string(),
+            description: "KDE Connect: listar móviles, ping/ring, compartir URL/archivo, enviar SMS. Requiere kdeconnect-cli y móvil emparejado."
+                .to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties,
+                required: vec!["action".to_string()],
             },
         },
     }
@@ -605,6 +646,9 @@ pub fn filtered_tools(cfg: &Config) -> Vec<Tool> {
     if cfg.tools.remind_in {
         out.push(remind_in_tool());
     }
+    if cfg.tools.kdeconnect {
+        out.push(kdeconnect_tool());
+    }
     out
 }
 
@@ -640,6 +684,7 @@ mod tests {
         cfg.tools.brightness = false;
         cfg.tools.network_status = false;
         cfg.tools.remind_in = false;
+        cfg.tools.kdeconnect = false;
         let tools = filtered_tools(&cfg);
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].function.name, "open_app");
@@ -648,7 +693,7 @@ mod tests {
     #[test]
     fn all_enabled_by_default() {
         let cfg = Config::default();
-        assert_eq!(filtered_tools(&cfg).len(), 16);
+        assert_eq!(filtered_tools(&cfg).len(), 17);
     }
 
     #[test]
@@ -658,6 +703,7 @@ mod tests {
         assert_eq!(permission("network_status"), super::Permission::Green);
         assert_eq!(permission("open_app"), super::Permission::Yellow);
         assert_eq!(permission("media"), super::Permission::Yellow);
+        assert_eq!(permission("kdeconnect"), super::Permission::Yellow);
         assert_eq!(permission("edit_file"), super::Permission::Red);
         assert_eq!(permission("whatever_unknown"), super::Permission::Yellow);
     }

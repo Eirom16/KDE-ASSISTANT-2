@@ -86,6 +86,7 @@ impl ToolExecutor {
             "brightness" => self.brightness(tool_call).await,
             "network_status" => self.network_status(tool_call).await,
             "remind_in" => self.remind_in(tool_call).await,
+            "kdeconnect" => self.kdeconnect(tool_call).await,
             other => Err(anyhow!("Herramienta desconocida: {other}")),
         };
         let ms = t0.elapsed().as_millis() as u64;
@@ -842,7 +843,131 @@ impl ToolExecutor {
         Ok(ToolResult::success(tc.id.clone(), lines.join("\n")))
     }
 
-    // === remind_in (F4-2) ===
+    // === kdeconnect (F6) ===
+    async fn kdeconnect(&self, tc: &ToolCall) -> Result<ToolResult> {
+        let cfg = self.get_config_snapshot();
+        if !cfg.tools.kdeconnect {
+            bail!("kdeconnect deshabilitado en configuracion");
+        }
+        let action = Self::arg_string(&tc.arguments, "action")?;
+        let device = tc
+            .arguments
+            .get("device")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+
+        // REGLA: nunca sh -c, siempre Command con args (ver run_cmd).
+        match action {
+            "devices" | "dispositivos" => {
+                let listed = run_cmd(&["kdeconnect-cli", "-l", "--id-only"], 10).await;
+                let out = match listed {
+                    Ok(o) => o,
+                    Err(_) => run_cmd(&["kdeconnect-cli", "-l"], 10).await.map_err(|_| {
+                        anyhow!(
+                            "kdeconnect-cli no encontrado o sin respuesta (instala KDE Connect)"
+                        )
+                    })?,
+                };
+                let text = out.trim();
+                Ok(ToolResult::success(
+                    tc.id.clone(),
+                    if text.is_empty() {
+                        "Sin dispositivos KDE Connect visibles".to_string()
+                    } else {
+                        format!("Dispositivos KDE Connect:\n{text}")
+                    },
+                ))
+            }
+            "ping" | "ring" | "sonar" => {
+                let dev = device.ok_or_else(|| anyhow!("Falta 'device' (id del móvil)"))?;
+                let flag = if action == "ping" { "--ping" } else { "--ring" };
+                run_cmd(&["kdeconnect-cli", "-d", dev, flag], 15)
+                    .await
+                    .map_err(|_| {
+                        anyhow!("kdeconnect-cli no encontrado o el dispositivo no responde")
+                    })?;
+                Ok(ToolResult::success(
+                    tc.id.clone(),
+                    format!("KDE Connect: {action} enviado a {dev}"),
+                ))
+            }
+            "share_url" | "compartir_url" => {
+                let dev = device.ok_or_else(|| anyhow!("Falta 'device' (id del móvil)"))?;
+                let url = Self::arg_string(&tc.arguments, "url")?;
+                let url = url.trim();
+                if !(url.starts_with("https://") || url.starts_with("http://")) {
+                    bail!("Solo URLs http(s)");
+                }
+                run_cmd(&["kdeconnect-cli", "-d", dev, "--share", url], 15).await?;
+                Ok(ToolResult::success(
+                    tc.id.clone(),
+                    format!("URL compartida con {dev}"),
+                ))
+            }
+            "share_file" | "compartir_archivo" => {
+                let dev = device.ok_or_else(|| anyhow!("Falta 'device' (id del móvil)"))?;
+                let path = Self::arg_string(&tc.arguments, "path")?;
+                let validated = self.validate_path(path)?;
+                if !validated.exists() {
+                    bail!(format!("No existe: {}", validated.display()));
+                }
+                run_cmd(
+                    &[
+                        "kdeconnect-cli",
+                        "-d",
+                        dev,
+                        "--share",
+                        &validated.to_string_lossy(),
+                    ],
+                    20,
+                )
+                .await?;
+                Ok(ToolResult::success(
+                    tc.id.clone(),
+                    format!("Archivo compartido con {dev}: {}", validated.display()),
+                ))
+            }
+            "sms" => {
+                let dev = device.ok_or_else(|| anyhow!("Falta 'device' (id del móvil)"))?;
+                let number = Self::arg_string(&tc.arguments, "number")?;
+                let number: String = number
+                    .chars()
+                    .filter(|c| c.is_ascii_digit() || *c == '+')
+                    .collect();
+                if number.chars().filter(|c| c.is_ascii_digit()).count() < 3 || number.len() > 20 {
+                    bail!("Número inválido");
+                }
+                let text = Self::arg_string(&tc.arguments, "text")?;
+                let text: String = text.chars().take(500).collect();
+                if text.trim().is_empty() {
+                    bail!("Texto vacío");
+                }
+                run_cmd(
+                    &[
+                        "kdeconnect-cli",
+                        "-d",
+                        dev,
+                        "--destination",
+                        &number,
+                        "--send-sms",
+                        &text,
+                    ],
+                    20,
+                )
+                .await?;
+                Ok(ToolResult::success(
+                    tc.id.clone(),
+                    format!("SMS enviado vía {dev} al {number}"),
+                ))
+            }
+            other => {
+                bail!("Acción no soportada: {other} (devices|ping|ring|share_url|share_file|sms)")
+            }
+        }
+    }
+
+    // === remind_in (F4-2, persistente en F6) ===
     async fn remind_in(&self, tc: &ToolCall) -> Result<ToolResult> {
         let cfg = self.get_config_snapshot();
         if !cfg.tools.remind_in {
@@ -1889,6 +2014,64 @@ mod tests {
         );
         let res = ex
             .execute(&tc("remind_in", args), &ToolCtx::auto(None))
+            .await
+            .unwrap();
+        assert!(!res.success);
+    }
+
+    fn kde_tc(action: &str) -> ToolCall {
+        let mut args = HashMap::new();
+        args.insert(
+            "action".to_string(),
+            serde_json::Value::String(action.to_string()),
+        );
+        tc("kdeconnect", args)
+    }
+
+    #[tokio::test]
+    async fn kdeconnect_rejects_bad_action() {
+        let ex = dummy_executor();
+        let res = ex
+            .execute(&kde_tc("hackear"), &ToolCtx::auto(None))
+            .await
+            .unwrap();
+        assert!(!res.success);
+    }
+
+    #[tokio::test]
+    async fn kdeconnect_needs_device() {
+        let ex = dummy_executor();
+        for action in ["ping", "ring", "sms"] {
+            let res = ex
+                .execute(&kde_tc(action), &ToolCtx::auto(None))
+                .await
+                .unwrap();
+            assert!(!res.success, "debería pedir device en {action}");
+        }
+    }
+
+    #[tokio::test]
+    async fn kdeconnect_validates_sms() {
+        let ex = dummy_executor();
+        let mut args = HashMap::new();
+        args.insert(
+            "action".to_string(),
+            serde_json::Value::String("sms".to_string()),
+        );
+        args.insert(
+            "device".to_string(),
+            serde_json::Value::String("abc123".to_string()),
+        );
+        args.insert(
+            "number".to_string(),
+            serde_json::Value::String("xx".to_string()),
+        );
+        args.insert(
+            "text".to_string(),
+            serde_json::Value::String("hola".to_string()),
+        );
+        let res = ex
+            .execute(&tc("kdeconnect", args), &ToolCtx::auto(None))
             .await
             .unwrap();
         assert!(!res.success);
