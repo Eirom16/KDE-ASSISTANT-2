@@ -40,20 +40,22 @@ Item {
             ScrollBar.vertical.policy: ScrollBar.AsNeeded
             ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
+            // Contenido centrado con ancho maximo (evita hueco verde en ventana ancha)
             Column {
-                width: scroll.width
+                width: Math.min(scroll.availableWidth, Theme.maxContentWidth)
+                anchors.horizontalCenter: parent.horizontalCenter
                 height: childrenRect.height
                 spacing: Theme.spacingLg
                 topPadding: Theme.spacingLg
                 bottomPadding: Theme.spacingLg
                 leftPadding: Theme.spacingMd
-                rightPadding: Theme.spacingMd
+                rightPadding: Theme.spacingMd + 8
 
                 Repeater {
                     model: root.messages
                     delegate: MessageBubble {
                         required property var modelData
-                        width: scroll.width - Theme.spacingMd * 2
+                        width: parent.width - Theme.spacingMd * 2 - 8
                         role: modelData.role || "assistant"
                         authorLabel: modelData.authorLabel || ""
                         content: modelData.content || ""

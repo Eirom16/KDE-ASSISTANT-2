@@ -19,7 +19,12 @@ Item {
     property bool isStreaming: false
     property var toolCalls: []           // Array de {name, args, status, result, imageUrl?}
 
-    property int maxWidth: 480
+    // Ancho maximo responsivo: hasta ~78% del ancho disponible, tope 580
+    property int maxWidth: {
+        var w = parent ? parent.width : 480
+        if (w <= 0) w = 480
+        return Math.min(580, Math.floor(w * 0.82))
+    }
     property int avatarSize: 28
 
     signal imageClicked(string url)
@@ -69,7 +74,7 @@ Item {
         // Burbuja de texto
         Rectangle {
             id: bubble
-            Layout.maximumWidth: root.maxWidth
+            Layout.maximumWidth: root.role === "user" ? Math.min(root.maxWidth, 380) : root.maxWidth
             Layout.alignment: root.role === "user" ? Qt.AlignRight : Qt.AlignLeft
             radius: Theme.radiusLg
             color: root.role === "user" ? Theme.primary : Theme.surface
