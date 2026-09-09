@@ -983,54 +983,7 @@ ApplicationWindow {
         }
     }
 
-    // === System Tray (KDE Plasma) ===
-    TrayMenu {
-        id: tray
-        windowVisible: root.visible
-        alwaysOnTop: root.alwaysOnTop
-        pttShortcut: root.pttShortcut
-        backendUrl: root.backendUrl
-        onShowRequested: {
-            root.show()
-            root.raise()
-            root.requestActivate()
-        }
-        onHideRequested: root.hide()
-        onDictateRequested: {
-            // Abre la ventana con el input listo; el dictado es el PTT global.
-            root.prefill("")
-        }
-        onQuickSearchRequested: {
-            root.prefill(qsTr("Busca en la web: "))
-        }
-        onQuickOpenAppRequested: {
-            root.prefill(qsTr("Abre "))
-        }
-        onQuickOpenFolderRequested: {
-            root.prefill(qsTr("Muéstrame los archivos de ~/Documentos"))
-        }
-        onAlwaysOnTopToggled: function(on) {
-            root.toggleAlwaysOnTop(on)
-        }
-        onNewSessionRequested: {
-            root.newSession()
-            root.show()
-            root.raise()
-        }
-        onOpenSessionRequested: function(sessionId) {
-            root.currentSessionId = sessionId
-            root.loadMessages(sessionId)
-            root.show()
-            root.raise()
-            root.requestActivate()
-        }
-        onSettingsRequested: {
-            settings.show()
-            root.show()
-            root.raise()
-        }
-        onQuitRequested: Qt.quit()
-    }
+    // NOTA: sin SystemTrayIcon (era para pruebas). Cerrar la ventana sale.
 
     // === Burbuja flotante (ventana independiente, visible aunque Main este oculta) ===
     FloatingOrb {
