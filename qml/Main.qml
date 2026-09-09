@@ -527,6 +527,7 @@ ApplicationWindow {
     TrayMenu {
         id: tray
         windowVisible: root.visible
+        backendUrl: root.backendUrl
         onShowRequested: {
             root.show()
             root.raise()
@@ -534,9 +535,16 @@ ApplicationWindow {
         }
         onHideRequested: root.hide()
         onNewSessionRequested: {
-            root.currentSessionId = ""
+            root.newSession()
             root.show()
             root.raise()
+        }
+        onOpenSessionRequested: function(sessionId) {
+            root.currentSessionId = sessionId
+            root.loadMessages(sessionId)
+            root.show()
+            root.raise()
+            root.requestActivate()
         }
         onSettingsRequested: {
             settings.show()

@@ -29,6 +29,9 @@ Rectangle {
     // STT idioma
     property string sttLanguage: "auto"
 
+    // Tabs
+    property string activeTab: "general"  // general | voz | atajos
+
     // Backend
     property string backendUrl: "http://127.0.0.1:8765"
     property var rawConfig: ({})   // config completa cargada del backend
@@ -228,6 +231,26 @@ Rectangle {
                 }
             }
 
+            Flow {
+                Layout.fillWidth: true
+                spacing: Theme.spacingXs
+                PillButton {
+                    text: qsTr("General")
+                    active: root.activeTab === "general"
+                    onClicked: root.activeTab = "general"
+                }
+                PillButton {
+                    text: qsTr("Voz")
+                    active: root.activeTab === "voz"
+                    onClicked: root.activeTab = "voz"
+                }
+                PillButton {
+                    text: qsTr("Atajos")
+                    active: root.activeTab === "atajos"
+                    onClicked: root.activeTab = "atajos"
+                }
+            }
+
             // === Form ===
             ScrollView {
                 id: formScroll
@@ -239,6 +262,12 @@ Rectangle {
                 ColumnLayout {
                     width: formScroll.availableWidth
                     spacing: Theme.spacingMd
+
+                    // --- TAB: General ---
+                    ColumnLayout {
+                        visible: root.activeTab === "general"
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingMd
 
                     // AI section
                     Text {
@@ -426,12 +455,19 @@ Rectangle {
                         }
                     }
 
+                    } // General
+
+                    // --- TAB: Voz ---
+                    ColumnLayout {
+                        visible: root.activeTab === "voz"
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSm
+
                     // Voz
                     Text {
                         text: qsTr("Voz (piper-tts neural)")
                         font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0.4)
                         color: Theme.inkMuted
-                        Layout.topMargin: Theme.spacingMd
                         Layout.fillWidth: true
                     }
 
@@ -532,6 +568,35 @@ Rectangle {
                         description: qsTr("Sonidos sutiles al activar/desactivar voz")
                         active: root.chimesEnabled
                         onToggled: root.chimesEnabled = !root.chimesEnabled
+                    }
+                    } // Voz
+
+                    // --- TAB: Atajos ---
+                    ColumnLayout {
+                        visible: root.activeTab === "atajos"
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSm
+
+                        Text {
+                            text: qsTr("Atajos globales")
+                            font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0.4)
+                            color: Theme.inkMuted
+                            Layout.fillWidth: true
+                        }
+                        Text {
+                            text: qsTr("Super+Shift+A: mostrar/ocultar  •  Super+Shift+V: mantener para dictar  •  Ctrl+Shift+K: nueva sesión")
+                            font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                            color: Theme.inkMuted
+                            wrapMode: Text.Wrap
+                            Layout.fillWidth: true
+                        }
+                        Text {
+                            text: qsTr("Los atajos se configuran en el código (rdev).")
+                            font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                            color: Theme.inkMuted
+                            wrapMode: Text.Wrap
+                            Layout.fillWidth: true
+                        }
                     }
                 }
             }
