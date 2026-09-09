@@ -560,32 +560,16 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
-        // El rescate va PRIMERO: si algo de abajo lanza, el diagnóstico igual corre.
         root.startupTime = Date.now()
-        rescueTimer.start()
-        try { console.log("auth token len:", authToken.length, "| cache:", cacheBase) } catch (e1) {}
-        try { loadSessions() } catch (e2) { console.warn("init loadSessions:", e2) }
-        try { checkBackend() } catch (e3) { console.warn("init checkBackend:", e3) }
-        try { applyTheme() } catch (e4) { console.warn("init applyTheme:", e4) }
-        try { startVoiceStream() } catch (e5) { console.warn("init startVoiceStream:", e5) }
+        console.log("auth token len:", authToken.length, "| cache:", cacheBase)
+        loadSessions()
+        checkBackend()
+        applyTheme()
+        startVoiceStream()
         // F0-6: si cacheBase quedó vacío (sin HOME), desactivar polling.
         if (!cacheBase) {
             console.warn("HOME no disponible: polling de hotkey/voz desactivado")
             filePollingEnabled = false
-        }
-    }
-    Timer {
-        id: rescueTimer
-        interval: 1500
-        repeat: false
-        onTriggered: {
-            if (!root.visible) {
-                console.warn("ventana oculta al arrancar: forzando show")
-                root.show()
-                root.raise()
-                root.requestActivate()
-            }
-            console.log("ventana:", root.visible, root.width + "x" + root.height, "en", root.x + "," + root.y)
         }
     }
 
@@ -698,16 +682,8 @@ ApplicationWindow {
                     // system: no forzar; el usuario puede alternar desde Breeze
                     // (fase 2: leer portal color-scheme vía backend y exponerlo aquí).
                     if (cfg.ui && cfg.ui.always_on_top !== undefined) {
-                        var wantTop = cfg.ui.always_on_top !== false
-                        // Cambiar flags recrea la ventana nativa (en Wayland la
-                        // oculta): solo tocar si cambia y re-mostrar después.
-                        if (root.alwaysOnTop !== wantTop) {
-                            root.alwaysOnTop = wantTop
-                            root.flags = wantTop ? (Qt.Window | Qt.WindowStaysOnTopHint) : Qt.Window
-                            root.show()
-                            root.raise()
-                            root.requestActivate()
-                        }
+                        root.alwaysOnTop = cfg.ui.always_on_top !== false
+                        root.flags = root.alwaysOnTop ? (Qt.Window | Qt.WindowStaysOnTopHint) : Qt.Window
                     }
                     if (cfg.shortcuts && cfg.shortcuts.push_to_talk) {
                         root.pttShortcut = String(cfg.shortcuts.push_to_talk)

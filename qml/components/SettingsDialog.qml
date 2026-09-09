@@ -5,7 +5,6 @@
 
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Shapes
 import qml 1.0
 import QtQuick.Layouts
 import qml.auth 1.0
@@ -544,30 +543,16 @@ Rectangle {
                             // NOTA: sin contentItem personalizado; el estilo del
                             // sistema (Breeze) espera un TextInput con
                             // positionToRectangle() y rompe con un Text plano.
-                            // Chevron vectorial propio (el glifo textual sale como emoji).
-                            indicator: Item {
+                            // Indicador propio (siempre visible con cualquier estilo).
+                            indicator: Text {
                                 x: modelCombo.width - width - 12
                                 y: (modelCombo.height - height) / 2
-                                width: 12
-                                height: 8
-                                Shape {
-                                    anchors.fill: parent
-                                    antialiasing: true
-                                    ShapePath {
-                                        strokeColor: Theme.inkMuted
-                                        strokeWidth: 2
-                                        fillColor: "transparent"
-                                        capStyle: ShapePath.RoundCap
-                                        joinStyle: ShapePath.RoundJoin
-                                        startX: 1
-                                        startY: 1
-                                        PathLine { x: 6; y: 7 }
-                                        PathLine { x: 11; y: 1 }
-                                    }
-                                }
+                                text: "▾"
+                                color: Theme.inkMuted
+                                font.pixelSize: 14
                             }
                             popup: Popup {
-                                y: modelCombo.height + 4
+                                y: modelCombo.height
                                 width: modelCombo.width
                                 padding: 4
                                 background: Rectangle {
@@ -576,34 +561,20 @@ Rectangle {
                                     border.width: 1
                                     radius: Theme.radiusMd
                                 }
-                                // Altura por nº de items (contentHeight colapsaba a 0
-                                // y la lista se abría vacía).
-                                contentItem: Item {
-                                    implicitWidth: modelCombo.width - 8
-                                    implicitHeight: modelCombo.count > 0 ? Math.min(modelCombo.count * 36, 216) + 8 : 44
-                                    ListView {
-                                        anchors.fill: parent
-                                        clip: true
-                                        model: modelCombo.delegateModel
-                                        currentIndex: modelCombo.highlightedIndex
-                                        ScrollBar.vertical.policy: ScrollBar.AsNeeded
-                                        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-                                        delegate: ItemDelegate {
-                                            width: ListView.view.width
-                                            height: 36
-                                            text: modelData
-                                            font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
-                                            highlighted: modelCombo.highlightedIndex === index
-                                        }
-                                    }
-                                    Text {
-                                        visible: modelCombo.count === 0
-                                        anchors.centerIn: parent
-                                        text: qsTr("Sin modelos — pulsa recargar")
-                                        font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
-                                        color: Theme.inkMuted
-                                    }
+                                contentItem: ListView {
+                clip: true
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                                    implicitHeight: Math.min(contentHeight, 280)
+                                    model: modelCombo.popup.visible ? modelCombo.delegateModel : null
+                                    currentIndex: modelCombo.highlightedIndex
+                                    ScrollIndicator.vertical: ScrollIndicator { }
                                 }
+                            }
+                            delegate: ItemDelegate {
+                                width: modelCombo.width
+                                text: modelData
+                                font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
+                                highlighted: modelCombo.highlightedIndex === index
                             }
                         }
 

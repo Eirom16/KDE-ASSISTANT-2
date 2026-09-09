@@ -131,11 +131,11 @@ Rectangle {
                     delegate: Item {
                         required property var modelData
                         width: root.drawerWidth - Theme.spacingMd * 2
-                        height: 60
+                        height: 56
 
                         ColumnLayout {
                             anchors.fill: parent
-                            spacing: 4
+                            spacing: 2
 
                             RowLayout {
                                 Layout.fillWidth: true
@@ -185,9 +185,11 @@ Rectangle {
                                     visible: root.editingId !== modelData.id
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
-                                    // Título completo con elide (PillButton recorta).
-                                    // El contador vive solo en la línea de fecha.
-                                    text: modelData.title || qsTr("Sin titulo")
+                                    text: {
+                                        var t = modelData.title || qsTr("Sin titulo")
+                                        var n = modelData.message_count || 0
+                                        return n > 0 ? t + "  ·  " + n : t
+                                    }
                                     iconName: modelData.id === root.currentId ? "hubot-16" : "history-16"
                                     active: modelData.id === root.currentId
                                     textSize: Theme.fontSizeBodySmall
