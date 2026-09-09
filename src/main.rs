@@ -128,8 +128,9 @@ fn main() -> Result<()> {
         None
     };
 
-    // Handler del wake word: saludo -> grabacion -> procesamiento
+    // Handler del wake word: saludo -> hilo conversacional (F3-2).
     const MAX_RECORDING_SECS: u64 = 8;
+    const MAX_EXTRA_TURNS: u32 = 2;
     let wake_word_label = cfg.speech.wake_word.clone();
     let wake_greeting = cfg.speech.wake_greeting.clone();
     if let Some(mut rx) = voice_events {
@@ -146,42 +147,22 @@ fn main() -> Result<()> {
                             log::warn!("Saludo TTS fallo: {e}");
                         }
                         vp.start_listening();
-                        // Auto-stop: corta ante ~1.2s de silencio sostenido
-                        // (tras un minimo de 1.5s), con tope de MAX_RECORDING_SECS.
                         let vp2 = vp.clone();
                         tokio::spawn(async move {
-                            const MIN_SECS: f32 = 1.5;
-                            const SILENCE_RMS: f32 = 0.02;
-                            const SILENCE_POLLS: u32 = 6;
-                            const POLL_MS: u64 = 200;
-                            let mut silent_polls = 0u32;
-                            let mut elapsed_ms = 0u64;
-                            loop {
-                                tokio::time::sleep(std::time::Duration::from_millis(POLL_MS)).await;
-                                elapsed_ms += POLL_MS;
-                                let sr = vp2.sample_rate().max(1) as f32;
-                                let recorded_secs = vp2.recording_len() as f32 / sr;
-                                let rms = vp2.recent_rms((sr * 0.4) as usize);
-                                if recorded_secs >= MIN_SECS && rms < SILENCE_RMS {
-                                    silent_polls += 1;
-                                } else {
-                                    silent_polls = 0;
-                                }
-                                if silent_polls >= SILENCE_POLLS
-                                    || elapsed_ms >= MAX_RECORDING_SECS * 1000
-                                {
-                                    break;
-                                }
+                            let turns = vp2
+                                .converse_voice_driven(MAX_RECORDING_SECS, MAX_EXTRA_TURNS)
+                                .await;
+                            for (t, r) in &turns {
+                                log::info!("Wake word: '{}' -> '{}'", t, truncate(r, 80));
                             }
-                            match vp2.stop_and_process().await {
-                                Ok((t, r)) => {
-                                    if !t.is_empty() {
-                                        log::info!("Wake word: '{}' -> '{}'", t, truncate(&r, 80));
-                                    }
-                                }
-                                Err(e) => log::warn!("Procesamiento de voz fallo: {e}"),
+                            if turns.is_empty() {
+                                log::info!("Turno de voz vacío, listo para siguiente wake word");
+                            } else {
+                                log::info!(
+                                    "Hilo de voz terminado ({} turno(s)), listo para siguiente wake word",
+                                    turns.len()
+                                );
                             }
-                            log::info!("Listo para siguiente wake word");
                         });
                     }
                 }
@@ -225,6 +206,10 @@ fn main() -> Result<()> {
                             Ok((t, r)) => {
                                 if !t.is_empty() {
                                     log::info!("PTT: '{}' -> '{}'", t, truncate(&r, 80));
+                                    // F3-2: encadenar manos-libres si auto_listen.
+                                    for (ct, cr) in vp.continue_conversation(8, 2).await {
+                                        log::info!("PTT+: '{}' -> '{}'", ct, truncate(&cr, 80));
+                                    }
                                 } else {
                                     log::info!("PTT: grabacion vacia");
                                 }

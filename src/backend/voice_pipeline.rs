@@ -358,7 +358,145 @@ impl VoicePipeline {
 
     /// Ultimo intercambio completado (para la UI via /api/voice/last).
     pub fn last_exchange(&self) -> Option<VoiceExchange> {
-        self.last_exchange.lock().unwrap().clone()
+        self.last_exchange
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Graba hasta ~1.2s de silencio sostenido (tras 1.5s mínimos) o `max_secs`.
+    /// Asume `start_listening()` ya llamado. Detiene la grabación y devuelve
+    /// el audio a 16kHz. (Antes vivía inline en main.rs; F3-2 lo reutiliza.)
+    pub async fn record_until_silence(&self, max_secs: u64) -> Vec<f32> {
+        const MIN_SECS: f32 = 1.5;
+        const SILENCE_RMS: f32 = 0.02;
+        const SILENCE_POLLS: u32 = 6;
+        const POLL_MS: u64 = 200;
+        let mut silent_polls = 0u32;
+        let mut elapsed_ms = 0u64;
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(POLL_MS)).await;
+            elapsed_ms += POLL_MS;
+            let sr = self.sample_rate().max(1) as f32;
+            let recorded_secs = self.recording_len() as f32 / sr;
+            let rms = self.recent_rms((sr * 0.4) as usize);
+            if recorded_secs >= MIN_SECS && rms < SILENCE_RMS {
+                silent_polls += 1;
+            } else {
+                silent_polls = 0;
+            }
+            if silent_polls >= SILENCE_POLLS || elapsed_ms >= max_secs * 1000 {
+                break;
+            }
+        }
+        self.stop_recording()
+    }
+
+    /// Espera voz real hasta `window_secs` (para conversación continua F3-2).
+    /// Detecta nivel alto 3 polls seguidos (~300ms) con variación (evita
+    /// disparar con un nivel congelado si no hay frames del mic).
+    pub async fn wait_for_speech(&self, window_secs: u64) -> bool {
+        const POLL_MS: u64 = 100;
+        const NEEDED: u32 = 3;
+        let start_lvl = self.amplitude();
+        let mut hot = 0u32;
+        let mut varied = false;
+        let polls = window_secs.saturating_mul(1000) / POLL_MS;
+        for _ in 0..polls {
+            tokio::time::sleep(std::time::Duration::from_millis(POLL_MS)).await;
+            let lvl = self.amplitude();
+            if (lvl - start_lvl).abs() > 0.02 {
+                varied = true;
+            }
+            if lvl > 0.35 {
+                hot += 1;
+                if hot >= NEEDED && varied {
+                    return true;
+                }
+            } else if lvl < 0.2 {
+                hot = 0;
+            }
+        }
+        false
+    }
+
+    /// Turno completo de voz: grabar → procesar (STT→LLM→TTS).
+    /// Si `auto_listen` está activo y el turno aportó transcript, encadena
+    /// hasta `max_extra` turnos más esperando voz en la ventana configurada.
+    /// Retorna todos los `(transcript, response)` del hilo.
+    pub async fn converse_voice_driven(
+        &self,
+        max_secs: u64,
+        max_extra: u32,
+    ) -> Vec<(String, String)> {
+        let mut turns = Vec::new();
+        // Primer turno (el llamador ya hizo start_listening tras el saludo).
+        let audio = self.record_until_silence(max_secs).await;
+        if audio.is_empty() {
+            log::info!("Grabacion vacia, omitiendo procesamiento");
+            return turns;
+        }
+        match self.process_utterance(&audio, None).await {
+            Ok((t, r)) => {
+                if t.is_empty() || t == "(inaudible)" {
+                    return turns;
+                }
+                turns.push((t, r));
+            }
+            Err(e) => {
+                log::warn!("Procesamiento de voz fallo: {e}");
+                return turns;
+            }
+        }
+        // Turnos encadenados (F3-2).
+        turns.extend(self.continue_conversation(max_secs, max_extra).await);
+        turns
+    }
+
+    /// Encadena turnos manos-libres tras un primer turno (F3-2).
+    /// Solo actúa si `auto_listen` está activo. Retorna los turnos extra.
+    pub async fn continue_conversation(
+        &self,
+        max_secs: u64,
+        max_extra: u32,
+    ) -> Vec<(String, String)> {
+        let max_secs = max_secs.clamp(1, 30);
+        let mut extra = Vec::new();
+        for _ in 0..max_extra {
+            let (enabled, window) = {
+                let cfg = self.config.read().await;
+                (cfg.speech.auto_listen, cfg.speech.listen_window_secs.max(2))
+            };
+            if !enabled {
+                break;
+            }
+            // No pisar una escucha ya reiniciada por barge-in.
+            if self.is_recording() {
+                break;
+            }
+            log::info!("Escucha continua: esperando voz ({window}s)...");
+            if !self.wait_for_speech(window).await {
+                break;
+            }
+            self.start_listening();
+            let audio = self.record_until_silence(max_secs).await;
+            if audio.is_empty() {
+                break;
+            }
+            match self.process_utterance(&audio, None).await {
+                Ok((t, r)) => {
+                    if t.is_empty() || t == "(inaudible)" {
+                        break;
+                    }
+                    extra.push((t, r));
+                }
+                Err(e) => {
+                    log::warn!("Procesamiento de voz fallo: {e}");
+                    break;
+                }
+            }
+        }
+        extra
     }
 
     /// Procesa un utterance completo: STT -> LLM -> TTS.
@@ -555,5 +693,14 @@ mod tests {
         // Segundo envío inmediato con delta pequeño: throttled, no llega nada.
         vp.emit_level(0.52);
         assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn wait_for_speech_times_out_quiet() {
+        let vp = test_pipeline().await;
+        // Sin frames del mic, la amplitud es 0: debe agotar 1s sin detectar.
+        let t0 = std::time::Instant::now();
+        assert!(!vp.wait_for_speech(1).await);
+        assert!(t0.elapsed() >= std::time::Duration::from_millis(900));
     }
 }

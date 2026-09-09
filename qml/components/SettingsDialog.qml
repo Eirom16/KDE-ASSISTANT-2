@@ -19,6 +19,7 @@ Rectangle {
     property string baseUrl: ""
     property bool toolCallingEnabled: true
     property bool autoSpeak: false
+    property bool autoListen: false
     property bool chimesEnabled: true
     property string theme: "system"  // "system" | "dark" | "light"
 
@@ -109,6 +110,7 @@ Rectangle {
                 root.baseUrl = cfg.ai.base_url || ""
                 root.toolCallingEnabled = cfg.ai.enable_tool_calling !== false
                 root.autoSpeak = cfg.speech.auto_speak === true
+                root.autoListen = cfg.speech.auto_listen === true
                 root.chimesEnabled = cfg.speech.chimes_enabled !== false
                 root.theme = cfg.ui.theme || "system"
                 root.piperModel = cfg.speech.piper_model || "es_ES-sharvard-medium"
@@ -194,6 +196,7 @@ Rectangle {
         cfg.ai.base_url = baseUrlField.value
         cfg.ai.enable_tool_calling = toolCallingEnabled
         cfg.speech.auto_speak = autoSpeak
+        cfg.speech.auto_listen = autoListen
         cfg.speech.chimes_enabled = chimesEnabled
         cfg.speech.piper_model = piperField.value
         cfg.speech.piper_length_scale = speedSlider.value
@@ -644,6 +647,14 @@ Rectangle {
                         description: qsTr("Las respuestas por voz siempre se dictan")
                         active: root.autoSpeak
                         onToggled: root.autoSpeak = !root.autoSpeak
+                    }
+
+                    SettingsToggle {
+                        Layout.fillWidth: true
+                        label: qsTr("Escucha continua")
+                        description: qsTr("Tras responder por voz, sigue escuchando (sin wake word)")
+                        active: root.autoListen
+                        onToggled: root.autoListen = !root.autoListen
                     }
 
                     SettingsToggle {
