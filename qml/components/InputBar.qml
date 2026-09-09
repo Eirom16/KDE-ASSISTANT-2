@@ -25,6 +25,7 @@ Item {
     signal sendClicked(string text)
     signal micClicked()
     signal stopClicked()
+    signal drawerClicked()
 
     function focusInput() {
         input.forceActiveFocus()
@@ -77,6 +78,17 @@ Item {
             anchors.margins: 6
             anchors.leftMargin: 10
             spacing: 6
+
+            // === Boton sesiones (abre/cierra el panel lateral) ===
+            IconButton {
+                Layout.alignment: Qt.AlignVCenter
+                iconName: "sidebar-expand-16"
+                iconSize: Theme.iconSizeMd
+                buttonSize: 40
+                backgroundColor: "transparent"
+                iconColor: Theme.inkMuted
+                onClicked: root.drawerClicked()
+            }
 
             // === TextInput (auto-creciente hasta maxTextH) ===
             ScrollView {

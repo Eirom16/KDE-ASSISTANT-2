@@ -449,8 +449,8 @@ ApplicationWindow {
     }
 
     // === Estado UI ===
-    // drawerOpen siempre true (sin botón de alternancia).
-    property bool drawerOpen: true
+    // Drawer oculto al arrancar (se abre con el botón del InputBar).
+    property bool drawerOpen: false
     property bool streaming: false
     property string voiceState: "idle"  // "idle" | "listening" | "processing" | "speaking"
     // XHR del chat en curso (F0-7: para abortar en Stop / nueva sesión).
@@ -921,6 +921,9 @@ ApplicationWindow {
                 }
                 onMicClicked: {
                     root.voiceState = root.voiceState === "listening" ? "idle" : "listening"
+                }
+                onDrawerClicked: {
+                    root.drawerOpen = !root.drawerOpen
                 }
                 onStopClicked: {
                     root.cancelChat()
