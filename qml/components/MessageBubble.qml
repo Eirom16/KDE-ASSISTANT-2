@@ -19,11 +19,12 @@ Item {
     property bool isStreaming: false
     property var toolCalls: []           // Array de {name, args, status, result, imageUrl?}
 
-    // Ancho maximo responsivo: hasta ~78% del ancho disponible, tope 580
+    // Ancho maximo responsivo y simétrico: hasta 78% del ancho, tope 600.
+    // (Antes user capaba a 380 y assistant a 580: ritmo desigual.)
     property int maxWidth: {
         var w = parent ? parent.width : 480
         if (w <= 0) w = 480
-        return Math.min(580, Math.floor(w * 0.82))
+        return Math.min(600, Math.floor(w * 0.78))
     }
     property int avatarSize: 28
 
@@ -74,7 +75,7 @@ Item {
         // Burbuja de texto
         Rectangle {
             id: bubble
-            Layout.maximumWidth: root.role === "user" ? Math.min(root.maxWidth, 380) : root.maxWidth
+            Layout.maximumWidth: root.maxWidth
             Layout.alignment: root.role === "user" ? Qt.AlignRight : Qt.AlignLeft
             radius: Theme.radiusLg
             color: root.role === "user" ? Theme.primary : Theme.surface
@@ -106,7 +107,9 @@ Item {
                 text: root.content
                 readOnly: true
                 selectByMouse: true
-                wrapMode: TextEdit.Wrap
+                // F0-8: WrapAnywhere para que URLs/código largos no fuercen
+                // scroll horizontal (estaba Wrap y desbordaba a 360px).
+                wrapMode: TextEdit.WrapAnywhere
                 textFormat: TextEdit.RichText
                 font: Theme.font(
                     Theme.fontSizeBody,

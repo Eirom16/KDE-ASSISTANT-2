@@ -24,11 +24,16 @@ Item {
     width: size
     height: size
 
-    // Path a los SVGs (filesystem; en produccion se embeben via resources.qrc)
-    // Vacio si no hay nombre: el Image se oculta y se muestra el fallback.
-    readonly property string iconPath: root.name !== ""
+    // Path a los SVGs: filesystem en dev; qrc:/ en instalado.
+    // Si el filesystem falla, se reintenta con qrc (una vez).
+    property bool triedQrc: false
+    readonly property string fsPath: root.name !== ""
         ? Qt.resolvedUrl("../assets/octicons/" + name + ".svg")
         : ""
+    readonly property string qrcPath: root.name !== ""
+        ? "qrc:/octicons/" + name + ".svg"
+        : ""
+    readonly property string iconPath: fsPath
 
     // Carga del SVG via Image (Qt SVG renderer)
     Image {
@@ -40,6 +45,16 @@ Item {
         smooth: true
         antialiasing: true
         visible: root.name !== "" && status === Image.Ready
+        onStatusChanged: {
+            // F0-8: fallback a qrc:/ si el filesystem no está (app instalada).
+            if (status === Image.Error && !root.triedQrc && root.qrcPath !== "") {
+                root.triedQrc = true
+                iconImage.source = root.qrcPath
+            }
+            if (status === Image.Error) {
+                console.warn("Octicon no encontrado: " + root.name)
+            }
+        }
 
         // Tintar SVG con color (Qt 6.5+)
         layer.enabled: true
@@ -48,7 +63,7 @@ Item {
         }
     }
 
-    // Fallback: circulo si el icono no carga
+    // Fallback: círculo tenue solo si falló la carga (no durante Loading).
     Rectangle {
         anchors.centerIn: parent
         width: root.size * 0.6
@@ -56,6 +71,6 @@ Item {
         radius: width / 2
         color: root.color
         opacity: 0.3
-        visible: iconImage.status !== Image.Ready
+        visible: root.name !== "" && iconImage.status === Image.Error
     }
 }

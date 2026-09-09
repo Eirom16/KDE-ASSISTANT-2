@@ -1,13 +1,16 @@
-// ChatView.qml - ScrollView con todas las burbujas del chat
-// Auto-scroll al final cuando llega un nuevo mensaje
+// ChatView.qml - Lista virtualizada con todas las burbujas del chat
+// ListView (no Repeater) para no instanciar 100+ burbujas a la vez.
+// Auto-scroll al final solo si el usuario ya estaba abajo (follow).
 // Soporta WelcomeScreen cuando no hay mensajes
+// NOTA: el id es chatRoot (no "root") para que los delegates no lo confundan
+// con el "root" interno de MessageBubble.
 
 import QtQuick
 import QtQuick.Controls
 import qml 1.0
 
 Item {
-    id: root
+    id: chatRoot
 
     // === Props ===
     property var messages: []   // Array de {role, authorLabel, content, timestamp, isStreaming, toolCalls}
@@ -19,6 +22,21 @@ Item {
     signal copyRequested(string text)
     signal playRequested(string text)
 
+    function findCaption(url) {
+        var list = chatRoot.messages || []
+        for (var i = 0; i < list.length; i++) {
+            var tcs = list[i].toolCalls || []
+            for (var j = 0; j < tcs.length; j++) {
+                if (tcs[j].imageUrl === url) return tcs[j].caption || ""
+            }
+        }
+        return ""
+    }
+
+    function scrollToEnd() {
+        list.positionViewAtEnd()
+    }
+
     Rectangle {
         anchors.fill: parent
         color: "transparent"
@@ -26,70 +44,82 @@ Item {
         // Welcome screen cuando no hay mensajes
         WelcomeScreen {
             anchors.fill: parent
-            visible: root.showWelcome
-            onSuggestionClicked: function(text) { root.suggestionClicked(text) }
+            visible: chatRoot.showWelcome
+            onSuggestionClicked: function(text) { chatRoot.suggestionClicked(text) }
         }
 
-        // ScrollView con mensajes
-        ScrollView {
-            id: scroll
+        // Lista virtualizada (visible cuando hay mensajes)
+        ListView {
+            id: list
             anchors.fill: parent
-            visible: !root.showWelcome
+            anchors.leftMargin: Theme.spacingMd
+            anchors.rightMargin: Theme.spacingMd + 8
+            anchors.topMargin: Theme.spacingLg
+            anchors.bottomMargin: Theme.spacingLg
+            visible: !chatRoot.showWelcome
             clip: true
+            model: chatRoot.messages
+            spacing: Theme.spacingLg
+            cacheBuffer: 800
+            boundsBehavior: Flickable.StopAtBounds
 
-            ScrollBar.vertical.policy: ScrollBar.AsNeeded
-            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AlwaysOff }
 
-            // Contenido centrado con ancho maximo (evita hueco verde en ventana ancha)
-            Column {
-                width: Math.min(scroll.availableWidth, Theme.maxContentWidth)
-                anchors.horizontalCenter: parent.horizontalCenter
-                height: childrenRect.height
-                spacing: Theme.spacingLg
-                topPadding: Theme.spacingLg
-                bottomPadding: Theme.spacingLg
-                leftPadding: Theme.spacingMd
-                rightPadding: Theme.spacingMd + 8
-
-                Repeater {
-                    model: root.messages
-                    delegate: MessageBubble {
-                        required property var modelData
-                        width: parent.width - Theme.spacingMd * 2 - 8
-                        role: modelData.role || "assistant"
-                        authorLabel: modelData.authorLabel || ""
-                        content: modelData.content || ""
-                        rawContent: modelData.raw || ""
-                        timestamp: modelData.timestamp || ""
-                        isStreaming: modelData.isStreaming || false
-                        toolCalls: modelData.toolCalls || []
-                        onCopyRequested: function(text) { root.copyRequested(text) }
-                        onPlayRequested: function(text) { root.playRequested(text) }
-                        onImageClicked: function(url) {
-                            var cap = ""
-                            for (var i = 0; i < (root.messages ? root.messages.length : 0); i++) {
-                                var tcs = root.messages[i].toolCalls || []
-                                for (var j = 0; j < tcs.length; j++) {
-                                    if (tcs[j].imageUrl === url) {
-                                        cap = tcs[j].caption || ""
-                                        break
-                                    }
-                                }
-                            }
-                            root.imageClicked(url, cap)
-                        }
+            // Seguir abajo solo si el usuario ya estaba al final.
+            property bool follow: true
+            onAtYEndChanged: follow = atYEnd
+            onMovementEnded: follow = atYEnd
+            onFlickEnded: follow = atYEnd
+            onCountChanged: {
+                if (follow) Qt.callLater(function() { list.positionViewAtEnd() })
+            }
+            // Durante streaming el contenido crece: mantener abajo si follow.
+            onContentHeightChanged: {
+                var msgs = chatRoot.messages || []
+                if (follow && msgs.length > 0) {
+                    var last = msgs[msgs.length - 1]
+                    if (last && last.isStreaming) {
+                        Qt.callLater(function() { list.positionViewAtEnd() })
                     }
                 }
+            }
 
-                // Typing indicator al final cuando streaming
-                TypingIndicator {
-                    width: 60
-                    height: 20
-                    visible: root.messages.length > 0 &&
-                             root.messages[root.messages.length - 1] &&
-                             root.messages[root.messages.length - 1].isStreaming
-                    active: visible
+            delegate: Item {
+                required property var modelData
+                width: ListView.view.width
+                // Altura de la burbuja interior
+                implicitHeight: bubble.implicitHeight
+                height: implicitHeight
+
+                MessageBubble {
+                    id: bubble
+                    // Centrada con ancho máximo (evita hueco en ventana ancha)
+                    width: Math.min(parent.width, Theme.maxContentWidth)
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    role: modelData.role || "assistant"
+                    authorLabel: modelData.authorLabel || ""
+                    content: modelData.content || ""
+                    rawContent: modelData.raw || ""
+                    timestamp: modelData.timestamp || ""
+                    isStreaming: modelData.isStreaming || false
+                    toolCalls: modelData.toolCalls || []
+                    onCopyRequested: function(text) { chatRoot.copyRequested(text) }
+                    onPlayRequested: function(text) { chatRoot.playRequested(text) }
+                    onImageClicked: function(url) {
+                        chatRoot.imageClicked(url, chatRoot.findCaption(url))
+                    }
                 }
+            }
+
+            footer: TypingIndicator {
+                width: 60
+                height: 20
+                visible: {
+                    var msgs = chatRoot.messages || []
+                    return msgs.length > 0 && msgs[msgs.length - 1] && msgs[msgs.length - 1].isStreaming
+                }
+                active: visible
             }
         }
     }

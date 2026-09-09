@@ -131,7 +131,7 @@ Item {
 
             // === Boton microfono (circular) ===
             IconButton {
-                Layout.alignment: Qt.AlignBottom
+                Layout.alignment: Qt.AlignVCenter
                 iconName: root.recording ? "stop-16" : "unmute-16"
                 iconSize: Theme.iconSizeMd
                 buttonSize: 40
@@ -147,7 +147,7 @@ Item {
 
             // === Boton enviar (circular) ===
             IconButton {
-                Layout.alignment: Qt.AlignBottom
+                Layout.alignment: Qt.AlignVCenter
                 iconName: root.streaming ? "stop-16" : "paper-airplane-16"
                 iconSize: Theme.iconSizeMd
                 buttonSize: 40

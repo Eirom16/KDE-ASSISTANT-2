@@ -73,6 +73,7 @@ Rectangle {
         anchors.bottom: footer.top
         anchors.margins: Theme.spacingSm
         clip: true
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
         Column {
             width: parent.width

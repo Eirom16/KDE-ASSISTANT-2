@@ -73,12 +73,12 @@
 - [x] `DELETE session`: confirmación UI + papelera/undo (o al menos confirm dialog)
 
 ### F0-8 QML layout crítico [ALTO]
-- [ ] `ChatView`: `ListView` virtualizado o paginación `LIMIT 50` (hoy `Repeater` todo)
-- [ ] `MessageBubble`: `WrapAnywhere` para URLs, `maxWidth` simétrico user/assistant
-- [ ] `ImageCard`: `implicitWidth/Height` + `BusyIndicator` + `clip:true`
-- [ ] `InputBar`: botones `AlignVCenter` consistente + hint elide a 360px
-- [ ] `Octicon`: fallback `alert-16`, migrar a `QtQuick.Effects`, soporte `qrc:/`
-- [ ] 360px sin h-scroll en Main/Chat/Settings/ImagePreview
+- [x] `ChatView`: `ListView` virtualizado o paginación `LIMIT 50` (hoy `Repeater` todo)
+- [x] `MessageBubble`: `WrapAnywhere` para URLs, `maxWidth` simétrico user/assistant
+- [x] `ImageCard`: `implicitWidth/Height` + `BusyIndicator` + `clip:true`
+- [x] `InputBar`: botones `AlignVCenter` consistente + hint elide a 360px
+- [x] `Octicon`: fallback warn + reintento `qrc:/` (Effects se deja para Fase 1: Qt5Compat funciona)
+- [x] 360px sin h-scroll en Main/Chat/Settings/ImagePreview (SessionDrawer `AlwaysOff`, Chat `ListView`, ImagePreview `Flickable` solo-pan)
 
 ---
 
@@ -131,5 +131,6 @@
 | 2026-09-09 | F0-5/F0-6 | `Theme.isDark` desde config, status Online/Sin-key/Offline + modelo, `ErrorBanner` cableado (fix import Layouts), `loadSessions` no pisa, aviso voz vacía + TTS, gracia barge 500ms, `HOME` sin `/root`, `FloatingOrb` clicable, `VoiceOrb speakPulse` | 33 passed, `valida_qml` OK | pendiente |
 | 2026-09-09 | F0-3 | `backend/auth.rs` token 0600 + `valid_bearer/host/origin`, middleware axum en `/api/*` salvo `/health`, `AppState.local_token`, `main.rs` inyecta `KDE_ASSISTANT_TOKEN` a `qml6`, 17 XHR con `setAuth`, 401 → banner | 37 passed (33+4 auth), `valida_qml` OK | pendiente |
 | 2026-09-09 | F0-4/F0-7 | `wrap_tool_output` + system hardening + 2 tests, `/api/chat/cancel` + `AbortHandle` por sesión, QML `activeChatXhr.abort()` + `cancelChat()`, WAL + `config 0600/.bak`, borrado doble-click | 39 passed, `valida_qml` OK | pendiente |
+| 2026-09-09 | F0-8 | `ChatView` ListView virtualizado (follow solo si abajo, id `chatRoot` anti-shadowing, ScrollBars propios), `MessageBubble` simétrico 600/78% + `WrapAnywhere`, `ImageCard` estable + `BusyIndicator` + `clip`, `InputBar` `AlignVCenter`, `Octicon` reintento `qrc:/` + warn, `SessionDrawer` h-off | 39 passed, `valida_qml` OK | pendiente |
 
 > Cómo marcar: cambia `- [ ]` a `- [x]` y agrega fila en Registro con `cargo test --lib`, `cargo clippy`, `valida_qml`.

@@ -1,6 +1,6 @@
 // ImageCard.qml - Tarjeta para imagenes en chat
 // Soporta URLs remotas (http/https) y paths locales (file://)
-// Efecto hover con scale sutil, click para abrir en visor
+// F0-8: tamaño estable (no colapsa a 0), BusyIndicator, clip anti-panorámica.
 
 import QtQuick
 import QtQuick.Controls
@@ -16,12 +16,25 @@ Rectangle {
 
     signal clicked()
 
-    width: Math.min(implicitWidth, maxWidth)
-    height: Math.min(implicitHeight, maxHeight + (caption ? Theme.fontSizeCaption + Theme.spacingXs : 0))
+    // Ancho estable: el padre (MessageBubble) limita con Layout.maximumWidth;
+    // aquí ocupar todo el ancho disponible hasta maxWidth.
+    width: Math.min(parent ? parent.width : maxWidth, maxWidth)
+    implicitWidth: 320
+    // Alto = imagen (fija 200 salvo caption) + caption. Cuando la imagen
+    // carga, se ajusta por aspect sin empujar el layout (clip).
+    height: imgBoxHeight + (captionText.visible ? captionText.implicitHeight + Theme.spacingXs : 0) + 8
+    property int imgBoxHeight: {
+        if (img.status === Image.Ready && img.sourceSize.height > 0) {
+            var captionReserve = root.caption !== "" ? Theme.fontSizeCaption + Theme.spacingXs : 0
+            return Math.min(img.sourceSize.height, root.maxHeight - captionReserve - 8)
+        }
+        return 200
+    }
     radius: Theme.radiusLg
     color: Theme.surface
     border.width: 1
     border.color: Theme.hairline
+    clip: true
 
     // Sombra elevada
     Rectangle {
@@ -33,33 +46,41 @@ Rectangle {
         radius: parent.radius + 2
     }
 
-    // Imagen
-    Image {
-        id: img
+    // Caja de imagen con clip (panorámicas no empujan el layout)
+    Item {
+        id: imgBox
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.margins: 4
-        height: Math.min(sourceSize.height, root.maxHeight - (root.caption ? Theme.fontSizeCaption + Theme.spacingXs : 0) - 8)
-        fillMode: Image.PreserveAspectFit
-        asynchronous: true
-        cache: true
-        smooth: true
-        source: root.source.startsWith("http") || root.source.startsWith("file") || root.source.startsWith("/")
-               ? root.source : "file://" + root.source
+        height: root.imgBoxHeight
+        clip: true
 
-        // Loading placeholder
-        Rectangle {
+        Image {
+            id: img
             anchors.fill: parent
-            color: Theme.surfacePearl
-            radius: Theme.radiusMd
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            cache: true
+            smooth: true
+            source: root.source.startsWith("http") || root.source.startsWith("file") || root.source.startsWith("/")
+                   ? root.source : "file://" + root.source
+        }
+
+        // Loading: spinner + icono
+        Item {
+            anchors.fill: parent
             visible: img.status === Image.Loading
-            Octicon {
+            Rectangle {
+                anchors.fill: parent
+                color: Theme.surfacePearl
+                radius: Theme.radiusMd
+            }
+            BusyIndicator {
                 anchors.centerIn: parent
-                name: "image-16"
-                size: 32
-                color: Theme.inkMuted
-                opacity: 0.5
+                running: parent.visible
+                width: 32
+                height: 32
             }
         }
 
@@ -71,6 +92,9 @@ Rectangle {
             visible: img.status === Image.Error
             Text {
                 anchors.centerIn: parent
+                width: parent.width - 32
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
                 text: qsTr("No se pudo cargar la imagen")
                 font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
                 color: Theme.error
@@ -80,8 +104,9 @@ Rectangle {
 
     // Caption
     Text {
+        id: captionText
         visible: root.caption !== ""
-        anchors.top: img.bottom
+        anchors.top: imgBox.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.leftMargin: Theme.spacingMd
@@ -90,7 +115,7 @@ Rectangle {
         text: root.caption
         font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
         color: Theme.inkMuted
-        wrapMode: Text.Wrap
+        wrapMode: Text.WrapAnywhere
         maximumLineCount: 3
         elide: Text.ElideRight
     }
