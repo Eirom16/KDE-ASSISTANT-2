@@ -130,6 +130,35 @@ impl AiService {
             .unwrap_or_default()
     }
 
+    /// Completion simple sin tools (F5: resúmenes). No streamea al exterior:
+    /// drena el canal interno y devuelve el texto.
+    pub async fn simple_completion(
+        &self,
+        system: &str,
+        user: &str,
+        max_tokens: u32,
+    ) -> Result<String> {
+        let handle = self.clone_handle()?;
+        let messages = vec![
+            Message::system(system.to_string()),
+            Message::user(user.to_string()),
+        ];
+        let (tx, mut rx) = mpsc::channel::<StreamEvent>(64);
+        let task = tokio::spawn(async move {
+            handle
+                .call_once(&messages, &[], Some(max_tokens), &tx)
+                .await
+        });
+        let mut out = String::new();
+        while let Some(ev) = rx.recv().await {
+            if let StreamEvent::Token { content } = ev {
+                out.push_str(&content);
+            }
+        }
+        task.await.context("resumen task")??;
+        Ok(out.trim().to_string())
+    }
+
     fn build_messages<'a>(&self, messages: &'a [Message]) -> Vec<OpenAIMessage<'a>> {
         messages
             .iter()
@@ -196,6 +225,7 @@ impl AiService {
         &self,
         messages: &[Message],
         tools: &[Tool],
+        max_tokens: Option<u32>,
         tx: &mpsc::Sender<StreamEvent>,
     ) -> Result<String> {
         let cfg = self.snapshot();
@@ -212,7 +242,7 @@ impl AiService {
             model: &cfg.ai.model,
             messages: self.build_messages(messages),
             temperature: cfg.ai.temperature,
-            max_tokens: cfg.ai.max_tokens,
+            max_tokens: max_tokens.unwrap_or(cfg.ai.max_tokens),
             stream: true,
             tools: tools.to_vec(),
         };
@@ -354,8 +384,9 @@ impl AiService {
             let svc_handle = self.clone_handle()?;
             let msgs = messages.clone();
             let tools_c = tools.clone();
-            let call_task =
-                tokio::spawn(async move { svc_handle.call_once(&msgs, &tools_c, &inner_tx).await });
+            let call_task = tokio::spawn(async move {
+                svc_handle.call_once(&msgs, &tools_c, None, &inner_tx).await
+            });
 
             // Procesar eventos: recoger texto y tool_calls
             let mut full_text = String::new();

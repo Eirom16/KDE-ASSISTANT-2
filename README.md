@@ -205,6 +205,9 @@ La UI QML se comunica con el backend Rust via este servidor HTTP:
 | `GET`  | `/api/tools`         | Catálogo tools (permiso + flag) |
 | `POST` | `/api/tools/approve` | Resuelve confirmación (`{tool_call_id, approved}`) |
 | `GET`  | `/api/tools/audit?limit=N` | Historial de ejecuciones |
+| `GET`  | `/api/memory/facts` | Facts del usuario (memoria local) |
+| `POST` | `/api/memory/facts` | Guarda fact (`{"key","value"}`) |
+| `DELETE` | `/api/memory/facts?key=K` | Borra un fact |
 | `POST` | `/api/speak` / `/api/speak/stop` | Reproduce/detiene TTS |
 
 ## Estado

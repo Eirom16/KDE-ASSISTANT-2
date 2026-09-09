@@ -40,13 +40,18 @@ Rectangle {
     property string wakeGreeting: "Sí, dígame"
     property string sttModel: "base"
 
+    // Memoria (F5): todo local, nada sale del equipo salvo el prompt actual.
+    property bool memoryEnabled: true
+    property bool autoSummarize: true
+    property var memoryFacts: []
+
     // Atajos (F1-4): formato "Super+Shift+A".
     property string shortcutToggle: "Super+Shift+A"
     property string shortcutPtt: "Super+Shift+V"
     property string shortcutNewSession: "Ctrl+Shift+K"
 
     // Tabs
-    property string activeTab: "general"  // general | voz | atajos
+    property string activeTab: "general"  // general | voz | atajos | memoria
 
     // Backend
     property string backendUrl: "http://127.0.0.1:8765"
@@ -108,6 +113,7 @@ Rectangle {
                 if (!cfg.speech) cfg.speech = {}
                 if (!cfg.ui) cfg.ui = {}
                 if (!cfg.shortcuts) cfg.shortcuts = {}
+                if (!cfg.memory) cfg.memory = {}
                 root.provider = cfg.ai.provider || "openrouter"
                 root.apiKey = cfg.ai.api_key || ""
                 root.model = cfg.ai.model || ""
@@ -128,6 +134,8 @@ Rectangle {
                 root.shortcutToggle = cfg.shortcuts.toggle || "Super+Shift+A"
                 root.shortcutPtt = cfg.shortcuts.push_to_talk || "Super+Shift+V"
                 root.shortcutNewSession = cfg.shortcuts.new_session || "Ctrl+Shift+K"
+                root.memoryEnabled = cfg.memory.enabled !== false
+                root.autoSummarize = cfg.memory.auto_summarize !== false
                 // Volcar a los campos (rompe nada: asignacion directa)
                 baseUrlField.value = root.baseUrl
                 apiKeyField.value = root.apiKey
@@ -143,6 +151,52 @@ Rectangle {
                 // Listar lo que ofrece la API (usa la key recien cargada)
                 fetchModels()
                 fetchAudioDevices()
+                fetchFacts()
+            }
+        }
+        xhr.send()
+    }
+
+    // Facts de memoria local (F5): get/add/delete inmediatos.
+    function fetchFacts() {
+        var xhr = new XMLHttpRequest()
+        xhr.open("GET", backendUrl + "/api/memory/facts")
+        setAuth(xhr)
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
+                try {
+                    root.memoryFacts = JSON.parse(xhr.responseText)
+                } catch (e) { root.memoryFacts = [] }
+            }
+        }
+        xhr.send()
+    }
+
+    function addFact() {
+        var k = (factKeyField.value || "").trim()
+        var v = (factValueField.value || "").trim()
+        if (!k || !v) return
+        var xhr = new XMLHttpRequest()
+        xhr.open("POST", backendUrl + "/api/memory/facts")
+        xhr.setRequestHeader("Content-Type", "application/json")
+        setAuth(xhr)
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
+                factKeyField.value = ""
+                factValueField.value = ""
+                fetchFacts()
+            }
+        }
+        xhr.send(JSON.stringify({ key: k, value: v }))
+    }
+
+    function deleteFact(key) {
+        var xhr = new XMLHttpRequest()
+        xhr.open("DELETE", backendUrl + "/api/memory/facts?key=" + encodeURIComponent(key))
+        setAuth(xhr)
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
+                fetchFacts()
             }
         }
         xhr.send()
@@ -226,6 +280,7 @@ Rectangle {
         if (!cfg.speech) cfg.speech = {}
         if (!cfg.ui) cfg.ui = {}
         if (!cfg.shortcuts) cfg.shortcuts = {}
+        if (!cfg.memory) cfg.memory = {}
         cfg.ai.provider = root.provider
         cfg.ai.api_key = apiKeyField.value
         cfg.ai.model = modelCombo.editText
@@ -245,6 +300,8 @@ Rectangle {
         cfg.shortcuts.toggle = toggleField.value
         cfg.shortcuts.push_to_talk = pttField.value
         cfg.shortcuts.new_session = newSessionField.value
+        cfg.memory.enabled = memoryEnabled
+        cfg.memory.auto_summarize = autoSummarize
         // Refrescar props locales para que la UI quede consistente
         root.apiKey = apiKeyField.value
         root.model = modelCombo.editText
@@ -342,6 +399,11 @@ Rectangle {
                     text: qsTr("Atajos")
                     active: root.activeTab === "atajos"
                     onClicked: root.activeTab = "atajos"
+                }
+                PillButton {
+                    text: qsTr("Memoria")
+                    active: root.activeTab === "memoria"
+                    onClicked: root.activeTab = "memoria"
                 }
             }
 
@@ -862,7 +924,110 @@ Rectangle {
                             wrapMode: Text.Wrap
                             Layout.fillWidth: true
                         }
-                    }
+                    } // Atajos
+
+                    // --- TAB: Memoria (F5) ---
+                    ColumnLayout {
+                        visible: root.activeTab === "memoria"
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSm
+
+                        Text {
+                            text: qsTr("Memoria local")
+                            font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0.4)
+                            color: Theme.inkMuted
+                            Layout.fillWidth: true
+                        }
+                        Text {
+                            text: qsTr("Todo se guarda en SQLite local. Solo el prompt actual viaja a la API.")
+                            font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                            color: Theme.inkMuted
+                            wrapMode: Text.Wrap
+                            Layout.fillWidth: true
+                        }
+
+                        SettingsToggle {
+                            Layout.fillWidth: true
+                            label: qsTr("Recordar datos")
+                            description: qsTr("Inyectar mis datos en las respuestas")
+                            active: root.memoryEnabled
+                            onToggled: root.memoryEnabled = !root.memoryEnabled
+                        }
+
+                        SettingsToggle {
+                            Layout.fillWidth: true
+                            label: qsTr("Resumir hilos largos")
+                            description: qsTr("Resumen automático en segundo plano")
+                            active: root.autoSummarize
+                            onToggled: root.autoSummarize = !root.autoSummarize
+                        }
+
+                        Text {
+                            text: qsTr("Mis datos")
+                            font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
+                            color: Theme.inkMuted
+                            Layout.fillWidth: true
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingXs
+                            visible: root.memoryFacts.length > 0
+
+                            Repeater {
+                                model: root.memoryFacts
+                                delegate: RowLayout {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spacingXs
+
+                                    Text {
+                                        text: (modelData.key || "") + ": " + (modelData.value || "")
+                                        font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, -0.05)
+                                        color: Theme.ink
+                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                    }
+                                    IconButton {
+                                        Layout.preferredWidth: 28
+                                        Layout.preferredHeight: 28
+                                        iconName: "trash-16"
+                                        iconSize: 14
+                                        buttonSize: 28
+                                        backgroundColor: "transparent"
+                                        iconColor: Theme.inkMuted
+                                        onClicked: root.deleteFact(modelData.key)
+                                    }
+                                }
+                            }
+                        }
+                        Text {
+                            visible: root.memoryFacts.length === 0
+                            text: qsTr("Sin datos guardados. Añade p. ej. nombre → tu nombre.")
+                            font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                            color: Theme.inkMuted
+                            wrapMode: Text.Wrap
+                            Layout.fillWidth: true
+                        }
+
+                        SettingsField {
+                            id: factKeyField
+                            Layout.fillWidth: true
+                            label: qsTr("Clave (p. ej. nombre)")
+                            placeholder: "nombre"
+                        }
+                        SettingsField {
+                            id: factValueField
+                            Layout.fillWidth: true
+                            label: qsTr("Valor")
+                            placeholder: qsTr("Tu valor")
+                        }
+                        PillButton {
+                            text: qsTr("Añadir dato")
+                            iconName: "plus-16"
+                            onClicked: root.addFact()
+                        }
+                    } // Memoria
                 }
             }
 

@@ -70,6 +70,7 @@ pub struct VoicePipeline {
     pub ai: Arc<AiService>,
     pub tools: Arc<ToolExecutor>,
     pub approvals: Arc<crate::backend::approvals::ApprovalManager>,
+    pub sessions: Arc<Mutex<crate::backend::session_manager::SessionManager>>,
     pub chimes: Arc<ChimePlayer>,
     pub buffer: Arc<Mutex<RecordingBuffer>>,
     last_exchange: Arc<Mutex<Option<VoiceExchange>>>,
@@ -110,6 +111,7 @@ impl VoicePipeline {
         ai: Arc<AiService>,
         tools: Arc<ToolExecutor>,
         approvals: Arc<crate::backend::approvals::ApprovalManager>,
+        sessions: Arc<Mutex<crate::backend::session_manager::SessionManager>>,
         chimes: Arc<ChimePlayer>,
     ) -> Self {
         Self {
@@ -118,6 +120,7 @@ impl VoicePipeline {
             ai,
             tools,
             approvals,
+            sessions,
             chimes,
             buffer: Arc::new(Mutex::new(RecordingBuffer::new())),
             last_exchange: Arc::new(Mutex::new(None)),
@@ -618,6 +621,21 @@ impl VoicePipeline {
         tx: Option<tokio::sync::mpsc::Sender<StreamEvent>>,
     ) -> Result<String> {
         let cfg = self.config.read().await.clone();
+        // F5: facts del usuario también en voz (SQLite local).
+        let mut system_prompt = cfg.ai.system_prompt.clone();
+        if cfg.memory.enabled {
+            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            if let Ok(facts) = sessions.list_facts() {
+                if !facts.is_empty() {
+                    system_prompt.push_str(
+                        "\n\nDatos del usuario (recordados localmente, pueden estar desactualizados):",
+                    );
+                    for f in &facts {
+                        system_prompt.push_str(&format!("\n- {}: {}", f.key, f.value));
+                    }
+                }
+            }
+        }
         let messages = vec![
             Message::system(cfg.ai.system_prompt.clone()),
             Message::user(text.to_string()),
@@ -678,9 +696,14 @@ mod tests {
         let ai = Arc::new(AiService::new(cfg.clone()).await.unwrap());
         let tools = Arc::new(ToolExecutor::new(cfg.clone()));
         let approvals = Arc::new(crate::backend::approvals::ApprovalManager::new());
+        let sessions = Arc::new(Mutex::new(
+            crate::backend::session_manager::SessionManager::new()
+                .await
+                .unwrap(),
+        ));
         let speech = Arc::new(SpeechService::new(cfg.clone()).await.unwrap());
         let chimes = Arc::new(ChimePlayer::new().await.unwrap());
-        VoicePipeline::new(cfg, speech, ai, tools, approvals, chimes)
+        VoicePipeline::new(cfg, speech, ai, tools, approvals, sessions, chimes)
     }
 
     #[tokio::test]

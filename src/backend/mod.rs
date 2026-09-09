@@ -76,6 +76,7 @@ impl Backend {
             ai.clone(),
             tools.clone(),
             approvals.clone(),
+            sessions.clone(),
             chimes.clone(),
         ));
 

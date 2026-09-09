@@ -47,6 +47,14 @@ pub struct ToolAuditRow {
     pub decided: String,
 }
 
+/// Fact del usuario (F5, memoria local).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UserFact {
+    pub key: String,
+    pub value: String,
+    pub updated_at: String,
+}
+
 pub struct SessionManager {
     conn: Connection,
     #[allow(dead_code)]
@@ -106,8 +114,18 @@ impl SessionManager {
                 decided TEXT NOT NULL DEFAULT 'auto'
             );
             CREATE INDEX IF NOT EXISTS idx_audit_ts ON tool_audit(timestamp DESC);
+
+            -- F5: facts del usuario (memoria local opt-in).
+            CREATE TABLE IF NOT EXISTS user_facts (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             "#,
         )?;
+
+        // F5: migración de sesiones viejas (summary para hilos largos).
+        ensure_session_summary_columns(&conn)?;
 
         Ok(Self { conn, db_path })
     }
@@ -229,6 +247,74 @@ impl SessionManager {
         self.conn.execute(
             "UPDATE sessions SET title = ?1, updated_at = ?2 WHERE id = ?3",
             params![title, now, id],
+        )?;
+        Ok(())
+    }
+
+    // === Facts del usuario (F5, memoria local) ===
+
+    /// Guarda o actualiza un fact (clave 1-40 chars, valor 1-500).
+    pub fn upsert_fact(&self, key: &str, value: &str) -> Result<()> {
+        let key = key.trim();
+        let value = value.trim();
+        if key.is_empty() || value.is_empty() {
+            anyhow::bail!("clave o valor vacío");
+        }
+        if key.chars().count() > 40 {
+            anyhow::bail!("clave demasiado larga (máx 40)");
+        }
+        if value.chars().count() > 500 {
+            anyhow::bail!("valor demasiado largo (máx 500)");
+        }
+        // Sin shell ni paths aquí; solo validación de texto.
+        let now = Utc::now().to_rfc3339();
+        self.conn.execute(
+            "INSERT INTO user_facts (key, value, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            params![key, value, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_fact(&self, key: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM user_facts WHERE key = ?1", params![key.trim()])?;
+        Ok(())
+    }
+
+    pub fn list_facts(&self) -> Result<Vec<UserFact>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT key, value, updated_at FROM user_facts ORDER BY key ASC")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(UserFact {
+                key: row.get(0)?,
+                value: row.get(1)?,
+                updated_at: row.get(2)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    // === Resumen de hilos largos (F5) ===
+
+    pub fn get_summary(&self, session_id: &str) -> Result<(String, i64)> {
+        let row: (String, i64) = self.conn.query_row(
+            "SELECT COALESCE(summary, ''), COALESCE(summary_count, 0) FROM sessions WHERE id = ?1",
+            params![session_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        Ok(row)
+    }
+
+    pub fn set_summary(&self, session_id: &str, summary: &str, count: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET summary = ?1, summary_count = ?2 WHERE id = ?3",
+            params![summary, count, session_id],
         )?;
         Ok(())
     }
@@ -384,6 +470,39 @@ fn row_to_session(row: &Row) -> rusqlite::Result<Session> {
     })
 }
 
+/// Añade `summary`/`summary_count` a DBs creadas antes de F5.
+fn ensure_session_summary_columns(conn: &Connection) -> Result<()> {
+    let mut has_summary = false;
+    let mut has_count = false;
+    let mut stmt = conn.prepare("PRAGMA table_info(sessions)")?;
+    let cols = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for c in cols.flatten() {
+        if c == "summary" {
+            has_summary = true;
+        } else if c == "summary_count" {
+            has_count = true;
+        }
+    }
+    if !has_summary {
+        conn.execute(
+            "ALTER TABLE sessions ADD COLUMN summary TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
+    if !has_count {
+        conn.execute(
+            "ALTER TABLE sessions ADD COLUMN summary_count INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
+/// ¿Toca resumir? A partir de 60 mensajes y cada 40 nuevos desde el último resumen.
+pub fn should_summarize(count: i64, summary_count: i64) -> bool {
+    count >= 60 && count - summary_count >= 40
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,7 +516,9 @@ mod tests {
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                summary TEXT NOT NULL DEFAULT '',
+                summary_count INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -420,6 +541,11 @@ mod tests {
                 duration_ms INTEGER NOT NULL DEFAULT 0,
                 permission TEXT NOT NULL DEFAULT '',
                 decided TEXT NOT NULL DEFAULT 'auto'
+            );
+            CREATE TABLE user_facts (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             );
             "#,
         )?;
@@ -517,5 +643,48 @@ mod tests {
         assert_eq!(rows[1].tool, "read_file");
         assert!(rows[1].success);
         assert_eq!(m.list_tool_audit(1).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn facts_crud() {
+        let m = test_db().unwrap();
+        assert!(m.list_facts().unwrap().is_empty());
+        m.upsert_fact("nombre", "Ada").unwrap();
+        m.upsert_fact("  idioma  ", "  es ").unwrap();
+        let facts = m.list_facts().unwrap();
+        assert_eq!(facts.len(), 2);
+        // Ordenados por clave.
+        assert_eq!(facts[0].key, "idioma");
+        assert_eq!(facts[0].value, "es");
+        m.upsert_fact("nombre", "Ada Lovelace").unwrap();
+        assert_eq!(m.list_facts().unwrap().len(), 2);
+        m.delete_fact("nombre").unwrap();
+        assert_eq!(m.list_facts().unwrap().len(), 1);
+        // Validación.
+        assert!(m.upsert_fact("", "x").is_err());
+        assert!(m.upsert_fact("k", "").is_err());
+        assert!(m.upsert_fact(&"k".repeat(41), "x").is_err());
+    }
+
+    #[test]
+    fn summary_get_set() {
+        let m = test_db().unwrap();
+        let s = m.create_session("S").unwrap();
+        let (sum, cnt) = m.get_summary(&s.id).unwrap();
+        assert!(sum.is_empty() && cnt == 0);
+        m.set_summary(&s.id, "Resumen...", 40).unwrap();
+        let (sum, cnt) = m.get_summary(&s.id).unwrap();
+        assert_eq!(sum, "Resumen...");
+        assert_eq!(cnt, 40);
+    }
+
+    #[test]
+    fn should_summarize_thresholds() {
+        assert!(!should_summarize(59, 0));
+        assert!(should_summarize(60, 0));
+        assert!(should_summarize(100, 60));
+        // Menos de 40 nuevos desde el último resumen: no.
+        assert!(!should_summarize(99, 60));
+        assert!(should_summarize(100, 60));
     }
 }

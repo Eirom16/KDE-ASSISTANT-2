@@ -115,8 +115,10 @@
 
 ## Fase 5 — Memoria y personalización (P2)
 
-- [ ] `system_prompt` editable UI, ventana 40 msgs, `facts.md` local opt-in
-- [ ] Resumen auto cada 50 msgs, embeddings locales, UI ver/olvidar
+- [x] Facts del usuario (`user_facts` SQLite, `/api/memory/facts`, pestaña Memoria con alta/baja, inyección al prompt en texto y voz, toggle `memory.enabled`)
+- [x] Resumen automático (`sessions.summary/summary_count` con migración, trigger 60+40, `simple_completion` sin tools, inyección como contexto, toggle `auto_summarize`)
+- [ ] Embeddings locales + recall semántico (pospuesto: requiere modelo de embeddings y búsqueda vectorial; facts + resumen cubren continuidad)
+- [ ] `system_prompt` editable en UI (pospuesto a pulido: hoy vía config.json)
 
 ## Fase 6 — Avanzadas (futuro)
 
@@ -140,5 +142,6 @@
 | 2026-09-09 | F2 | Tray (Dictar+prefill, acciones rápidas, 5 recientes, siempre-visible persistido), tools `find/open/reveal/open_url/system_info/notify` (11 total, badges), `fs_enabled()` | 53 passed, `valida_qml` OK | pendiente |
 | 2026-09-09 | F3 | Push voz SSE (`VoiceSignal` broadcast + `/api/voice/stream`, throttle nivel), escucha continua (`auto_listen`, `record/wait/continue`, wake+PTT), micro seleccionable (`/api/audio/*`, VU en Settings) | 56 passed, `valida_qml` OK | pendiente |
 | 2026-09-09 | F4 | Permisos 🟢🟡🔴 + `ApprovalManager` + `approval_needed` + botones badge, 5 tools sistema (16 total), auditoría SQLite + `/api/tools/audit` + diálogos | 64 passed, QML OK | pendiente |
+| 2026-09-09 | F5 | Facts (`user_facts` + `/api/memory/facts` + pestaña Memoria) y resumen auto (`summary`, trigger 60/40, `simple_completion`) | 67 passed, QML OK | pendiente |
 
 > Cómo marcar: cambia `- [ ]` a `- [x]` y agrega fila en Registro con `cargo test --lib`, `cargo clippy`, `valida_qml`.

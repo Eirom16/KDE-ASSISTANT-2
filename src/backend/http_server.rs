@@ -137,6 +137,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/tools", get(list_tools))
         .route("/api/tools/approve", post(approve_tool))
         .route("/api/tools/audit", get(list_tool_audit))
+        .route(
+            "/api/memory/facts",
+            get(list_facts).post(upsert_fact).delete(delete_fact),
+        )
         .layer(middleware::from_fn_with_state(state.clone(), auth_layer))
         .with_state(state)
 }
@@ -263,6 +267,9 @@ async fn chat_regenerate(
                             let _ =
                                 sessions.add_message(&sid2, &Message::assistant(outcome.response));
                         }
+                        drop(sessions);
+                        // F5: resumir el hilo en segundo plano si toca.
+                        maybe_summarize(&state2, &sid2);
                     }
                     Ok(Err(e)) => {
                         unregister_if_finished(&state2, &cancel_key2);
@@ -391,10 +398,67 @@ async fn voice_log(
     if !body.response.trim().is_empty() {
         let _ = sessions.add_message(&sid, &Message::assistant(body.response.clone()));
     }
+    drop(sessions);
+    // F5: resumir el hilo en segundo plano si toca.
+    maybe_summarize(&state, &sid);
     (
         StatusCode::OK,
         Json(serde_json::json!({ "session_id": sid })),
     )
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FactUpsertRequest {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FactDeleteQuery {
+    pub key: String,
+}
+
+/// Lista los facts del usuario (F5, memoria local).
+async fn list_facts(State(state): State<AppState>) -> impl IntoResponse {
+    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+    match sessions.list_facts() {
+        Ok(facts) => Json(facts).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// Crea o actualiza un fact (F5).
+async fn upsert_fact(
+    State(state): State<AppState>,
+    Json(body): Json<FactUpsertRequest>,
+) -> impl IntoResponse {
+    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+    match sessions.upsert_fact(&body.key, &body.value) {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "status": "ok" }))),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ),
+    }
+}
+
+/// Borra un fact (F5).
+async fn delete_fact(
+    State(state): State<AppState>,
+    Query(q): Query<FactDeleteQuery>,
+) -> impl IntoResponse {
+    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+    match sessions.delete_fact(&q.key) {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "status": "ok" }))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1015,6 +1079,9 @@ async fn chat_complete(
         if outcome.new_messages.is_empty() && !response.trim().is_empty() {
             let _ = sessions.add_message(sid, &Message::assistant(response.clone()));
         }
+        drop(sessions);
+        // F5: resumir el hilo en segundo plano si toca.
+        maybe_summarize(&state, sid);
     }
 
     // Regla voz/texto: el chat escrito solo habla si auto_speak esta activo
@@ -1165,6 +1232,9 @@ async fn chat(
                     if outcome.new_messages.is_empty() && !outcome.response.trim().is_empty() {
                         let _ = sessions.add_message(sid, &Message::assistant(outcome.response));
                     }
+                    drop(sessions);
+                    // F5: resumir el hilo en segundo plano si toca.
+                    maybe_summarize(&state2, sid);
                 }
             }
             Ok(Err(e)) => {
@@ -1217,7 +1287,23 @@ fn maybe_auto_title(
 }
 
 async fn build_messages(state: &AppState, req: &ChatRequest) -> Vec<Message> {
-    let system_prompt = state.config.read().await.ai.system_prompt.clone();
+    let cfg = state.config.read().await.clone();
+    let mut system_prompt = cfg.ai.system_prompt.clone();
+    // F5: facts del usuario (solo si hay y está habilitado).
+    if cfg.memory.enabled {
+        let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        if let Ok(facts) = sessions.list_facts() {
+            if !facts.is_empty() {
+                let mut block = String::from(
+                    "\n\nDatos del usuario (recordados localmente, pueden estar desactualizados):",
+                );
+                for f in &facts {
+                    block.push_str(&format!("\n- {}: {}", f.key, f.value));
+                }
+                system_prompt.push_str(&block);
+            }
+        }
+    }
     let mut messages = Vec::new();
     messages.push(Message::system(system_prompt));
 
@@ -1226,6 +1312,15 @@ async fn build_messages(state: &AppState, req: &ChatRequest) -> Vec<Message> {
     const MAX_HISTORY: usize = 40;
     if let Some(sid) = &req.session_id {
         let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        // F5: resumen del hilo largo (contexto más allá de la ventana).
+        if let Ok((summary, _)) = sessions.get_summary(sid) {
+            if !summary.trim().is_empty() {
+                let short: String = summary.chars().take(1500).collect();
+                messages.push(Message::system(format!(
+                    "Resumen de la conversación anterior en esta sesión:\n{short}"
+                )));
+            }
+        }
         if let Ok(history) = sessions.get_messages(sid) {
             // Inyectar historial (sin el system prompt duplicado)
             let start = history.len().saturating_sub(MAX_HISTORY);
@@ -1235,6 +1330,100 @@ async fn build_messages(state: &AppState, req: &ChatRequest) -> Vec<Message> {
 
     messages.push(Message::user(req.message.clone()));
     messages
+}
+
+/// Revisa si toca resumir el hilo y lo lanza en segundo plano (F5).
+/// No bloquea la respuesta: el resumen estará en el siguiente turno.
+fn maybe_summarize(state: &AppState, session_id: &str) {
+    let enabled = state
+        .config
+        .try_read()
+        .map(|c| c.memory.auto_summarize)
+        .unwrap_or(false);
+    if !enabled {
+        return;
+    }
+    let (count, summarized) = {
+        let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let count = sessions.count_messages(session_id).unwrap_or(0);
+        let summarized = sessions
+            .get_summary(session_id)
+            .map(|(_, c)| c)
+            .unwrap_or(0);
+        (count, summarized)
+    };
+    if !crate::backend::session_manager::should_summarize(count, summarized) {
+        return;
+    }
+    let state2 = state.clone();
+    let sid = session_id.to_string();
+    tokio::spawn(async move {
+        if let Err(e) = summarize_session(&state2, &sid).await {
+            log::warn!("Resumen automático falló: {e}");
+        }
+    });
+}
+
+/// Resume el tramo no resumido (dejando los últimos 20 intactos) y lo guarda.
+async fn summarize_session(state: &AppState, session_id: &str) -> anyhow::Result<()> {
+    let (prev_summary, prev_count, chunk) = {
+        let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let (prev, prev_count) = sessions.get_summary(session_id).unwrap_or_default();
+        let all = sessions.get_messages(session_id).unwrap_or_default();
+        // Dejar los últimos 20 mensajes fuera del resumen (contexto fresco).
+        let end = all.len().saturating_sub(20);
+        let start = (prev_count as usize).min(end);
+        let mut text = String::new();
+        for m in &all[start..end] {
+            let (role, content) = match m {
+                Message::System { content } => ("sistema", content.as_str()),
+                Message::User { content } => ("usuario", content.as_str()),
+                Message::Assistant { content, .. } => ("asistente", content.as_str()),
+                Message::Tool { content, .. } => ("herramienta", content.as_str()),
+            };
+            // Envolver outputs (ya vienen envueltos) y recortar por mensaje.
+            let short: String = content.chars().take(600).collect();
+            text.push_str(&format!("[{role}] {short}\n"));
+            if text.len() > 12000 {
+                text.push_str("…[truncado]");
+                break;
+            }
+        }
+        (prev, prev_count, text)
+    };
+    if chunk.trim().is_empty() {
+        return Ok(());
+    }
+    let user = if prev_summary.trim().is_empty() {
+        format!("Resume esta conversación en ≤250 palabras, hechos y decisiones:\n{chunk}")
+    } else {
+        format!(
+            "Resumen previo:\n{prev_summary}\n\nContinúa la conversación:\n{chunk}\n\nActualiza el resumen (≤250 palabras)."
+        )
+    };
+    let summary = state
+        .ai
+        .simple_completion(
+            "Eres un resumidor conciso. Solo hechos, decisiones y contexto útil.",
+            &user,
+            512,
+        )
+        .await?;
+    if summary.trim().is_empty() {
+        anyhow::bail!("resumen vacío");
+    }
+    // Nuevo punto de corte = mensajes totales - 20.
+    let new_count = {
+        let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let total = sessions.count_messages(session_id).unwrap_or(prev_count);
+        total - 20.min(total)
+    };
+    {
+        let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        sessions.set_summary(session_id, summary.trim(), new_count)?;
+    }
+    log::info!("Resumen actualizado para sesión {session_id} (hasta {new_count})");
+    Ok(())
 }
 
 /// Convierte un StreamEvent en (event_name, data_json).

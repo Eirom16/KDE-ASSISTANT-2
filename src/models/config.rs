@@ -11,6 +11,9 @@ pub struct Config {
     pub ui: UiConfig,
     pub tools: ToolsConfig,
     pub shortcuts: ShortcutsConfig,
+    /// F5: memoria local (facts + resumen). Todo opt-in y en SQLite local.
+    #[serde(default)]
+    pub memory: MemoryConfig,
 }
 
 impl Default for Config {
@@ -315,6 +318,27 @@ fn default_shortcut_new_session() -> String {
     "Ctrl+Shift+K".to_string()
 }
 
+/// Memoria local y privada (F5): facts que el usuario gestiona + resumen
+/// automático de hilos largos. Nada sale del equipo salvo el prompt actual.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryConfig {
+    /// Inyectar facts en el prompt (solo si el usuario guardó alguno).
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Resumir hilos largos en segundo plano.
+    #[serde(default = "default_true")]
+    pub auto_summarize: bool,
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_summarize: true,
+        }
+    }
+}
+
 impl Config {
     pub fn voice(&self) -> &SpeechConfig {
         &self.speech
@@ -439,6 +463,7 @@ impl Config {
                 push_to_talk: default_shortcut_ptt(),
                 new_session: default_shortcut_new_session(),
             },
+            memory: MemoryConfig::default(),
         }
     }
 }
