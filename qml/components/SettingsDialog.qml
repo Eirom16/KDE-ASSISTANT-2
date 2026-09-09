@@ -259,6 +259,14 @@ Rectangle {
                         var toolsNote = root.toolCallingEnabled ? qsTr(" · tools ON") : qsTr(" · tools OFF")
                         if (list.length > 0) {
                             modelHint.text = qsTr("%n modelo(s) disponibles", "", list.length) + toolsNote
+                            // El modelo escrito ya no existe en la API (retirado):
+                            // avisarlo claro en vez de un 404 mudo al chatear.
+                            if (keep && list.indexOf(keep) === -1) {
+                                modelHint.text = qsTr("“%1” no está en la API (¿retirado?). Elige uno de la lista.").arg(keep) + toolsNote
+                                modelHint.color = Theme.warn
+                            } else {
+                                modelHint.color = Theme.inkMuted
+                            }
                         } else if (resp.error) {
                             modelHint.text = resp.error + toolsNote
                         } else {

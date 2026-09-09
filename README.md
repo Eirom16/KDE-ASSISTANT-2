@@ -77,7 +77,7 @@ Editar `~/.config/kde-assistant/config.json`:
     "provider": "groq",
     "base_url": "https://api.groq.com/openai/v1",
     "api_key": "<tu-api-key>",
-    "model": "llama-3.3-70b-versatile",
+    "model": "openai/gpt-oss-120b",
     "enable_tool_calling": true
   },
   "speech": {
@@ -103,7 +103,7 @@ En Configuracion elige proveedor y la app rellena la URL:
 | OpenAI | `https://api.openai.com/v1` | `sk-...` o `OPENAI_API_KEY` |
 | Personalizado | la que escribas | la que corresponda |
 
-Nota: el tool calling necesita un modelo capaz (ej. en Groq, `llama-3.3-70b-versatile`).
+Nota: el tool calling necesita un modelo capaz (ej. en Groq, `openai/gpt-oss-120b`).
 
 ## Cómo funciona (arquitectura)
 

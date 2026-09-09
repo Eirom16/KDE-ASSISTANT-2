@@ -361,10 +361,24 @@ impl Config {
         }
 
         let content = tokio::fs::read_to_string(&path).await?;
-        let config: Config = serde_json::from_str(&content).unwrap_or_else(|e| {
+        let mut config: Config = serde_json::from_str(&content).unwrap_or_else(|e| {
             log::warn!("Error parseando config.json: {e}. Usando defaults.");
             Self::default()
         });
+        // Migra modelos retirados por el proveedor (ej. Groq apagó los llama
+        // el 16/08/2026: sin esto todo el chat da 404 para siempre).
+        if let Some(replacement) = retired_model_replacement(&config.ai.provider, &config.ai.model)
+        {
+            log::warn!(
+                "Modelo '{}' retirado; migrando a '{}'",
+                config.ai.model,
+                replacement
+            );
+            config.ai.model = replacement.to_string();
+            if let Err(e) = config.save().await {
+                log::warn!("No se pudo persistir la migración del modelo: {e}");
+            }
+        }
         log::info!("Config cargada desde {}", path.display());
         Ok(config)
     }
@@ -399,7 +413,6 @@ impl Config {
     pub fn default() -> Self {
         Self::default_internal()
     }
-
     fn default_internal() -> Self {
         Self {
             ai: AiConfig {
@@ -469,5 +482,46 @@ impl Config {
             },
             memory: MemoryConfig::default(),
         }
+    }
+}
+
+/// Reemplazo para modelos retirados por el proveedor.
+/// Groq apagó `llama-3.3-70b-versatile` y `llama-3.1-8b-instant` el 16/08/2026
+/// (todo request da 404). Retorna el id vigente o None si sigue válido.
+pub fn retired_model_replacement(provider: &str, model: &str) -> Option<&'static str> {
+    if AiConfig::normalize_provider_id(provider) != "groq" {
+        return None;
+    }
+    match model.trim() {
+        "llama-3.3-70b-versatile" => Some("openai/gpt-oss-120b"),
+        "llama-3.1-8b-instant" => Some("openai/gpt-oss-20b"),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrates_retired_groq_models() {
+        assert_eq!(
+            retired_model_replacement("groq", "llama-3.3-70b-versatile"),
+            Some("openai/gpt-oss-120b")
+        );
+        assert_eq!(
+            retired_model_replacement("Groq", "llama-3.1-8b-instant"),
+            Some("openai/gpt-oss-20b")
+        );
+        // Otros proveedores/modelos no se tocan.
+        assert_eq!(
+            retired_model_replacement("openrouter", "llama-3.3-70b-versatile"),
+            None
+        );
+        assert_eq!(
+            retired_model_replacement("groq", "openai/gpt-oss-120b"),
+            None
+        );
+        assert_eq!(retired_model_replacement("groq", ""), None);
     }
 }
