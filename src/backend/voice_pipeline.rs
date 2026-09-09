@@ -64,6 +64,7 @@ pub struct VoicePipeline {
     pub chimes: Arc<ChimePlayer>,
     pub buffer: Arc<Mutex<RecordingBuffer>>,
     last_exchange: Arc<Mutex<Option<VoiceExchange>>>,
+    amplitude: Arc<AtomicU32>, // f32 bits 0..1
 }
 
 /// Ultimo intercambio por voz (para que la UI lo muestre en el chat).
@@ -98,7 +99,12 @@ impl VoicePipeline {
             chimes,
             buffer: Arc::new(Mutex::new(RecordingBuffer::new())),
             last_exchange: Arc::new(Mutex::new(None)),
+            amplitude: Arc::new(AtomicU32::new(0.0f32.to_bits())),
         }
+    }
+
+    pub fn amplitude(&self) -> f32 {
+        f32::from_bits(self.amplitude.load(Ordering::Relaxed))
     }
 
     /// Inicia una grabacion (limpia el buffer y marca recording=true).
@@ -109,12 +115,29 @@ impl VoicePipeline {
         buf.recording.store(true, Ordering::Relaxed);
     }
 
-    /// Anade samples al buffer de grabacion.
+    /// Anade samples al buffer de grabacion y actualiza el nivel para el orbe.
     pub fn push_audio(&self, samples: &[f32]) {
+        // Nivel para el orbe (siempre, aunque no se este grabando, para preview)
+        if !samples.is_empty() {
+            let rms = (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32).sqrt();
+            let lvl = (rms * 6.0).min(1.0);
+            self.amplitude.store(lvl.to_bits(), Ordering::Relaxed);
+            Self::write_level(lvl);
+        }
         let mut buf = self.buffer.lock().unwrap();
         if buf.recording.load(Ordering::Relaxed) {
             buf.push(samples);
         }
+    }
+
+    fn write_level(level: f32) {
+        let cache_dir = match dirs::cache_dir() {
+            Some(d) => d.join("kde-assistant"),
+            None => return,
+        };
+        let _ = std::fs::create_dir_all(&cache_dir);
+        let path = cache_dir.join("voice.level");
+        let _ = std::fs::write(&path, format!("{:.3}", level.clamp(0.0, 1.0)));
     }
 
     /// Detiene la grabacion y retorna los samples (a 16kHz mono).

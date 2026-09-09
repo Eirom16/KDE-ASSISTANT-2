@@ -447,6 +447,7 @@ ApplicationWindow {
                 VoiceOrb {
                     anchors.centerIn: parent
                     state: root.voiceState
+                    amplitude: root.voiceLevel
                     size: 120
                     onClicked: {
                         // Toggle voice
@@ -558,6 +559,7 @@ ApplicationWindow {
     FloatingOrb {
         id: floatingOrb
         voiceState: root.voiceState
+        amplitude: root.voiceLevel
     }
 
     // === Hotkey polling: lee ~/.cache/kde-assistant/hotkey.state ===
@@ -577,6 +579,8 @@ ApplicationWindow {
     }
     property string homePath: cacheBase + "hotkey.state"
     property string voicePath: cacheBase + "voice.state"
+    property string voiceLevelPath: cacheBase + "voice.level"
+    property real voiceLevel: 0.0
     Timer {
         id: hotkeyTimer
         interval: 300
@@ -586,6 +590,13 @@ ApplicationWindow {
             pollHotkeys()
             pollVoiceState()
         }
+    }
+    Timer {
+        id: levelTimer
+        interval: 80
+        running: root.voiceState === "listening"
+        repeat: true
+        onTriggered: pollVoiceLevel()
     }
 
     function pollHotkeys() {
@@ -613,6 +624,18 @@ ApplicationWindow {
                         }
                     }
                 }
+            }
+        }
+        req.send()
+    }
+
+    function pollVoiceLevel() {
+        var req = new XMLHttpRequest()
+        req.open("GET", root.voiceLevelPath + "?t=" + Date.now())
+        req.onreadystatechange = function() {
+            if (req.readyState === 4 && (req.status === 200 || req.status === 0)) {
+                var v = parseFloat(req.responseText.trim())
+                if (!isNaN(v)) root.voiceLevel = Math.max(0, Math.min(1, v))
             }
         }
         req.send()

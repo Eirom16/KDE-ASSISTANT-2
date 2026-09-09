@@ -49,7 +49,8 @@ Window {
     VoiceOrb {
         anchors.centerIn: parent
         state: root.voiceState
-        amplitude: root.voiceState === "listening" ? root.wobble : 0.0
+        // Nivel real del micro (0..1) si esta disponible, con wobble como base
+        amplitude: root.voiceState === "listening" ? Math.max(root.amplitude, root.wobble * 0.35) : 0.0
         size: 120
     }
 
