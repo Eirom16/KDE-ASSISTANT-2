@@ -12,6 +12,9 @@ Item {
     property string role: "assistant"   // "user" | "assistant" | "system"
     property string authorLabel: ""      // "Tu" | "KDE Assistant" | ...
     property string content: ""
+    /// Texto plano original (markdown del asistente / texto del usuario).
+    /// Se usa para copiar y para TTS (el HTML de `content` no sirve).
+    property string rawContent: ""
     property string timestamp: ""
     property bool isStreaming: false
     property var toolCalls: []           // Array de {name, args, status, result, imageUrl?}
@@ -20,6 +23,8 @@ Item {
     property int avatarSize: 28
 
     signal imageClicked(string url)
+    signal copyRequested(string text)
+    signal playRequested(string text)
 
     implicitHeight: column.implicitHeight + 8
     implicitWidth: column.implicitWidth
@@ -151,6 +156,30 @@ Item {
             font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
             color: Theme.inkMuted
             Layout.alignment: root.role === "user" ? Qt.AlignRight : Qt.AlignLeft
+        }
+
+        // Acciones de respuesta (solo asistente, con texto plano disponible)
+        RowLayout {
+            visible: root.role === "assistant" && !root.isStreaming && root.rawContent !== ""
+            spacing: Theme.spacingXs
+            Layout.alignment: root.role === "user" ? Qt.AlignRight : Qt.AlignLeft
+
+            IconButton {
+                iconName: "copy-16"
+                iconSize: 14
+                buttonSize: 28
+                backgroundColor: "transparent"
+                iconColor: Theme.inkMuted
+                onClicked: root.copyRequested(root.rawContent)
+            }
+            IconButton {
+                iconName: "play-16"
+                iconSize: 14
+                buttonSize: 28
+                backgroundColor: "transparent"
+                iconColor: Theme.inkMuted
+                onClicked: root.playRequested(root.rawContent)
+            }
         }
     }
 }

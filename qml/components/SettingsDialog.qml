@@ -58,13 +58,6 @@ Rectangle {
         return baseUrlField.value || ""
     }
 
-    function modelPlaceholder() {
-        if (root.provider === "groq") return "llama-3.3-70b-versatile"
-        if (root.provider === "openai") return "gpt-4o-mini"
-        if (root.provider === "custom") return "nombre-del-modelo"
-        return "openrouter/z-ai/glm-5.2:free"
-    }
-
     function keyPlaceholder() {
         if (root.provider === "groq") return "gsk-..."
         if (root.provider === "openai") return "sk-..."
@@ -97,7 +90,7 @@ Rectangle {
                 // Volcar a los campos (rompe nada: asignacion directa)
                 baseUrlField.value = root.baseUrl
                 apiKeyField.value = root.apiKey
-                modelField.value = root.model
+                modelCombo.editText = root.model
                 piperField.value = root.piperModel
                 speedSlider.value = root.piperLengthScale
                 // Listar lo que ofrece la API (usa la key recien cargada)
@@ -120,7 +113,10 @@ Rectangle {
                     try {
                         var resp = JSON.parse(xhr.responseText)
                         var list = resp.models || []
+                        // Preservar lo escrito: cambiar el modelo resetea el campo
+                        var keep = modelCombo.editText
                         root.modelList = list
+                        modelCombo.editText = keep
                         if (list.length > 0) {
                             modelHint.text = qsTr("%n modelo(s) disponibles", "", list.length)
                         } else if (resp.error) {
@@ -151,7 +147,7 @@ Rectangle {
         if (!cfg.ui) cfg.ui = {}
         cfg.ai.provider = root.provider
         cfg.ai.api_key = apiKeyField.value
-        cfg.ai.model = modelField.value
+        cfg.ai.model = modelCombo.editText
         cfg.ai.base_url = baseUrlField.value
         cfg.ai.enable_tool_calling = toolCallingEnabled
         cfg.speech.auto_speak = autoSpeak
@@ -162,7 +158,7 @@ Rectangle {
         cfg.ui.theme = theme
         // Refrescar props locales para que la UI quede consistente
         root.apiKey = apiKeyField.value
-        root.model = modelField.value
+        root.model = modelCombo.editText
         root.baseUrl = baseUrlField.value
         root.piperModel = piperField.value
         root.piperLengthScale = speedSlider.value
@@ -238,6 +234,7 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
                 ColumnLayout {
                     width: formScroll.availableWidth
@@ -310,11 +307,12 @@ Rectangle {
                         isPassword: true
                     }
 
-                    SettingsField {
-                        id: modelField
+                    // Modelo: un solo control editable (muestra, escribe y elige)
+                    Text {
+                        text: qsTr("Modelo")
+                        font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, -0.05)
+                        color: Theme.inkMuted
                         Layout.fillWidth: true
-                        label: qsTr("Modelo")
-                        placeholder: modelPlaceholder()
                     }
 
                     RowLayout {
@@ -322,29 +320,32 @@ Rectangle {
                         spacing: Theme.spacingXs
 
                         ComboBox {
-                            id: modelPicker
+                            id: modelCombo
                             Layout.fillWidth: true
                             Layout.preferredHeight: 36
-                            model: [qsTr("Elegir de la API…")].concat(root.modelList)
+                            editable: true
+                            model: root.modelList
                             font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
+                            // Sin bindings en editText: se fija por codigo en
+                            // loadConfig/fetchModels y se lee en saveConfig.
                             onActivated: function(index) {
-                                if (index > 0) {
-                                    modelField.value = modelPicker.currentText
-                                    modelPicker.currentIndex = 0
-                                }
+                                root.model = modelCombo.currentText
+                            }
+                            onAccepted: {
+                                root.model = modelCombo.editText
                             }
                             background: Rectangle {
                                 radius: Theme.radiusMd
-                                color: modelPicker.hovered || modelPicker.activeFocus ? Theme.surface : Theme.surfacePearl
+                                color: modelCombo.hovered || modelCombo.activeFocus ? Theme.surface : Theme.surfacePearl
                                 border.width: 1
-                                border.color: modelPicker.activeFocus ? Theme.primary : Theme.hairline
+                                border.color: modelCombo.activeFocus ? Theme.primary : Theme.hairline
                             }
                             // NOTA: sin contentItem personalizado; el estilo del
                             // sistema (Breeze) espera un TextInput con
                             // positionToRectangle() y rompe con un Text plano.
                             popup: Popup {
-                                y: modelPicker.height
-                                width: modelPicker.width
+                                y: modelCombo.height
+                                width: modelCombo.width
                                 padding: 4
                                 background: Rectangle {
                                     color: Theme.surface
@@ -353,18 +354,19 @@ Rectangle {
                                     radius: Theme.radiusMd
                                 }
                                 contentItem: ListView {
-                                    clip: true
+                clip: true
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
                                     implicitHeight: Math.min(contentHeight, 280)
-                                    model: modelPicker.popup.visible ? modelPicker.delegateModel : null
-                                    currentIndex: modelPicker.highlightedIndex
+                                    model: modelCombo.popup.visible ? modelCombo.delegateModel : null
+                                    currentIndex: modelCombo.highlightedIndex
                                     ScrollIndicator.vertical: ScrollIndicator { }
                                 }
                             }
                             delegate: ItemDelegate {
-                                width: modelPicker.width
+                                width: modelCombo.width
                                 text: modelData
                                 font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
-                                highlighted: modelPicker.highlightedIndex === index
+                                highlighted: modelCombo.highlightedIndex === index
                             }
                         }
 
@@ -518,7 +520,8 @@ Rectangle {
 
                     SettingsToggle {
                         Layout.fillWidth: true
-                        label: qsTr("Hablar respuestas automaticamente")
+                        label: qsTr("Hablar también las respuestas escritas")
+                        description: qsTr("Las respuestas por voz siempre se dictan")
                         active: root.autoSpeak
                         onToggled: root.autoSpeak = !root.autoSpeak
                     }

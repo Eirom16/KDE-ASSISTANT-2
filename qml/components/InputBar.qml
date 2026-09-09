@@ -3,6 +3,7 @@
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import qml 1.0
 
 Item {
@@ -16,18 +17,26 @@ Item {
 
     property bool streaming: false   // Mientras el LLM esta respondiendo, no se puede enviar
 
+    // Auto-crecimiento: hasta 4 lineas, luego scroll interno
+    property int maxInputLines: 4
+    property real lineH: input.contentHeight > 0 ? input.contentHeight / Math.max(1, input.lineCount) : 22
+    property real maxTextH: 22 * 4
+
     signal sendClicked(string text)
     signal micClicked()
     signal stopClicked()
 
-    implicitHeight: 64
     implicitWidth: 480
+    implicitHeight: bar.implicitHeight + hintText.height + 4
 
     // === Floating capsule bar ===
     Rectangle {
         id: bar
-        anchors.fill: parent
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
         anchors.margins: Theme.spacingXs
+        implicitHeight: inputBox.implicitHeight + 16
         radius: Theme.radiusPill
         color: Qt.rgba(
             Theme.surface.r,
@@ -52,77 +61,69 @@ Item {
             opacity: 0.5
         }
 
-        Row {
-            anchors.fill: parent
-            anchors.leftMargin: 4
-            anchors.rightMargin: 4
-            spacing: 0
+        RowLayout {
+            id: inputBox
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: 4
+            anchors.leftMargin: 8
+            spacing: 4
 
-            // === TextInput (expansible) ===
-            Item {
-                width: bar.width - 44 * 2 - 16
-                height: bar.height - 8
-                anchors.verticalCenter: parent.verticalCenter
-
-                ScrollView {
-                    id: scroll
-                    anchors.fill: parent
-                    anchors.margins: 4
-                    clip: true
+            // === TextInput (auto-creciente hasta maxTextH) ===
+            ScrollView {
+                id: scroll
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(input.contentHeight, root.maxTextH)
+                clip: true
+                ScrollBar.vertical.policy: input.contentHeight > root.maxTextH ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
 
                     TextArea {
-                        id: input
-                        placeholderText: qsTr("Escribe un mensaje...")
-                        placeholderTextColor: Theme.inkMuted
-                        color: Theme.ink
-                        font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
-                        wrapMode: TextEdit.Wrap
-                        background: null
-                        selectByMouse: true
-                        leftPadding: Theme.spacingSm
-                        rightPadding: Theme.spacingXs
-                        topPadding: Theme.spacingXs
-                        bottomPadding: Theme.spacingXs
-                        // Auto-resize: max ~4 lineas
-                        onTextChanged: {
-                            var lines = (text.match(/\n/g) || []).length + 1
-                            var maxLines = 4
-                            // Heuristica simple: dejamos al control crecer
-                        }
-                        // Enter envia (el TextArea multilinea lo consumiria si no)
-                        Keys.onReturnPressed: function(event) {
-                            if (event.modifiers & Qt.ShiftModifier) {
-                                event.accepted = false  // Shift+Enter: salto de linea
-                            } else {
-                                if (root.streaming) {
-                                    root.stopClicked()
-                                } else if (root.canSend) {
-                                    root.sendClicked(input.text)
-                                    input.text = ""
-                                }
-                                event.accepted = true
+                    id: input
+                    placeholderText: qsTr("Escribe un mensaje...")
+                    placeholderTextColor: Theme.inkMuted
+                    color: Theme.ink
+                    font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
+                    wrapMode: TextEdit.Wrap
+                    background: null
+                    selectByMouse: true
+                    leftPadding: Theme.spacingSm
+                    rightPadding: Theme.spacingXs
+                    topPadding: Theme.spacingXs
+                    bottomPadding: Theme.spacingXs
+                    // Enter envia (el TextArea multilinea lo consumiria si no)
+                    Keys.onReturnPressed: function(event) {
+                        if (event.modifiers & Qt.ShiftModifier) {
+                            event.accepted = false  // Shift+Enter: salto de linea
+                        } else {
+                            if (root.streaming) {
+                                root.stopClicked()
+                            } else if (root.canSend) {
+                                root.sendClicked(input.text)
+                                input.text = ""
                             }
+                            event.accepted = true
                         }
-                        Keys.onEnterPressed: function(event) {
-                            if (event.modifiers & Qt.ShiftModifier) {
-                                event.accepted = false
-                            } else {
-                                if (root.streaming) {
-                                    root.stopClicked()
-                                } else if (root.canSend) {
-                                    root.sendClicked(input.text)
-                                    input.text = ""
-                                }
-                                event.accepted = true
+                    }
+                    Keys.onEnterPressed: function(event) {
+                        if (event.modifiers & Qt.ShiftModifier) {
+                            event.accepted = false
+                        } else {
+                            if (root.streaming) {
+                                root.stopClicked()
+                            } else if (root.canSend) {
+                                root.sendClicked(input.text)
+                                input.text = ""
                             }
+                            event.accepted = true
                         }
                     }
                 }
-            }
+        }
 
             // === Boton microfono (circular) ===
             IconButton {
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignBottom
                 iconName: root.recording ? "stop-16" : "unmute-16"
                 iconSize: Theme.iconSizeMd
                 buttonSize: 40
@@ -138,7 +139,7 @@ Item {
 
             // === Boton enviar (circular) ===
             IconButton {
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignBottom
                 iconName: root.streaming ? "stop-16" : "paper-airplane-16"
                 iconSize: Theme.iconSizeMd
                 buttonSize: 40
@@ -160,6 +161,7 @@ Item {
 
     // === Hint text (debajo) ===
     Text {
+        id: hintText
         anchors.top: bar.bottom
         anchors.topMargin: 4
         anchors.horizontalCenter: parent.horizontalCenter

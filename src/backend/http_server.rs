@@ -48,6 +48,8 @@ pub struct AppState {
     pub tools: Arc<ToolExecutor>,
     pub config: Arc<RwLock<Config>>,
     pub sessions: Arc<Mutex<SessionManager>>,
+    pub speech: Arc<crate::backend::speech_service::SpeechService>,
+    pub voice: Arc<crate::backend::voice_pipeline::VoicePipeline>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -82,7 +84,107 @@ pub fn router(state: AppState) -> Router {
         .route("/api/messages", get(list_messages))
         .route("/api/config", get(get_config).post(update_config))
         .route("/api/ai-models", post(list_ai_models))
+        .route("/api/voice/last", get(voice_last))
+        .route("/api/voice/log", post(voice_log))
+        .route("/api/speak", post(speak_text))
         .with_state(state)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VoiceLogRequest {
+    pub transcript: String,
+    #[serde(default)]
+    pub response: String,
+    #[serde(default)]
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VoiceLogResponse {
+    pub session_id: String,
+}
+
+/// Ultimo intercambio por voz (para que la UI lo muestre en el chat).
+async fn voice_last(State(state): State<AppState>) -> impl IntoResponse {
+    match state.voice.last_exchange() {
+        Some(ex) => Json(serde_json::json!({
+            "transcript": ex.transcript,
+            "response": ex.response,
+            "timestamp_ms": ex.timestamp_ms,
+        }))
+        .into_response(),
+        None => Json(serde_json::json!({
+            "transcript": "",
+            "response": "",
+            "timestamp_ms": 0,
+        }))
+        .into_response(),
+    }
+}
+
+/// Persiste un intercambio por voz en una sesion (la crea si no hay).
+/// Retorna el session_id para que la UI lo seleccione.
+async fn voice_log(
+    State(state): State<AppState>,
+    Json(body): Json<VoiceLogRequest>,
+) -> impl IntoResponse {
+    if body.transcript.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "transcript vacio" })),
+        );
+    }
+    let sessions = state.sessions.lock().unwrap();
+    // Reusar la sesion indicada si existe; si no, crear "Conversacion por voz".
+    let sid = match body.session_id.as_deref() {
+        Some(id) if sessions.get_session(id).ok().flatten().is_some() => id.to_string(),
+        _ => match sessions.create_session("Conversacion por voz") {
+            Ok(s) => s.id,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+            }
+        },
+    };
+    let _ = sessions.add_message(&sid, &Message::user(body.transcript.clone()));
+    if !body.response.trim().is_empty() {
+        let _ = sessions.add_message(&sid, &Message::assistant(body.response.clone()));
+    }
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "session_id": sid })),
+    )
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SpeakRequest {
+    pub text: String,
+}
+
+/// Sintetiza y reproduce un texto (fire-and-forget para el boton reproducir).
+async fn speak_text(
+    State(state): State<AppState>,
+    Json(body): Json<SpeakRequest>,
+) -> impl IntoResponse {
+    if body.text.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "texto vacio" })),
+        );
+    }
+    let speech = state.speech.clone();
+    let text = body.text.clone();
+    tokio::spawn(async move {
+        if let Err(e) = speech.speak(&text).await {
+            log::warn!("POST /api/speak fallo: {e}");
+        }
+    });
+    (
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({ "status": "ok" })),
+    )
 }
 
 /// Devuelve la configuracion actual (JSON completo).
@@ -380,6 +482,19 @@ async fn chat_complete(
         let _ = sessions.add_message(sid, &Message::user(req.message.clone()));
         maybe_auto_title(&sessions, sid, &req.message);
         let _ = sessions.add_message(sid, &Message::assistant(response.clone()));
+    }
+
+    // Regla voz/texto: el chat escrito solo habla si auto_speak esta activo
+    // (las respuestas por voz siempre hablan, ver voice_pipeline).
+    let auto_speak = state.config.read().await.speech.auto_speak;
+    if auto_speak && !response.trim().is_empty() {
+        let speech = state.speech.clone();
+        let resp = response.clone();
+        tokio::spawn(async move {
+            if let Err(e) = speech.speak(&resp).await {
+                log::warn!("TTS de respuesta escrita fallo: {e}");
+            }
+        });
     }
 
     let body = ChatCompleteResponse {

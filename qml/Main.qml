@@ -57,10 +57,11 @@ ApplicationWindow {
                    .replace(/</g, "&lt;")
                    .replace(/>/g, "&gt;")
 
-        // Code blocks: ```lang \n ... \n ```
+        // Code blocks: ```lang \n ... \n ``` — monoespaciado con wrap
         html = html.replace(/```[\s\S]*?```/g, function(m) {
             var code = m.replace(/```[a-zA-Z]*\n?/g, "").replace(/```/g, "")
-            return "<pre><code>" + code + "</code></pre>"
+            code = code.replace(/\n/g, "<br>")
+            return "<font face=\"monospace\" size=\"2\">" + code + "</font>"
         })
 
         // Inline code: `code`
@@ -118,6 +119,7 @@ ApplicationWindow {
             role: "user",
             authorLabel: "Tu",
             content: text,
+            raw: text,
             timestamp: nowTime(),
             isStreaming: false,
             toolCalls: []
@@ -128,6 +130,7 @@ ApplicationWindow {
             role: "assistant",
             authorLabel: "KDE Assistant",
             content: "",
+            raw: "",
             timestamp: nowTime(),
             isStreaming: true,
             toolCalls: []
@@ -149,6 +152,7 @@ ApplicationWindow {
                     role: "assistant",
                     authorLabel: "KDE Assistant",
                     content: rawText ? markdownToHtml(rawText) : (stillStreaming ? "" : "⚠ Sin respuesta del asistente"),
+                    raw: rawText,
                     timestamp: old.timestamp,
                     isStreaming: stillStreaming,
                     toolCalls: toolArr.slice()
@@ -300,6 +304,7 @@ ApplicationWindow {
                         role: m.role,
                         authorLabel: m.role === "user" ? "Tu" : "KDE Assistant",
                         content: m.role === "assistant" ? markdownToHtml(m.content) : m.content,
+                        raw: m.content,
                         timestamp: "",
                         isStreaming: false,
                         toolCalls: []
@@ -319,11 +324,13 @@ ApplicationWindow {
     Component.onCompleted: loadSessions()
 
     // === Background frosted ===
+    // Esquinas exteriores cuadradas para asentar en la decoracion Breeze;
+    // los radios viven en cards, burbujas e InputBar.
     Rectangle {
         id: bgRect
         anchors.fill: parent
         color: Theme.canvas
-        radius: Theme.radiusLg + 4
+        radius: 0
         border.width: 1
         border.color: Theme.hairline
     }
@@ -459,6 +466,21 @@ ApplicationWindow {
                 onImageClicked: function(url, caption) {
                     imagePreview.show(url, caption)
                 }
+                onCopyRequested: function(text) {
+                    root.copyToClipboard(text)
+                }
+                onPlayRequested: function(text) {
+                    root.speakText(text)
+                }
+            }
+
+            // Buffer oculto para copiar al portapapeles
+            // (QML no expone QClipboard; se usa selectAll+copy).
+            TextEdit {
+                id: clipBuffer
+                visible: false
+                width: 0
+                height: 0
             }
 
             // === Input bar (flotante) ===
@@ -592,6 +614,7 @@ ApplicationWindow {
 
     // El backend escribe listening|processing|speaking|idle con timestamp.
     // Solo los estados nuevos pisan el voiceState local.
+    property string lastVoiceCycle: "0"   // timestamp_ms ya mostrado en el chat
     function pollVoiceState() {
         var req = new XMLHttpRequest()
         req.open("GET", root.voicePath + "?t=" + Date.now())
@@ -604,12 +627,122 @@ ApplicationWindow {
                         var state = content.split("|")[0]
                         if (state === "listening" || state === "processing"
                                 || state === "speaking" || state === "idle") {
+                            var was = root.voiceState
                             root.voiceState = state
+                            // Al invocar por voz la app se abre aunque este minimizada
+                            if (state === "listening" && was !== "listening") {
+                                root.show()
+                                root.raise()
+                                root.requestActivate()
+                            }
+                            // Al terminar un ciclo de voz, traer el intercambio al chat
+                            if (state === "idle" && was !== "idle") {
+                                fetchVoiceExchange()
+                            }
                         }
                     }
                 }
             }
         }
         req.send()
+    }
+
+    // Trae el ultimo intercambio por voz y lo agrega al chat actual.
+    function fetchVoiceExchange() {
+        var req = new XMLHttpRequest()
+        req.open("GET", backendUrl + "/api/voice/last")
+        req.onreadystatechange = function() {
+            if (req.readyState === XMLHttpRequest.DONE && xhr_ok(req)) {
+                try {
+                    var ex = JSON.parse(req.responseText)
+                    var stamp = String(ex.timestamp_ms || 0)
+                    if (!ex.transcript || stamp === "0" || stamp === root.lastVoiceCycle) return
+                    root.lastVoiceCycle = stamp
+                    appendMessage({
+                        role: "user",
+                        authorLabel: "Tu (voz)",
+                        content: ex.transcript,
+                        raw: ex.transcript,
+                        timestamp: nowTime(),
+                        isStreaming: false,
+                        toolCalls: []
+                    })
+                    if (ex.response) {
+                        appendMessage({
+                            role: "assistant",
+                            authorLabel: "KDE Assistant",
+                            content: markdownToHtml(ex.response),
+                            raw: ex.response,
+                            timestamp: nowTime(),
+                            isStreaming: false,
+                            toolCalls: []
+                        })
+                    }
+                    logVoiceExchange(ex.transcript, ex.response || "")
+                } catch (e) {}
+            }
+        }
+        req.send()
+    }
+
+    function xhr_ok(req) {
+        return req.status === 200 || req.status === 201 || req.status === 0
+    }
+
+    // Persiste el intercambio por voz en la sesion actual (la crea si no hay).
+    function logVoiceExchange(transcript, response) {
+        var req = new XMLHttpRequest()
+        req.open("POST", backendUrl + "/api/voice/log")
+        req.setRequestHeader("Content-Type", "application/json")
+        req.onreadystatechange = function() {
+            if (req.readyState === XMLHttpRequest.DONE && xhr_ok(req)) {
+                try {
+                    var resp = JSON.parse(req.responseText)
+                    if (resp.session_id) {
+                        if (!currentSessionId) currentSessionId = resp.session_id
+                        loadSessions()
+                    }
+                } catch (e) {}
+            }
+        }
+        req.send(JSON.stringify({
+            transcript: transcript,
+            response: response,
+            session_id: currentSessionId ? currentSessionId : null
+        }))
+    }
+
+    // Texto plano apto para TTS (sin marcas markdown/HTML).
+    function stripMarkdownForSpeech(md) {
+        if (!md) return ""
+        var s = md
+        s = s.replace(/```[\s\S]*?```/g, " ")
+        s = s.replace(/`([^`]*)`/g, "$1")
+        s = s.replace(/\*\*([^*]*)\*\*/g, "$1")
+        s = s.replace(/\*([^*]*)\*/g, "$1")
+        s = s.replace(/^#{1,6}\s+/gm, "")
+        s = s.replace(/^[-*]\s+/gm, "")
+        s = s.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+        s = s.replace(/<[^>]*>/g, " ")
+        s = s.replace(/\s+/g, " ").trim()
+        return s
+    }
+
+    // Reproduce un texto via el backend (boton reproducir).
+    function speakText(rawText) {
+        var text = stripMarkdownForSpeech(rawText)
+        if (!text) return
+        var req = new XMLHttpRequest()
+        req.open("POST", backendUrl + "/api/speak")
+        req.setRequestHeader("Content-Type", "application/json")
+        req.send(JSON.stringify({ text: text }))
+    }
+
+    // Copia al portapapeles via buffer oculto.
+    function copyToClipboard(text) {
+        clipBuffer.text = text || ""
+        clipBuffer.selectAll()
+        clipBuffer.copy()
+        clipBuffer.deselect()
     }
 }

@@ -124,16 +124,23 @@ fn main() -> Result<()> {
         None
     };
 
-    // Handler del wake word: deteccion -> grabacion -> procesamiento
+    // Handler del wake word: saludo -> grabacion -> procesamiento
     const MAX_RECORDING_SECS: u64 = 8;
     let wake_word_label = cfg.speech.wake_word.clone();
+    let wake_greeting = cfg.speech.wake_greeting.clone();
     if let Some(mut rx) = voice_events {
         let vp = backend.voice.clone();
+        let speech = backend.speech.clone();
         runtime.spawn(async move {
             while let Some(event) = rx.recv().await {
                 match event {
                     kde_assistant_lib::backend::hotword::HotwordEvent::Detected => {
                         log::info!("Wake word detectado: '{wake_word_label}'");
+                        // Saludo hablado ANTES de grabar (si no, el micro
+                        // captaria nuestra propia voz y entraria en bucle)
+                        if let Err(e) = speech.speak(&wake_greeting).await {
+                            log::warn!("Saludo TTS fallo: {e}");
+                        }
                         vp.start_listening();
                         // Auto-stop: corta ante ~1.2s de silencio sostenido
                         // (tras un minimo de 1.5s), con tope de MAX_RECORDING_SECS.

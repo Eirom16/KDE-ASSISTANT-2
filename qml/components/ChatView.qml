@@ -16,6 +16,8 @@ Item {
     signal suggestionClicked(string text)
     signal imageClicked(string url, string caption)
     signal toolRetryClicked(string toolCallId)
+    signal copyRequested(string text)
+    signal playRequested(string text)
 
     Rectangle {
         anchors.fill: parent
@@ -36,6 +38,7 @@ Item {
             clip: true
 
             ScrollBar.vertical.policy: ScrollBar.AsNeeded
+            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
             Column {
                 width: scroll.width
@@ -54,9 +57,12 @@ Item {
                         role: modelData.role || "assistant"
                         authorLabel: modelData.authorLabel || ""
                         content: modelData.content || ""
+                        rawContent: modelData.raw || ""
                         timestamp: modelData.timestamp || ""
                         isStreaming: modelData.isStreaming || false
                         toolCalls: modelData.toolCalls || []
+                        onCopyRequested: function(text) { root.copyRequested(text) }
+                        onPlayRequested: function(text) { root.playRequested(text) }
                         onImageClicked: function(url) {
                             var cap = ""
                             for (var i = 0; i < (root.messages ? root.messages.length : 0); i++) {

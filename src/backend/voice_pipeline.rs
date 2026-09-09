@@ -63,6 +63,23 @@ pub struct VoicePipeline {
     pub tools: Arc<ToolExecutor>,
     pub chimes: Arc<ChimePlayer>,
     pub buffer: Arc<Mutex<RecordingBuffer>>,
+    last_exchange: Arc<Mutex<Option<VoiceExchange>>>,
+}
+
+/// Ultimo intercambio por voz (para que la UI lo muestre en el chat).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct VoiceExchange {
+    pub transcript: String,
+    pub response: String,
+    /// Millis epoch en que termino el procesamiento.
+    pub timestamp_ms: u64,
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 impl VoicePipeline {
@@ -80,6 +97,7 @@ impl VoicePipeline {
             tools,
             chimes,
             buffer: Arc::new(Mutex::new(RecordingBuffer::new())),
+            last_exchange: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -188,6 +206,11 @@ impl VoicePipeline {
         self.process_utterance(&audio, None).await
     }
 
+    /// Ultimo intercambio completado (para la UI via /api/voice/last).
+    pub fn last_exchange(&self) -> Option<VoiceExchange> {
+        self.last_exchange.lock().unwrap().clone()
+    }
+
     /// Procesa un utterance completo: STT -> LLM -> TTS.
     ///
     /// Retorna (transcript, response). Emite eventos por el canal `tx`.
@@ -198,6 +221,16 @@ impl VoicePipeline {
         tx: Option<tokio::sync::mpsc::Sender<StreamEvent>>,
     ) -> Result<(String, String)> {
         let r = self.process_utterance_inner(audio, tx).await;
+        // Guardar ANTES de marcar idle: la UI lee el intercambio al ver idle.
+        if let Ok((t, r)) = &r {
+            if !t.is_empty() {
+                *self.last_exchange.lock().unwrap() = Some(VoiceExchange {
+                    transcript: t.clone(),
+                    response: r.clone(),
+                    timestamp_ms: now_ms(),
+                });
+            }
+        }
         Self::write_state("idle");
         r
     }
@@ -230,10 +263,10 @@ impl VoicePipeline {
         // 2. LLM (agente con tool calling)
         let response = self.respond(&transcript, tx).await?;
 
-        // 3. TTS (si auto_speak). Se espera a que termine para que
-        // el estado "speaking" sea preciso en la burbuja flotante.
-        let auto_speak = self.config.read().await.speech.auto_speak;
-        if auto_speak && !response.is_empty() {
+        // 3. TTS: en el pipeline de voz SIEMPRE se habla la respuesta
+        // (regla: voz pregunta -> voz responde; el chat por texto nunca
+        // habla salvo que auto_speak este activo, ver chat_complete).
+        if !response.is_empty() {
             Self::write_state("speaking");
             if let Err(e) = self.speech.speak(&response).await {
                 log::warn!("TTS fallo: {e}");

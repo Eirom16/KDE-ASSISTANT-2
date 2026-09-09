@@ -98,6 +98,8 @@ impl Backend {
             tools: self.tools.clone(),
             config: self.config.clone(),
             sessions: self.sessions.clone(),
+            speech: self.speech.clone(),
+            voice: self.voice.clone(),
         }
     }
 

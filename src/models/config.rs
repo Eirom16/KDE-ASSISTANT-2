@@ -149,6 +149,9 @@ pub struct SpeechConfig {
     pub chimes_enabled: bool,
     #[serde(default = "default_wake_word_model_path")]
     pub wake_word_model_path: String,
+    /// Frase que dice el asistente al activarse por voz, antes de escuchar.
+    #[serde(default = "default_wake_greeting")]
+    pub wake_greeting: String,
 }
 
 fn default_stt_model() -> String {
@@ -180,6 +183,9 @@ fn default_threshold() -> f32 {
 }
 fn default_wake_word_model_path() -> String {
     "assets/models/wake_word.onnx".to_string()
+}
+fn default_wake_greeting() -> String {
+    "Sí, dígame".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -325,6 +331,7 @@ impl Config {
                 auto_speak: false,
                 chimes_enabled: true,
                 wake_word_model_path: default_wake_word_model_path(),
+                wake_greeting: default_wake_greeting(),
             },
             ui: UiConfig {
                 theme: default_ui_theme(),
