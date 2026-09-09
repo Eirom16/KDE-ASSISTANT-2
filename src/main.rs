@@ -276,21 +276,16 @@ fn main() -> Result<()> {
         } else {
             qml_cmd.args(["-apptype", "widget", "-I", "."]);
         }
-        // Plataforma/render solo si el usuario no los definió (FIX-wayland).
+        // Plataforma por defecto XWayland (FIX-wayland: en nativo la ventana
+        // a veces no mapea). El backend de render NO se fuerza: el software
+        // cuelga el hilo de render en algunas GPUs (negro + "no responde").
         if std::env::var_os("QT_QPA_PLATFORM").is_none() {
             qml_cmd.env("QT_QPA_PLATFORM", "xcb");
             log::info!("UI: forzando XWayland (QT_QPA_PLATFORM=xcb) por compatibilidad");
         }
-        if std::env::var_os("QT_QUICK_BACKEND").is_none() {
-            qml_cmd.env("QT_QUICK_BACKEND", "software");
-            log::info!("UI: render por software (QT_QUICK_BACKEND=software)");
-        }
         let qml_status = qml_cmd
             .arg("qml/Main.qml")
-            // Plataforma + render con defaults probados (ver roadmap FIX-wayland):
-            // en Wayland nativo la ventana a veces no mapea, y el backend GL
-            // pinta en negro bajo XWayland. Solo se fijan si el usuario no
-            // los definió (puede forzar otros con su entorno).
+            // Sin caché de QML: evita arrancar con bytecode rancio tras actualizar.
             .env("QML_DISABLE_DISK_CACHE", "1")
             .env("QML_XHR_ALLOW_FILE_READ", "1")
             .env("KDE_ASSISTANT_TOKEN", &local_token)
