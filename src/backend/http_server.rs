@@ -86,7 +86,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ai-models", post(list_ai_models))
         .route("/api/voice/last", get(voice_last))
         .route("/api/voice/log", post(voice_log))
+        .route("/api/voice/barge_in", post(voice_barge_in))
         .route("/api/speak", post(speak_text))
+        .route("/api/speak/stop", post(speak_stop))
         .with_state(state)
 }
 
@@ -184,6 +186,26 @@ async fn speak_text(
     (
         StatusCode::ACCEPTED,
         Json(serde_json::json!({ "status": "ok" })),
+    )
+}
+
+/// Detiene la reproduccion TTS en curso (barge-in via hotkey/UI).
+async fn speak_stop(State(state): State<AppState>) -> impl IntoResponse {
+    state.speech.request_stop();
+    // Si el VoicePipeline esta hablando, tambien hacer barge-in silencioso
+    state.voice.barge_in_silent();
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "stopped" })),
+    )
+}
+
+/// Barge-in por voz: interrumpe TTS y reinicia escucha.
+async fn voice_barge_in(State(state): State<AppState>) -> impl IntoResponse {
+    state.voice.barge_in_silent();
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "barge_in" })),
     )
 }
 

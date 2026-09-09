@@ -450,8 +450,12 @@ ApplicationWindow {
                     amplitude: root.voiceLevel
                     size: 120
                     onClicked: {
-                        // Toggle voice
-                        if (root.voiceState !== "idle") root.voiceState = "idle"
+                        if (root.voiceState === "speaking") {
+                            bargeIn()
+                            root.voiceState = "listening"
+                        } else if (root.voiceState !== "idle") {
+                            root.voiceState = "idle"
+                        }
                     }
                 }
             }
@@ -599,6 +603,14 @@ ApplicationWindow {
         onTriggered: pollVoiceLevel()
     }
 
+    function bargeIn() {
+        var req = new XMLHttpRequest()
+        req.open("POST", backendUrl + "/api/voice/barge_in")
+        req.setRequestHeader("Content-Type", "application/json")
+        req.send(JSON.stringify({}))
+        console.log("Barge-in solicitado")
+    }
+
     function pollHotkeys() {
         var req = new XMLHttpRequest()
         req.open("GET", root.homePath + "?t=" + Date.now())
@@ -614,11 +626,17 @@ ApplicationWindow {
                         if (action === "toggle_window") {
                             root.visible = !root.visible
                         } else if (action === "push_to_talk_start") {
+                            if (root.voiceState === "speaking") bargeIn()
                             root.voiceState = "listening"
                         } else if (action === "push_to_talk_end") {
                             root.voiceState = "idle"
                         } else if (action === "push_to_talk") {
-                            root.voiceState = root.voiceState === "listening" ? "idle" : "listening"
+                            if (root.voiceState === "speaking") {
+                                bargeIn()
+                                root.voiceState = "listening"
+                            } else {
+                                root.voiceState = root.voiceState === "listening" ? "idle" : "listening"
+                            }
                         } else if (action === "new_session") {
                             root.currentSessionId = ""
                         }

@@ -8,6 +8,7 @@
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -19,6 +20,7 @@ pub struct SpeechService {
     pub config: Arc<RwLock<Config>>,
     pub piper: PiperEngine,
     pub whisper: Arc<WhisperEngine>,
+    stop_requested: Arc<AtomicBool>,
 }
 
 impl SpeechService {
@@ -64,6 +66,7 @@ impl SpeechService {
             config,
             piper,
             whisper,
+            stop_requested: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -79,16 +82,39 @@ impl SpeechService {
             .await
     }
 
-    /// Reproduce el texto sintetizado inmediatamente.
+    /// Reproduce el texto sintetizado inmediatamente (interrumpible via `request_stop`).
     pub async fn speak(&self, text: &str) -> Result<()> {
+        // Reset cancel antes de cada locucion
+        self.stop_requested.store(false, Ordering::Relaxed);
         let cfg = self.config.read().await.clone();
-        self.piper
-            .speak(
+        let wav = self
+            .piper
+            .synthesize(
                 text,
                 Some(&cfg.speech.piper_model),
                 Some(cfg.speech.piper_length_scale),
             )
+            .await?;
+        if self.stop_requested.load(Ordering::Relaxed) {
+            log::info!("TTS cancelado durante sintesis");
+            return Ok(());
+        }
+        let flag = self.stop_requested.clone();
+        tokio::task::spawn_blocking(move || play_wav_bytes_with_cancel(&wav, flag))
             .await
+            .context("tts playback task")??;
+        Ok(())
+    }
+
+    /// Solicita interrumpir la reproduccion en curso (barge-in).
+    pub fn request_stop(&self) {
+        self.stop_requested.store(true, Ordering::Relaxed);
+        log::info!("TTS stop solicitado (barge-in)");
+    }
+
+    /// Verifica si hay un stop pendiente.
+    pub fn is_stop_requested(&self) -> bool {
+        self.stop_requested.load(Ordering::Relaxed)
     }
 
     /// STT: transcribe audio (mono f32, 16kHz) a texto.
@@ -140,7 +166,13 @@ fn whisper_path_display() -> String {
 
 /// Reproduce bytes WAV via rodio (sincrono, bloqueante).
 pub fn play_wav_bytes(wav_bytes: &[u8]) -> Result<()> {
+    play_wav_bytes_with_cancel(wav_bytes, Arc::new(AtomicBool::new(false)))
+}
+
+/// Reproduce bytes WAV pero permite cancelar via `cancel` (barge-in).
+pub fn play_wav_bytes_with_cancel(wav_bytes: &[u8], cancel: Arc<AtomicBool>) -> Result<()> {
     use std::io::Cursor;
+    use std::time::Duration;
 
     let (_stream, handle) = rodio::OutputStream::try_default()
         .map_err(|e| anyhow::anyhow!("abriendo output stream: {e}"))?;
@@ -149,7 +181,14 @@ pub fn play_wav_bytes(wav_bytes: &[u8]) -> Result<()> {
         .play_once(cursor)
         .map_err(|e| anyhow::anyhow!("play_once: {e}"))?;
     sink.set_volume(0.9);
-    sink.sleep_until_end();
+    // Loop interrumpible: revisa cancel cada 30 ms en vez de sleep_until_end
+    while !sink.empty() {
+        if cancel.load(Ordering::Relaxed) {
+            sink.stop();
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(30));
+    }
     Ok(())
 }
 

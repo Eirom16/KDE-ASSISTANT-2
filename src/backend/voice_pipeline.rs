@@ -65,6 +65,8 @@ pub struct VoicePipeline {
     pub buffer: Arc<Mutex<RecordingBuffer>>,
     last_exchange: Arc<Mutex<Option<VoiceExchange>>>,
     amplitude: Arc<AtomicU32>, // f32 bits 0..1
+    speaking: Arc<AtomicBool>,
+    barge_counter: Arc<AtomicU32>,
 }
 
 /// Ultimo intercambio por voz (para que la UI lo muestre en el chat).
@@ -100,11 +102,38 @@ impl VoicePipeline {
             buffer: Arc::new(Mutex::new(RecordingBuffer::new())),
             last_exchange: Arc::new(Mutex::new(None)),
             amplitude: Arc::new(AtomicU32::new(0.0f32.to_bits())),
+            speaking: Arc::new(AtomicBool::new(false)),
+            barge_counter: Arc::new(AtomicU32::new(0)),
         }
     }
 
     pub fn amplitude(&self) -> f32 {
         f32::from_bits(self.amplitude.load(Ordering::Relaxed))
+    }
+
+    pub fn is_speaking(&self) -> bool {
+        self.speaking.load(Ordering::Relaxed)
+    }
+
+    /// Barge-in silencioso: interrumpe TTS y reinicia escucha sin chime.
+    /// Usado tanto por deteccion de voz (amplitud) como por hotkey/HTTP.
+    pub fn barge_in_silent(&self) {
+        if !self.speaking.load(Ordering::Relaxed) {
+            return;
+        }
+        self.speech.request_stop();
+        self.speaking.store(false, Ordering::Relaxed);
+        self.barge_counter.store(0, Ordering::Relaxed);
+        {
+            let mut buf = self.buffer.lock().unwrap();
+            buf.clear();
+            if buf.sample_rate.load(Ordering::Relaxed) == 0 {
+                buf.sample_rate.store(48000, Ordering::Relaxed);
+            }
+            buf.recording.store(true, Ordering::Relaxed);
+        }
+        Self::write_state("listening");
+        log::info!("Barge-in: TTS interrumpido, escucha reiniciada");
     }
 
     /// Inicia una grabacion (limpia el buffer y marca recording=true).
@@ -116,14 +145,36 @@ impl VoicePipeline {
     }
 
     /// Anade samples al buffer de grabacion y actualiza el nivel para el orbe.
+    /// Si esta hablando (`speaking`), detecta barge-in por amplitud.
     pub fn push_audio(&self, samples: &[f32]) {
         // Nivel para el orbe (siempre, aunque no se este grabando, para preview)
+        let mut lvl_opt: Option<f32> = None;
         if !samples.is_empty() {
             let rms = (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32).sqrt();
             let lvl = (rms * 6.0).min(1.0);
             self.amplitude.store(lvl.to_bits(), Ordering::Relaxed);
             Self::write_level(lvl);
+            lvl_opt = Some(lvl);
         }
+
+        // Barge-in: si esta hablando y hay voz fuerte, interrumpir.
+        // Umbral 0.28 + 3 frames consecutivos (~60-90 ms) para evitar falsos.
+        if self.speaking.load(Ordering::Relaxed) {
+            if let Some(lvl) = lvl_opt {
+                if lvl > 0.28 {
+                    let cnt = self.barge_counter.fetch_add(1, Ordering::Relaxed) + 1;
+                    if cnt >= 3 {
+                        self.barge_in_silent();
+                    }
+                } else if lvl < 0.18 {
+                    // Silencio sostenido resetea contador
+                    self.barge_counter.store(0, Ordering::Relaxed);
+                }
+            }
+            // No guardar en buffer mientras habla (salvo que barge-in ya reinicio escucha)
+            // Si barge_in_silent se activo, recording ya es true, asi que el push de abajo lo captura.
+        }
+
         let mut buf = self.buffer.lock().unwrap();
         if buf.recording.load(Ordering::Relaxed) {
             buf.push(samples);
@@ -237,7 +288,7 @@ impl VoicePipeline {
     /// Procesa un utterance completo: STT -> LLM -> TTS.
     ///
     /// Retorna (transcript, response). Emite eventos por el canal `tx`.
-    /// Siempre deja el estado en "idle" al terminar (incluso con error).
+    /// Si hubo barge-in (recording=true), mantiene `listening` en vez de `idle`.
     pub async fn process_utterance(
         &self,
         audio: &[f32],
@@ -254,7 +305,16 @@ impl VoicePipeline {
                 });
             }
         }
-        Self::write_state("idle");
+        // Si hay barge-in activo (escucha reiniciada), no pisar listening
+        let is_listening = self
+            .buffer
+            .lock()
+            .unwrap()
+            .recording
+            .load(Ordering::Relaxed);
+        if !is_listening {
+            Self::write_state("idle");
+        }
         r
     }
 
@@ -291,7 +351,21 @@ impl VoicePipeline {
         // habla salvo que auto_speak este activo, ver chat_complete).
         if !response.is_empty() {
             Self::write_state("speaking");
-            if let Err(e) = self.speech.speak(&response).await {
+            self.speaking.store(true, Ordering::Relaxed);
+            self.barge_counter.store(0, Ordering::Relaxed);
+            let speak_res = self.speech.speak(&response).await;
+            self.speaking.store(false, Ordering::Relaxed);
+            self.barge_counter.store(0, Ordering::Relaxed);
+            // Si hubo barge-in, no sobreescribir estado listening
+            if self
+                .buffer
+                .lock()
+                .unwrap()
+                .recording
+                .load(Ordering::Relaxed)
+            {
+                log::info!("TTS interrumpido por barge-in, manteniendo listening");
+            } else if let Err(e) = speak_res {
                 log::warn!("TTS fallo: {e}");
             }
         }
