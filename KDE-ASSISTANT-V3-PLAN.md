@@ -117,6 +117,22 @@
 - **V4 (cosmetico, no tocar):** warning Wayland `Failed to create grabbing popup` del menu del tray — bug conocido de Qt, el menu funciona igual.
 - **V5:** `FloatingOrb` usa `Screen.desktopAvailableWidth` — verificado que carga sin errores en offscreen, pero confirmar en la sesion real que aparece abajo-derecha.
 
+### Hallazgos de la captura 08/09/26 (tu screenshot, 3 errores marcados)
+
+**HC1 — "Tu" y burbuja de usuario pegados al borde derecho / scrollbar (mala colocación):**
+- La columna del chat usa `width: scroll.width` con `rightPadding: spacingMd (17px)`, pero el `ScrollBar.vertical` es overlay y se superpone. El label "Tu" y su punto quedan contra el borde y el timestamp `21:45` se corta contra la barra (flecha superior).
+- Fix: `ChatView.qml` → `rightPadding: Theme.spacingMd + 8` + `ScrollBar.vertical.policy: AsNeeded` dejando 4px de gutter, o envolver `MessageBubble` con `Layout.rightMargin` que considere `scroll.ScrollBar.vertical.width`.
+
+**HC2 — Botones de micro/enviar dentro de la cápsula desalineados (mala colocación):**
+- En la captura la cápsula muestra el micrófono y el avión en el borde inferior, no centrados con el texto placeholder. Venía del `RowLayout` anclado `bottom` con botones `AlignBottom` (parche anterior lo dejó así).
+- Fix ya aplicado en `InputBar.qml` (RowLayout con `Layout.alignment: AlignVCenter` y `bar.implicitHeight = inputBox.implicitHeight + 24`) pero el contenedor en `Main.qml` seguía con `Layout.preferredHeight: 64` fijo que recortaba. Fix: `Main.qml` → `InputBar { Layout.preferredHeight: implicitHeight }` y `inputBox` centrado verticalmente; `hintText` con `anchors.top: bar.bottom + 6` y `elide`.
+
+**HC3 — Espacio horizontal desperdiciado por burbujas estrechas:**
+- El rectángulo verde marca el vacío a la derecha del asistente. `MessageBubble.maxWidth = 480` fijo deja ~40% vacío en ventana ancha.
+- Fix: `MessageBubble.maxWidth: Math.min(600, parent.width * 0.78)` y `ChatView` centrado con `maxContentWidth: 720` (contenedor interior `width: Math.min(parent.width, Theme.maxContentWidth)` centrado). Así la burbuja usa hasta 78% del ancho disponible.
+
+**Confirmación visual post-fix:** captura Xvfb tras el parche de InputBar muestra el placeholder centrado y el hint visible (commit `793797e`). Los 3 hallazgos de esta captura se corrigen juntos en el siguiente bloque.
+
 ### Fuera de alcance (siguientes jornadas)
 - Barge-in (interrumpir TTS al hablar).
 - `ort` con `download-binaries` (seguimos con `load-dynamic` + auto-descarga, funciona).
