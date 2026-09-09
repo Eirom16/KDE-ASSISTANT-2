@@ -76,7 +76,9 @@ impl AudioCapture {
     }
 
     /// Inicia la captura. `callback` se invoca con cada frame de samples (mono, f32).
-    pub fn start<F>(&mut self, mut callback: F) -> Result<()>
+    /// Inicia la captura. Si `device_name` coincide con un dispositivo de
+    /// entrada, lo usa; si no, el por defecto (con aviso).
+    pub fn start<F>(&mut self, device_name: Option<&str>, mut callback: F) -> Result<()>
     where
         F: FnMut(&[f32]) + Send + 'static,
     {
@@ -85,9 +87,23 @@ impl AudioCapture {
         }
 
         let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .context("no hay dispositivo de entrada por defecto")?;
+        let device = match device_name.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(wanted) => match host
+                .input_devices()
+                .context("listando input devices")?
+                .find(|d| d.name().as_deref().unwrap_or("") == wanted)
+            {
+                Some(d) => d,
+                None => {
+                    log::warn!("Micrófono '{wanted}' no encontrado, usando el por defecto");
+                    host.default_input_device()
+                        .context("no hay dispositivo de entrada por defecto")?
+                }
+            },
+            None => host
+                .default_input_device()
+                .context("no hay dispositivo de entrada por defecto")?,
+        };
 
         let device_name = device.name().unwrap_or_else(|_| "?".to_string());
         log::info!("AudioCapture: usando dispositivo '{device_name}'");

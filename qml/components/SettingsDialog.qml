@@ -29,6 +29,10 @@ Rectangle {
 
     // STT idioma
     property string sttLanguage: "auto"
+    // F3-3: micro preferido + nivel en vivo (lo pasa Main).
+    property string micDevice: ""
+    property var audioDevices: []
+    property real micLevel: 0.0
 
     // Voz avanzada (F1-4): se persisten, aplican al reiniciar el pipeline.
     property string wakeWord: "hey jarvis"
@@ -116,6 +120,7 @@ Rectangle {
                 root.piperModel = cfg.speech.piper_model || "es_ES-sharvard-medium"
                 root.piperLengthScale = cfg.speech.piper_length_scale || 1.0
                 root.sttLanguage = cfg.speech.stt_language || "auto"
+                root.micDevice = cfg.speech.mic_device || ""
                 root.wakeWord = cfg.speech.wake_word || "hey jarvis"
                 root.wakeThreshold = cfg.speech.wake_word_threshold || 0.5
                 root.wakeGreeting = cfg.speech.wake_greeting || "Sí, dígame"
@@ -137,6 +142,37 @@ Rectangle {
                 newSessionField.value = root.shortcutNewSession
                 // Listar lo que ofrece la API (usa la key recien cargada)
                 fetchModels()
+                fetchAudioDevices()
+            }
+        }
+        xhr.send()
+    }
+
+    // Lista los micrófonos del sistema (F3-3).
+    function fetchAudioDevices() {
+        micHint.text = qsTr("Buscando micrófonos…")
+        var xhr = new XMLHttpRequest()
+        xhr.open("GET", backendUrl + "/api/audio/devices")
+        setAuth(xhr)
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+                if (xhr.status === 200) {
+                    try {
+                        var resp = JSON.parse(xhr.responseText)
+                        var list = resp.devices || []
+                        root.audioDevices = list
+                        var cur = resp.current || root.micDevice
+                        var idx = list.indexOf(cur)
+                        micCombo.currentIndex = idx >= 0 ? idx : -1
+                        micHint.text = list.length > 0
+                            ? qsTr("%n micrófono(s)", "", list.length)
+                            : qsTr("Sin micrófonos detectados")
+                    } catch (e) {
+                        micHint.text = qsTr("Respuesta inválida del servidor")
+                    }
+                } else {
+                    micHint.text = qsTr("No se pudo contactar al backend")
+                }
             }
         }
         xhr.send()
@@ -201,6 +237,7 @@ Rectangle {
         cfg.speech.piper_model = piperField.value
         cfg.speech.piper_length_scale = speedSlider.value
         cfg.speech.stt_language = sttLanguage
+        cfg.speech.mic_device = micCombo.currentIndex >= 0 ? root.audioDevices[micCombo.currentIndex] : ""
         cfg.speech.wake_word = wakeField.value
         cfg.speech.wake_word_threshold = thresholdSlider.value
         cfg.speech.wake_greeting = greetingField.value
@@ -214,6 +251,7 @@ Rectangle {
         root.baseUrl = baseUrlField.value
         root.piperModel = piperField.value
         root.piperLengthScale = speedSlider.value
+        root.micDevice = micCombo.currentIndex >= 0 ? root.audioDevices[micCombo.currentIndex] : ""
         root.wakeWord = wakeField.value
         root.wakeThreshold = thresholdSlider.value
         root.wakeGreeting = greetingField.value
@@ -584,6 +622,73 @@ Rectangle {
                         color: Theme.inkMuted
                         wrapMode: Text.Wrap
                         Layout.fillWidth: true
+                    }
+
+                    Text {
+                        text: qsTr("Micrófono (se aplica al reiniciar)")
+                        font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
+                        color: Theme.inkMuted
+                        Layout.topMargin: Theme.spacingSm
+                        Layout.fillWidth: true
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingXs
+
+                        ComboBox {
+                            id: micCombo
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 36
+                            model: root.audioDevices
+                            font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
+                            background: Rectangle {
+                                radius: Theme.radiusMd
+                                color: micCombo.hovered || micCombo.activeFocus ? Theme.surface : Theme.surfacePearl
+                                border.width: 1
+                                border.color: micCombo.activeFocus ? Theme.primary : Theme.hairline
+                            }
+                        }
+
+                        IconButton {
+                            iconName: "sync-16"
+                            iconSize: 18
+                            buttonSize: 36
+                            backgroundColor: Theme.surfacePearl
+                            iconColor: Theme.ink
+                            onClicked: fetchAudioDevices()
+                        }
+                    }
+
+                    Text {
+                        id: micHint
+                        text: ""
+                        font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                        color: Theme.inkMuted
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
+
+                    // VU del micro en vivo (viene de Main por SSE).
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 28
+                        RowLayout {
+                            anchors.fill: parent
+                            spacing: Theme.spacingSm
+                            Text {
+                                text: qsTr("Nivel")
+                                font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, -0.05)
+                                color: Theme.ink
+                                Layout.preferredWidth: 80
+                            }
+                            ProgressBar {
+                                Layout.fillWidth: true
+                                from: 0
+                                to: 1
+                                value: root.micLevel
+                            }
+                        }
                     }
 
                     Text {

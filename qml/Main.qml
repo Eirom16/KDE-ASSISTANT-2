@@ -869,6 +869,7 @@ ApplicationWindow {
         anchors.fill: parent
         open_: false
         backendUrl: root.backendUrl
+        micLevel: root.voiceLevel
         onClosed: console.log("Settings closed")
         onSaved: {
             console.log("Settings saved")

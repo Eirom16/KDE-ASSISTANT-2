@@ -121,6 +121,9 @@ impl AiConfig {
 pub struct SpeechConfig {
     #[serde(default = "default_stt_model")]
     pub stt_model: String, // Modelo whisper: "base", "tiny", "small"
+    /// F3-3: dispositivo de entrada preferido (nombre cpal). "" = por defecto.
+    #[serde(default)]
+    pub mic_device: String,
     #[serde(default = "default_stt_language")]
     pub stt_language: String, // Idioma STT: "auto", "es", "en", etc.
     #[serde(default = "default_tts_engine")]
@@ -366,6 +369,7 @@ impl Config {
             },
             speech: SpeechConfig {
                 stt_model: default_stt_model(),
+                mic_device: String::new(),
                 stt_language: default_stt_language(),
                 tts_engine: default_tts_engine(),
                 tts_voice: default_tts_voice(),

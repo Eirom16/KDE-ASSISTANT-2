@@ -131,6 +131,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/voice/barge_in", post(voice_barge_in))
         .route("/api/speak", post(speak_text))
         .route("/api/speak/stop", post(speak_stop))
+        .route("/api/audio/devices", get(audio_devices))
+        .route("/api/audio/device", post(set_audio_device))
         .layer(middleware::from_fn_with_state(state.clone(), auth_layer))
         .with_state(state)
 }
@@ -425,6 +427,51 @@ async fn voice_barge_in(State(state): State<AppState>) -> impl IntoResponse {
         StatusCode::OK,
         Json(serde_json::json!({ "status": "barge_in" })),
     )
+}
+
+/// Dispositivos de entrada + selección actual (F3-3).
+async fn audio_devices(State(state): State<AppState>) -> impl IntoResponse {
+    let devices =
+        crate::backend::audio_capture::AudioCapture::list_input_devices().unwrap_or_default();
+    let current = state.config.read().await.speech.mic_device.clone();
+    Json(serde_json::json!({ "devices": devices, "current": current })).into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetAudioDeviceRequest {
+    #[serde(default)]
+    pub name: String,
+}
+
+/// Guarda el micrófono preferido (F3-3). Se aplica al reiniciar la captura.
+async fn set_audio_device(
+    State(state): State<AppState>,
+    Json(body): Json<SetAudioDeviceRequest>,
+) -> impl IntoResponse {
+    let name = body.name.trim().to_string();
+    if !name.is_empty() {
+        let devices =
+            crate::backend::audio_capture::AudioCapture::list_input_devices().unwrap_or_default();
+        if !devices.iter().any(|d| d == &name) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "dispositivo no encontrado" })),
+            );
+        }
+    }
+    let mut cfg = state.config.write().await;
+    let changed = cfg.speech.mic_device != name;
+    cfg.speech.mic_device = name;
+    match cfg.save().await {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "status": "ok", "restart_required": changed })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ),
+    }
 }
 
 /// Devuelve la configuracion actual (JSON completo).

@@ -188,13 +188,21 @@ La UI QML se comunica con el backend Rust via este servidor HTTP:
 
 | Método | Path | Descripción |
 |--------|------|-------------|
-| `GET`  | `/api/health`        | Health check |
+| `GET`  | `/api/health`        | Health check (sin auth) |
 | `POST` | `/api/chat`          | Streaming SSE (token/tool_call/done/error) |
-| `POST` | `/api/chat/complete` | Respuesta JSON completa (usado por QML) |
+| `POST` | `/api/chat/complete` | Respuesta JSON completa + `tool_calls` |
+| `POST` | `/api/chat/regenerate` | Re-genera última respuesta (SSE) |
+| `POST` | `/api/chat/cancel`   | Cancela el agente en curso (`{session_id?}`) |
 | `GET`  | `/api/sessions`      | Lista sesiones |
 | `POST` | `/api/session`       | Crea sesión (body: `{"title":"..."}`) |
-| `GET`  | `/api/messages?session_id=X` | Mensajes de una sesión |
+| `PATCH` | `/api/session`      | Renombra sesión (`{"id","title"}`) |
+| `GET`  | `/api/messages?session_id=X` | Mensajes de una sesión (con `timestamp`) |
 | `POST` | `/api/ai-models` | Lista modelos de la API (`{base_url?, api_key?, provider?}`) |
+| `GET`  | `/api/config` / `POST` | Lee/actualiza configuración |
+| `GET`  | `/api/voice/stream`  | Push SSE de voz (`state`/`level`) |
+| `GET`  | `/api/audio/devices` | Micrófonos disponibles + actual |
+| `POST` | `/api/audio/device`  | Guarda micrófono (`{"name"}`) |
+| `POST` | `/api/speak` / `/api/speak/stop` | Reproduce/detiene TTS |
 
 ## Estado
 

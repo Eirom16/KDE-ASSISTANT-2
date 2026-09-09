@@ -169,9 +169,16 @@ impl Backend {
 
         let voice = self.voice.clone();
 
+        // Micrófono preferido (F3-3, "" = por defecto).
+        let mic_device = self.config.read().await.speech.mic_device.clone();
+        let mic_opt = if mic_device.trim().is_empty() {
+            None
+        } else {
+            Some(mic_device.as_str())
+        };
         // Crear y arrancar audio capture
         let mut cap = audio_capture::AudioCapture::new()?;
-        cap.start(move |frame: &[f32]| {
+        cap.start(mic_opt, move |frame: &[f32]| {
             // 1) Alimentar al detector de wake word (try_send: no bloquea el thread de audio)
             let frame_vec = frame.to_vec();
             if audio_tx.try_send(frame_vec).is_err() {
@@ -187,7 +194,7 @@ impl Backend {
         self.voice
             .buffer
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .sample_rate
             .store(sr, Ordering::SeqCst);
         self.hotword.set_sample_rate(sr);

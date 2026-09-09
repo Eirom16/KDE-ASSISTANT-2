@@ -100,10 +100,11 @@
 
 ## Fase 3 — Voz avanzada (P2)
 
-- [ ] WebSocket `/ws/voice` (eliminar polling archivos)
-- [ ] VAD neural + STT streaming + TTS por oraciones + AEC
-- [ ] Conversación continua (re-escucha 6-8s post-TTS) + selector mic + VU
-- [ ] Opción `tiny/base` en UI, `stt_model` respetado
+- [x] Push voz por SSE `/api/voice/stream` (broadcast estado/nivel throttled; polling de archivos eliminado en UI, archivos quedan como debug)
+- [x] Conversación continua (`auto_listen` + ventana configurable, `record/wait/continue` en pipeline, wake + PTT)
+- [x] Selector de micro (`/api/audio/devices`, `mic_device` persistido, se aplica al reiniciar) + VU en vivo en Settings
+- [x] Opción `tiny/base` en UI, `stt_model` respetado (hecho en F1-4)
+- [ ] VAD neural + STT streaming + TTS por oraciones + AEC + cancelación de eco (pospuesto: requiere modelos nuevos y rediseño del pipeline; el VAD de energía + gracia anti-altavoz cubre el uso actual)
 
 ## Fase 4 — Herramientas y automatización (P2)
 
@@ -136,5 +137,6 @@
 | 2026-09-09 | F1-1/F1-2 | `POST /api/chat/regenerate` SSE + `delete_trailing_after_last_user`, QML `streamAgent` genérico + botón `sync-16` + retry en badge, `timestamp` DB→API→`hh:mm`, `PATCH /api/session` rename, drawer con buscar/renombrar inline/fecha | 42 passed, `valida_qml` OK | pendiente |
 | 2026-09-09 | F1-3/F1-4 | `open_app` XDG (`scan_dirs/parse/score/split_exec` + 3 tests), atajos parseados desde config (`parse_shortcut`, `new_session` en config, listener cableado), voz `wake/threshold/greeting/stt_model(tiny/base)` + descarga según elección, badge proveedor en titlebar, hint tools ON/OFF | 48 passed, QML OK | pendiente |
 | 2026-09-09 | F2 | Tray (Dictar+prefill, acciones rápidas, 5 recientes, siempre-visible persistido), tools `find/open/reveal/open_url/system_info/notify` (11 total, badges), `fs_enabled()` | 53 passed, `valida_qml` OK | pendiente |
+| 2026-09-09 | F3 | Push voz SSE (`VoiceSignal` broadcast + `/api/voice/stream`, throttle nivel), escucha continua (`auto_listen`, `record/wait/continue`, wake+PTT), micro seleccionable (`/api/audio/*`, VU en Settings) | 56 passed, `valida_qml` OK | pendiente |
 
 > Cómo marcar: cambia `- [ ]` a `- [x]` y agrega fila en Registro con `cargo test --lib`, `cargo clippy`, `valida_qml`.
