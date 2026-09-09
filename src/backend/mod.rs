@@ -49,9 +49,10 @@ impl Backend {
         let config = Arc::new(RwLock::new(config));
         log::info!("Config cargada desde ~/.config/kde-assistant/config.json");
 
-        // Descargar modelos ML si faltan (whisper base, piper voices)
+        // Descargar modelos ML si faltan (whisper según stt_model, piper, wakeword).
         // Solo si hay conexion; los errores se loguean pero no bloquean el arranque.
-        if let Err(e) = Self::ensure_models_available().await {
+        let stt_model = config.read().await.speech.stt_model.clone();
+        if let Err(e) = Self::ensure_models_available(&stt_model).await {
             log::warn!("No se pudieron descargar los modelos ML: {e}");
         }
 
@@ -114,9 +115,15 @@ impl Backend {
     }
 
     /// Descarga los modelos ML necesarios si no existen.
-    async fn ensure_models_available() -> Result<()> {
+    async fn ensure_models_available(stt_model: &str) -> Result<()> {
         let downloader = model_downloader::ModelDownloader::new()?;
-        let models = model_downloader::required_models();
+        let mut models = model_downloader::required_models();
+        // Whisper según elección (tiny/base): required trae base; si es tiny,
+        // asegurar también el tiny sin descargar base de más si ya está.
+        let whisper_wanted = model_downloader::whisper_spec(stt_model);
+        if !models.iter().any(|m| m.rel_path == whisper_wanted.rel_path) {
+            models.push(whisper_wanted);
+        }
         let mut missing = Vec::new();
         for spec in &models {
             if !downloader.is_downloaded(spec) {

@@ -23,6 +23,9 @@ use tokio::io::AsyncWriteExt;
 pub const WHISPER_BASE_URL: &str =
     "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin";
 
+pub const WHISPER_TINY_URL: &str =
+    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin";
+
 pub const PIPER_ES_SHARVARD_MEDIUM_ONNX: &str = "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/sharvard_medium/es_ES-sharvard-medium.onnx";
 pub const PIPER_ES_SHARVARD_MEDIUM_JSON: &str = "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/sharvard_medium/es_ES-sharvard-medium.onnx.json";
 
@@ -185,6 +188,25 @@ fn verify_sha256(path: &Path, expected: &str) -> Result<bool> {
     let digest = hasher.finalize();
     let hex_digest = hex::encode(digest);
     Ok(hex_digest.eq_ignore_ascii_case(expected))
+}
+
+/// Spec del modelo whisper según `stt_model` ("tiny" o "base").
+pub fn whisper_spec(stt_model: &str) -> ModelSpec {
+    if stt_model.trim().eq_ignore_ascii_case("tiny") {
+        ModelSpec {
+            name: "whisper-tiny",
+            url: WHISPER_TINY_URL,
+            rel_path: "ggml-tiny.bin",
+            sha256: None,
+        }
+    } else {
+        ModelSpec {
+            name: "whisper-base",
+            url: WHISPER_BASE_URL,
+            rel_path: "ggml-base.bin",
+            sha256: None,
+        }
+    }
 }
 
 /// Los modelos necesarios para el funcionamiento completo.

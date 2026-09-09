@@ -36,7 +36,7 @@ fn open_app_tool() -> Tool {
         tool_type: "function".to_string(),
         function: ToolFunction {
             name: "open_app".to_string(),
-            description: "Abre una aplicacion del sistema. Acepta nombre o alias (ej: 'firefox', 'chrome', 'dolphin', 'konsole', 'spotify', 'code')."
+            description: "Abre una aplicacion del sistema. Acepta el nombre del menú (Name del .desktop, ej: 'Firefox', 'Dolphin') o alias (ej: 'firefox', 'terminal', 'spotify')."
                 .to_string(),
             parameters: ToolParameters {
                 param_type: "object".to_string(),

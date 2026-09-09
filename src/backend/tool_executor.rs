@@ -151,7 +151,7 @@ impl ToolExecutor {
 
         let resolved = resolve_app(name).ok_or_else(|| {
             anyhow!(
-                "No se pudo resolver la aplicacion '{name}'. Prueba con: firefox, chrome, dolphin, konsole, code, spotify"
+                "No se pudo resolver la aplicacion '{name}'. Prueba con el nombre que aparece en el menú (ej: firefox, dolphin, konsole) o instala el .desktop en ~/.local/share/applications"
             )
         })?;
 
@@ -499,11 +499,214 @@ fn resolve_app(name: &str) -> Option<(String, Vec<String>)> {
     Some(("gtk-launch".to_string(), vec![exe.to_string()]))
 }
 
-fn try_desktop(_app_id: &str) -> Option<(String, Vec<String>)> {
-    // gtk-launch requiere que el .desktop exista en el sistema.
-    // Sin chequeo del filesystem, devolvemos None para evitar falsos positivos.
-    // En Fase 6 se comprobara via XDG_DATA_DIRS.
+fn try_desktop(app_id: &str) -> Option<(String, Vec<String>)> {
+    // F1-3: buscar en XDG_DATA_DIRS/applications (+ XDG_DATA_HOME).
+    // Se puntúa por id/Name/Exec/Keywords y se lanza lo mejor si supera el umbral.
+    let entries = scan_desktop_entries();
+    if entries.is_empty() {
+        return None;
+    }
+    let query = app_id.trim().to_lowercase();
+    let mut best: Option<(&DesktopEntry, u32)> = None;
+    for e in &entries {
+        if let Some(score) = score_entry(&query, e) {
+            if best.map_or(true, |(_, b)| score > b) {
+                best = Some((e, score));
+            }
+        }
+    }
+    let (entry, score) = best?;
+    if score < 30 {
+        return None;
+    }
+    // Preferir gtk-launch con el id (respeta OnlyShowIn/DBusActivatable del .desktop).
+    if !entry.id.is_empty() {
+        return Some(("gtk-launch".to_string(), vec![entry.id.clone()]));
+    }
+    // Fallback: binario del Exec.
+    let (bin, args) = split_exec(&entry.exec)?;
+    Some((bin, args))
+}
+
+/// Entrada .desktop mínima para resolver apps.
+#[derive(Debug, Clone)]
+struct DesktopEntry {
+    /// Id sin extensión (ej: "firefox").
+    id: String,
+    name: String,
+    exec: String,
+    keywords: String,
+}
+
+/// Directorios `applications` según XDG (+ fallbacks de la spec).
+fn xdg_app_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let data_home = std::env::var("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("/"))
+                .join(".local/share")
+        });
+    dirs.push(data_home.join("applications"));
+    let data_dirs = std::env::var("XDG_DATA_DIRS")
+        .unwrap_or_else(|_| "/usr/local/share:/usr/share".to_string());
+    for d in data_dirs.split(':').filter(|s| !s.is_empty()) {
+        dirs.push(PathBuf::from(d).join("applications"));
+    }
+    // Fallback clásico de Debian/Ubuntu.
+    dirs.push(PathBuf::from("/usr/share/applications"));
+    dirs
+}
+
+/// Escanea todos los `*.desktop` (solo `[Desktop Entry]`, sin recursión profunda).
+fn scan_desktop_entries() -> Vec<DesktopEntry> {
+    scan_dirs(&xdg_app_dirs())
+}
+
+fn scan_dirs(dirs: &[PathBuf]) -> Vec<DesktopEntry> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for dir in dirs {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("desktop") {
+                continue;
+            }
+            let id = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            if id.is_empty() || !seen.insert(id.clone()) {
+                continue;
+            }
+            if let Some(e) = parse_desktop_file(&path, &id) {
+                out.push(e);
+            }
+        }
+    }
+    out
+}
+
+/// Parsea Name/Exec/Keywords/NoDisplay de un .desktop.
+fn parse_desktop_file(path: &Path, id: &str) -> Option<DesktopEntry> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let mut in_entry = false;
+    let mut name = String::new();
+    let mut exec = String::new();
+    let mut keywords = String::new();
+    let mut generic = String::new();
+    let mut hidden = false;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_entry = line == "[Desktop Entry]";
+            continue;
+        }
+        if !in_entry || line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (k, v) = line.split_once('=')?;
+        // Ignorar claves localizadas (Name[es]=...) en favor de la base.
+        match k {
+            "Name" if name.is_empty() => name = v.trim().to_string(),
+            "Exec" if exec.is_empty() => exec = v.trim().to_string(),
+            "Keywords" if keywords.is_empty() => keywords = v.trim().to_string(),
+            "GenericName" if generic.is_empty() => generic = v.trim().to_string(),
+            "NoDisplay" => {
+                if v.trim().eq_ignore_ascii_case("true") {
+                    return None;
+                }
+            }
+            "Hidden" => {
+                if v.trim().eq_ignore_ascii_case("true") {
+                    hidden = true;
+                }
+            }
+            _ => {}
+        }
+    }
+    if hidden || name.is_empty() || exec.is_empty() {
+        return None;
+    }
+    if generic.len() > keywords.len() {
+        keywords = format!("{keywords} {generic}");
+    }
+    Some(DesktopEntry {
+        id: id.to_string(),
+        name,
+        exec,
+        keywords,
+    })
+}
+
+/// Puntúa un entry contra la query (0-100). None = sin relación.
+fn score_entry(query: &str, e: &DesktopEntry) -> Option<u32> {
+    if query.is_empty() {
+        return None;
+    }
+    let name_l = e.name.to_lowercase();
+    let id_l = e.id.to_lowercase();
+    let exec_bin = split_exec(&e.exec)
+        .map(|(b, _)| b.to_lowercase())
+        .unwrap_or_default();
+    let exec_base = exec_bin.rsplit('/').next().unwrap_or(&exec_bin).to_string();
+    let kw_l = e.keywords.to_lowercase();
+
+    if query == id_l || query == format!("{id_l}.desktop") {
+        return Some(100);
+    }
+    if query == name_l {
+        return Some(90);
+    }
+    if query == exec_base {
+        return Some(85);
+    }
+    if name_l.starts_with(query) || id_l.starts_with(query) || exec_base.starts_with(query) {
+        return Some(70);
+    }
+    if name_l.contains(query) || id_l.contains(query) {
+        return Some(55);
+    }
+    if kw_l.contains(query) {
+        return Some(45);
+    }
+    // Todas las palabras contenidas en nombre+keywords.
+    let words: Vec<&str> = query.split_whitespace().collect();
+    if words.len() > 1 {
+        let hay = format!("{name_l} {kw_l} {id_l}");
+        if words.iter().all(|w| hay.contains(w)) {
+            return Some(35);
+        }
+    }
     None
+}
+
+/// Divide un Exec en (binario, args) quitando códigos de campo `%X`.
+/// Retorna None si el binario está vacío o contiene metacaracteres de shell.
+fn split_exec(exec: &str) -> Option<(String, Vec<String>)> {
+    let mut parts: Vec<String> = Vec::new();
+    for tok in exec.split_whitespace() {
+        if tok.starts_with('%') {
+            continue;
+        }
+        // Seguridad: rebotar Exec con shell (el .desktop es del sistema,
+        // pero nunca está de más no ejecutar nada raro).
+        if tok.contains([';', '&', '|', '`', '$', '\n']) {
+            return None;
+        }
+        parts.push(tok.to_string());
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    let bin = parts.remove(0);
+    Some((bin, parts))
 }
 
 struct SearchResult {
@@ -693,6 +896,50 @@ mod tests {
         assert!(resolve_app("dolphin").is_some());
         assert!(resolve_app("terminal").is_some());
         assert!(resolve_app("nonexistent_app_xyz").is_none());
+    }
+
+    #[test]
+    fn desktop_scan_scores_and_resolves() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("kda_desktop_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let mut f = std::fs::File::create(dir.join("falkon.desktop")).unwrap();
+        writeln!(
+            f,
+            "[Desktop Entry]\nName=Falkon\nExec=falkon %u\nKeywords=Browser;Web;\n"
+        )
+        .unwrap();
+        let entries = scan_dirs(std::slice::from_ref(&dir));
+        assert_eq!(entries.len(), 1);
+        let e = &entries[0];
+        assert_eq!(score_entry("falkon", e), Some(100));
+        assert_eq!(score_entry("falk", e), Some(70));
+        assert_eq!(score_entry("browser", e), Some(45));
+        assert!(score_entry("zzz_no_match", e).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn desktop_hidden_or_nodisplay_skipped() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("kda_hidden_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let mut f = std::fs::File::create(dir.join("secret.desktop")).unwrap();
+        writeln!(
+            f,
+            "[Desktop Entry]\nName=Secret\nExec=secret\nNoDisplay=true\n"
+        )
+        .unwrap();
+        assert!(scan_dirs(std::slice::from_ref(&dir)).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn split_exec_strips_field_codes() {
+        let (bin, args) = split_exec("firefox %u --private").unwrap();
+        assert_eq!(bin, "firefox");
+        assert_eq!(args, vec!["--private"]);
+        assert!(split_exec("evil; rm -rf /").is_none());
     }
 
     #[test]

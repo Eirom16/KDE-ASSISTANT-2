@@ -205,7 +205,10 @@ fn main() -> Result<()> {
         let (action_tx, mut action_rx) = tokio::sync::mpsc::channel::<
             kde_assistant_lib::backend::hotkey_listener::HotkeyAction,
         >(32);
-        let _handle = kde_assistant_lib::backend::hotkey_listener::start_listener(action_tx);
+        let _handle = kde_assistant_lib::backend::hotkey_listener::start_listener(
+            action_tx,
+            backend.config.clone(),
+        );
         // Consumir acciones: PTT start/stop conectan con la grabacion real
         let vp = backend.voice.clone();
         runtime.spawn(async move {

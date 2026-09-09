@@ -29,6 +29,17 @@ Rectangle {
     // STT idioma
     property string sttLanguage: "auto"
 
+    // Voz avanzada (F1-4): se persisten, aplican al reiniciar el pipeline.
+    property string wakeWord: "hey jarvis"
+    property real wakeThreshold: 0.5
+    property string wakeGreeting: "Sí, dígame"
+    property string sttModel: "base"
+
+    // Atajos (F1-4): formato "Super+Shift+A".
+    property string shortcutToggle: "Super+Shift+A"
+    property string shortcutPtt: "Super+Shift+V"
+    property string shortcutNewSession: "Ctrl+Shift+K"
+
     // Tabs
     property string activeTab: "general"  // general | voz | atajos
 
@@ -91,6 +102,7 @@ Rectangle {
                 if (!cfg.ai) cfg.ai = {}
                 if (!cfg.speech) cfg.speech = {}
                 if (!cfg.ui) cfg.ui = {}
+                if (!cfg.shortcuts) cfg.shortcuts = {}
                 root.provider = cfg.ai.provider || "openrouter"
                 root.apiKey = cfg.ai.api_key || ""
                 root.model = cfg.ai.model || ""
@@ -102,12 +114,25 @@ Rectangle {
                 root.piperModel = cfg.speech.piper_model || "es_ES-sharvard-medium"
                 root.piperLengthScale = cfg.speech.piper_length_scale || 1.0
                 root.sttLanguage = cfg.speech.stt_language || "auto"
+                root.wakeWord = cfg.speech.wake_word || "hey jarvis"
+                root.wakeThreshold = cfg.speech.wake_word_threshold || 0.5
+                root.wakeGreeting = cfg.speech.wake_greeting || "Sí, dígame"
+                root.sttModel = cfg.speech.stt_model || "base"
+                root.shortcutToggle = cfg.shortcuts.toggle || "Super+Shift+A"
+                root.shortcutPtt = cfg.shortcuts.push_to_talk || "Super+Shift+V"
+                root.shortcutNewSession = cfg.shortcuts.new_session || "Ctrl+Shift+K"
                 // Volcar a los campos (rompe nada: asignacion directa)
                 baseUrlField.value = root.baseUrl
                 apiKeyField.value = root.apiKey
                 modelCombo.editText = root.model
                 piperField.value = root.piperModel
                 speedSlider.value = root.piperLengthScale
+                wakeField.value = root.wakeWord
+                thresholdSlider.value = root.wakeThreshold
+                greetingField.value = root.wakeGreeting
+                toggleField.value = root.shortcutToggle
+                pttField.value = root.shortcutPtt
+                newSessionField.value = root.shortcutNewSession
                 // Listar lo que ofrece la API (usa la key recien cargada)
                 fetchModels()
             }
@@ -133,12 +158,13 @@ Rectangle {
                         var keep = modelCombo.editText
                         root.modelList = list
                         modelCombo.editText = keep
+                        var toolsNote = root.toolCallingEnabled ? qsTr(" · tools ON") : qsTr(" · tools OFF")
                         if (list.length > 0) {
-                            modelHint.text = qsTr("%n modelo(s) disponibles", "", list.length)
+                            modelHint.text = qsTr("%n modelo(s) disponibles", "", list.length) + toolsNote
                         } else if (resp.error) {
-                            modelHint.text = resp.error
+                            modelHint.text = resp.error + toolsNote
                         } else {
-                            modelHint.text = qsTr("La API no devolvio modelos")
+                            modelHint.text = qsTr("La API no devolvio modelos") + toolsNote
                         }
                     } catch (e) {
                         modelHint.text = qsTr("Respuesta invalida del servidor")
@@ -161,6 +187,7 @@ Rectangle {
         if (!cfg.ai) cfg.ai = {}
         if (!cfg.speech) cfg.speech = {}
         if (!cfg.ui) cfg.ui = {}
+        if (!cfg.shortcuts) cfg.shortcuts = {}
         cfg.ai.provider = root.provider
         cfg.ai.api_key = apiKeyField.value
         cfg.ai.model = modelCombo.editText
@@ -171,13 +198,25 @@ Rectangle {
         cfg.speech.piper_model = piperField.value
         cfg.speech.piper_length_scale = speedSlider.value
         cfg.speech.stt_language = sttLanguage
-        cfg.ui.theme = theme
+        cfg.speech.wake_word = wakeField.value
+        cfg.speech.wake_word_threshold = thresholdSlider.value
+        cfg.speech.wake_greeting = greetingField.value
+        cfg.speech.stt_model = sttModel
+        cfg.shortcuts.toggle = toggleField.value
+        cfg.shortcuts.push_to_talk = pttField.value
+        cfg.shortcuts.new_session = newSessionField.value
         // Refrescar props locales para que la UI quede consistente
         root.apiKey = apiKeyField.value
         root.model = modelCombo.editText
         root.baseUrl = baseUrlField.value
         root.piperModel = piperField.value
         root.piperLengthScale = speedSlider.value
+        root.wakeWord = wakeField.value
+        root.wakeThreshold = thresholdSlider.value
+        root.wakeGreeting = greetingField.value
+        root.shortcutToggle = toggleField.value
+        root.shortcutPtt = pttField.value
+        root.shortcutNewSession = newSessionField.value
 
         var xhr = new XMLHttpRequest()
         xhr.open("POST", backendUrl + "/api/config")
@@ -514,6 +553,37 @@ Rectangle {
                     }
 
                     Text {
+                        text: qsTr("Modelo STT (requiere reiniciar)")
+                        font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
+                        color: Theme.inkMuted
+                        Layout.topMargin: Theme.spacingSm
+                        Layout.fillWidth: true
+                    }
+
+                    // Modelo STT: tiny rápido, base preciso.
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingXs
+                        PillButton {
+                            text: qsTr("tiny (rápido)")
+                            active: root.sttModel === "tiny"
+                            onClicked: root.sttModel = "tiny"
+                        }
+                        PillButton {
+                            text: qsTr("base (preciso)")
+                            active: root.sttModel === "base"
+                            onClicked: root.sttModel = "base"
+                        }
+                    }
+                    Text {
+                        text: qsTr("tiny ≈ 75MB, base ≈ 140MB. Se descarga solo al reiniciar.")
+                        font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                        color: Theme.inkMuted
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
+
+                    Text {
                         text: qsTr("Sintesis (TTS)")
                         font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
                         color: Theme.inkMuted
@@ -583,6 +653,60 @@ Rectangle {
                         active: root.chimesEnabled
                         onToggled: root.chimesEnabled = !root.chimesEnabled
                     }
+
+                    Text {
+                        text: qsTr("Wake word (requiere reiniciar)")
+                        font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
+                        color: Theme.inkMuted
+                        Layout.topMargin: Theme.spacingSm
+                        Layout.fillWidth: true
+                    }
+                    SettingsField {
+                        id: wakeField
+                        Layout.fillWidth: true
+                        label: qsTr("Palabra de activación")
+                        placeholder: "hey jarvis"
+                    }
+                    SettingsField {
+                        id: greetingField
+                        Layout.fillWidth: true
+                        label: qsTr("Saludo al activar")
+                        placeholder: "Sí, dígame"
+                    }
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 36
+                        RowLayout {
+                            anchors.fill: parent
+                            spacing: Theme.spacingSm
+                            Text {
+                                text: qsTr("Umbral")
+                                font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, -0.05)
+                                color: Theme.ink
+                                Layout.preferredWidth: 80
+                            }
+                            Slider {
+                                id: thresholdSlider
+                                Layout.fillWidth: true
+                                from: 0.1
+                                to: 0.95
+                                value: 0.5
+                            }
+                            Text {
+                                text: thresholdSlider.value.toFixed(2)
+                                font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
+                                color: Theme.inkMuted
+                                Layout.preferredWidth: 40
+                            }
+                        }
+                    }
+                    Text {
+                        text: qsTr("Umbral alto = más exigente (menos falsos positivos).")
+                        font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                        color: Theme.inkMuted
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
                     } // Voz
 
                     // --- TAB: Atajos ---
@@ -597,15 +721,26 @@ Rectangle {
                             color: Theme.inkMuted
                             Layout.fillWidth: true
                         }
-                        Text {
-                            text: qsTr("Super+Shift+A: mostrar/ocultar  •  Super+Shift+V: mantener para dictar  •  Ctrl+Shift+K: nueva sesión")
-                            font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
-                            color: Theme.inkMuted
-                            wrapMode: Text.Wrap
+                        SettingsField {
+                            id: toggleField
                             Layout.fillWidth: true
+                            label: qsTr("Mostrar / ocultar")
+                            placeholder: "Super+Shift+A"
+                        }
+                        SettingsField {
+                            id: pttField
+                            Layout.fillWidth: true
+                            label: qsTr("Dictar (mantener)")
+                            placeholder: "Super+Shift+V"
+                        }
+                        SettingsField {
+                            id: newSessionField
+                            Layout.fillWidth: true
+                            label: qsTr("Nueva sesión")
+                            placeholder: "Ctrl+Shift+K"
                         }
                         Text {
-                            text: qsTr("Los atajos se configuran en el código (rdev).")
+                            text: qsTr("Formato: Super/Shift/Ctrl/Alt + letra, dígito o F1-F12. Se aplican al guardar (sin reiniciar). En Wayland algunos atajos los reserva el compositor.")
                             font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
                             color: Theme.inkMuted
                             wrapMode: Text.Wrap

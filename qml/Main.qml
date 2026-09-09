@@ -436,6 +436,7 @@ ApplicationWindow {
     property string lastErrorDetail: ""
     property bool showErrorBanner: false
     property string lastModel: ""
+    property string lastProvider: ""
 
     // F0-7: cancela el streaming local (xhr.abort) + backend (/api/chat/cancel).
     function cancelChat() {
@@ -487,6 +488,21 @@ ApplicationWindow {
         return qsTr("Offline")
     }
 
+    function providerLabel() {
+        var p = (lastProvider || "").toLowerCase()
+        if (p === "groq") return "Groq"
+        if (p === "openai") return "OpenAI"
+        if (p === "custom") return qsTr("Custom")
+        if (p) return "OpenRouter"
+        return ""
+    }
+
+    function modelShort() {
+        if (!lastModel) return ""
+        var parts = String(lastModel).split("/")
+        return parts[parts.length - 1]
+    }
+
     function backendStatusColor() {
         if (backendStatus === "online") return Theme.success
         if (backendStatus === "nokey") return Theme.warn
@@ -514,6 +530,7 @@ ApplicationWindow {
                                 var key = (cfg.ai && cfg.ai.api_key) ? String(cfg.ai.api_key).trim() : ""
                                 var model = (cfg.ai && cfg.ai.model) ? String(cfg.ai.model) : ""
                                 lastModel = model
+                                lastProvider = (cfg.ai && cfg.ai.provider) ? String(cfg.ai.provider) : ""
                                 backendStatus = key !== "" ? "online" : "nokey"
                                 if (key === "") {
                                     lastError = qsTr("Falta API key")
@@ -670,7 +687,14 @@ ApplicationWindow {
                         }
                     }
                     Text {
-                        text: backendStatusText() + (lastModel !== "" ? " · " + lastModel.split("/").pop() : "")
+                        text: {
+                            var t = backendStatusText()
+                            var prov = providerLabel()
+                            var mod = modelShort()
+                            if (prov && mod) return t + " · " + prov + " · " + mod
+                            if (mod) return t + " · " + mod
+                            return t
+                        }
                         font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
                         color: Theme.inkMuted
                         anchors.verticalCenter: parent.verticalCenter

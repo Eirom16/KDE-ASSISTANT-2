@@ -44,9 +44,9 @@ impl SpeechService {
             );
         }
 
-        // Inicializar whisper (STT)
+        // Inicializar whisper (STT) con el modelo elegido (tiny/base).
         let cfg = config.read().await.clone();
-        let whisper_path = whisper_model_path()?;
+        let whisper_path = whisper_model_path_for(&cfg.speech.stt_model)?;
         let language_override = if cfg.speech.stt_language == "auto" {
             None
         } else {
@@ -54,7 +54,10 @@ impl SpeechService {
         };
         let whisper = Arc::new(WhisperEngine::new(whisper_path, language_override)?);
         if whisper.model_exists() {
-            log::info!("SpeechService: whisper con modelo ggml-base.bin listo");
+            log::info!(
+                "SpeechService: whisper con modelo {} listo",
+                cfg.speech.stt_model
+            );
         } else {
             log::warn!(
                 "whisper sin modelo en '{}'. Se descargara automaticamente al iniciar.",
@@ -150,12 +153,23 @@ impl SpeechService {
     }
 }
 
-/// Path del modelo whisper ggml-base.bin.
+/// Path del modelo whisper según `stt_model` ("tiny" → ggml-tiny.bin).
 pub fn whisper_model_path() -> Result<PathBuf> {
+    // Compat: sin config a mano, base. El servicio usa `whisper_model_path_for`.
+    whisper_model_path_for("base")
+}
+
+/// Path del modelo whisper para un `stt_model` dado.
+pub fn whisper_model_path_for(stt_model: &str) -> Result<PathBuf> {
     let base = dirs::data_local_dir()
         .ok_or_else(|| anyhow::anyhow!("no se pudo obtener data_local_dir"))?
         .join("kde-assistant/models");
-    Ok(base.join("ggml-base.bin"))
+    let file = if stt_model.trim().eq_ignore_ascii_case("tiny") {
+        "ggml-tiny.bin"
+    } else {
+        "ggml-base.bin"
+    };
+    Ok(base.join(file))
 }
 
 fn whisper_path_display() -> String {

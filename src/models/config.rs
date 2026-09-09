@@ -246,6 +246,9 @@ pub struct ShortcutsConfig {
     pub toggle: String,
     #[serde(default = "default_shortcut_ptt")]
     pub push_to_talk: String,
+    /// Nueva sesión (antes hardcodeado a Ctrl+Shift+K sin campo propio).
+    #[serde(default = "default_shortcut_new_session")]
+    pub new_session: String,
 }
 
 fn default_shortcut_toggle() -> String {
@@ -253,6 +256,9 @@ fn default_shortcut_toggle() -> String {
 }
 fn default_shortcut_ptt() -> String {
     "Super+Shift+V".to_string()
+}
+fn default_shortcut_new_session() -> String {
+    "Ctrl+Shift+K".to_string()
 }
 
 impl Config {
@@ -363,6 +369,7 @@ impl Config {
             shortcuts: ShortcutsConfig {
                 toggle: default_shortcut_toggle(),
                 push_to_talk: default_shortcut_ptt(),
+                new_session: default_shortcut_new_session(),
             },
         }
     }
