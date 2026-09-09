@@ -101,7 +101,9 @@ fn main() -> Result<()> {
     const HTTP_PORT: u16 = 8765;
     // Falla rápido si el puerto está ocupado (otra instancia vieja con OTRO
     // token: la UI lanzaría contra ese backend y todo daría 401 "No autorizado").
-    if std::net::TcpListener::bind(([127, 0, 0, 1], HTTP_PORT)).is_err() {
+    if std::net::TcpListener::bind(std::net::SocketAddr::from(([127, 0, 0, 1], HTTP_PORT)))
+        .is_err()
+    {
         eprintln!(
             "Puerto {HTTP_PORT} en uso. ¿Hay otra instancia de kde-assistant corriendo?\n\
              Ciérrala (o `pkill -f kde-assistant`) y vuelve a intentar."
