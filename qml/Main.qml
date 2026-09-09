@@ -560,19 +560,18 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
-        console.log("auth token len:", authToken.length, "| cache:", cacheBase)
-        loadSessions()
-        checkBackend()
-        applyTheme()
-        startVoiceStream()
+        // El rescate va PRIMERO: si algo de abajo lanza, el diagnóstico igual corre.
+        rescueTimer.start()
+        try { console.log("auth token len:", authToken.length, "| cache:", cacheBase) } catch (e1) {}
+        try { loadSessions() } catch (e2) { console.warn("init loadSessions:", e2) }
+        try { checkBackend() } catch (e3) { console.warn("init checkBackend:", e3) }
+        try { applyTheme() } catch (e4) { console.warn("init applyTheme:", e4) }
+        try { startVoiceStream() } catch (e5) { console.warn("init startVoiceStream:", e5) }
         // F0-6: si cacheBase quedó vacío (sin HOME), desactivar polling.
         if (!cacheBase) {
             console.warn("HOME no disponible: polling de hotkey/voz desactivado")
             filePollingEnabled = false
         }
-        // Rescate: si la ventana quedó oculta (recreación por flags en
-        // Wayland), forzar visible + diagnóstico de geometría.
-        rescueTimer.start()
     }
     Timer {
         id: rescueTimer
