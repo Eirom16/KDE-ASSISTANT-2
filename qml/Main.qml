@@ -358,7 +358,6 @@ ApplicationWindow {
                 currentSessionId = s.id
                 messages = []
                 loadSessions()
-                drawerOpen = false
             }
         }
         xhr.send(JSON.stringify({ title: "Nueva conversación" }))
@@ -450,7 +449,8 @@ ApplicationWindow {
     }
 
     // === Estado UI ===
-    property bool drawerOpen: false
+    // drawerOpen siempre true (sin botón de alternancia).
+    property bool drawerOpen: true
     property bool streaming: false
     property string voiceState: "idle"  // "idle" | "listening" | "processing" | "speaking"
     // XHR del chat en curso (F0-7: para abortar en Stop / nueva sesión).
@@ -728,7 +728,6 @@ ApplicationWindow {
             onSessionSelected: function(id) {
                 root.currentSessionId = id
                 root.loadMessages(id)
-                root.drawerOpen = false
             }
             onSessionDeleteRequested: function(id) {
                 root.deleteSession(id)
@@ -740,7 +739,6 @@ ApplicationWindow {
                 auditDialog.show()
             }
             onSettingsClicked: {
-                root.drawerOpen = false
                 settings.show()
             }
         }
@@ -758,24 +756,10 @@ ApplicationWindow {
                 NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutCubic }
             }
 
-            // === Title bar ===
+            // === Title bar (sin botón de drawer: panel siempre visible) ===
             Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 40
-
-                // Toggle drawer
-                IconButton {
-                    id: toggleBtn
-                    anchors.left: parent.left
-                    anchors.verticalCenter: parent.verticalCenter
-                    anchors.leftMargin: Theme.spacingXs
-                    iconName: root.drawerOpen ? "sidebar-collapse-16" : "sidebar-expand-16"
-                    iconSize: 18
-                    buttonSize: 32
-                    backgroundColor: "transparent"
-                    iconColor: Theme.ink
-                    onClicked: root.drawerOpen = !root.drawerOpen
-                }
 
                 // Title
                 Text {
