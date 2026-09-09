@@ -26,6 +26,17 @@ ApplicationWindow {
 
     // === Modelo de datos real (conectado al backend Rust) ===
     property string backendUrl: "http://127.0.0.1:8765"
+    // Token local F0-3 (inyectado por main.rs vía env KDE_ASSISTANT_TOKEN).
+    property string authToken: {
+        try {
+            var e = Qt.platform.environment
+            var t = e ? e["KDE_ASSISTANT_TOKEN"] : null
+            return t ? String(t) : ""
+        } catch (err) { return "" }
+    }
+    function setAuth(xhr) {
+        if (authToken !== "") xhr.setRequestHeader("Authorization", "Bearer " + authToken)
+    }
 
     property var sessions: []          // [{id, title, updated_at, message_count}]
     property string currentSessionId: ""
@@ -97,6 +108,7 @@ ApplicationWindow {
             var cxhr = new XMLHttpRequest()
             cxhr.open("POST", backendUrl + "/api/session")
             cxhr.setRequestHeader("Content-Type", "application/json")
+            setAuth(cxhr)
             cxhr.onreadystatechange = function() {
                 if (cxhr.readyState === XMLHttpRequest.DONE && (cxhr.status === 200 || cxhr.status === 201)) {
                     try {
@@ -198,6 +210,7 @@ ApplicationWindow {
         var xhr = new XMLHttpRequest()
         xhr.open("POST", backendUrl + "/api/chat")
         xhr.setRequestHeader("Content-Type", "application/json")
+        setAuth(xhr)
         xhr.onreadystatechange = function() {
             if (xhr.readyState === 3 || xhr.readyState === 4) {
                 var full = xhr.responseText || ""
@@ -211,6 +224,16 @@ ApplicationWindow {
                 }
                 refreshUI(true)
                 if (xhr.readyState === 4) {
+                    // F0-3: el middleware devuelve 401 JSON (no SSE) si falta el Bearer.
+                    if (xhr.status === 401) {
+                        rawText = qsTr("⚠ No autorizado (token local). Reinicia la app.")
+                        lastError = qsTr("No autorizado")
+                        lastErrorDetail = qsTr("Falta el token local. Reinicia kde-assistant (main.rs lo inyecta vía KDE_ASSISTANT_TOKEN).")
+                        showErrorBanner = true
+                        streaming = false
+                        refreshUI(false)
+                        return
+                    }
                     if (pending && pending.indexOf("event:") >= 0) {
                         processBlock(pending)
                         pending = ""
@@ -239,7 +262,14 @@ ApplicationWindow {
     function loadSessions() {
         var xhr = new XMLHttpRequest()
         xhr.open("GET", backendUrl + "/api/sessions")
+        setAuth(xhr)
         xhr.onreadystatechange = function() {
+            if (xhr.status === 401 && xhr.readyState === XMLHttpRequest.DONE) {
+                lastError = qsTr("No autorizado")
+                lastErrorDetail = qsTr("Token local inválido. Reinicia la app.")
+                showErrorBanner = true
+                return
+            }
             if (xhr.readyState === XMLHttpRequest.DONE && (xhr.status === 200 || xhr.status === 201)) {
                 try {
                     sessions = JSON.parse(xhr.responseText)
@@ -269,6 +299,7 @@ ApplicationWindow {
         var xhr = new XMLHttpRequest()
         xhr.open("POST", backendUrl + "/api/session")
         xhr.setRequestHeader("Content-Type", "application/json")
+        setAuth(xhr)
         xhr.onreadystatechange = function() {
             if (xhr.readyState === XMLHttpRequest.DONE && (xhr.status === 200 || xhr.status === 201)) {
                 var s = JSON.parse(xhr.responseText)
@@ -285,6 +316,7 @@ ApplicationWindow {
     function deleteSession(sessionId) {
         var xhr = new XMLHttpRequest()
         xhr.open("DELETE", backendUrl + "/api/session?session_id=" + encodeURIComponent(sessionId))
+        setAuth(xhr)
         xhr.onreadystatechange = function() {
             if (xhr.readyState === XMLHttpRequest.DONE && (xhr.status === 200 || xhr.status === 201)) {
                 if (currentSessionId === sessionId) {
@@ -301,6 +333,7 @@ ApplicationWindow {
     function loadMessages(sessionId) {
         var xhr = new XMLHttpRequest()
         xhr.open("GET", backendUrl + "/api/messages?session_id=" + encodeURIComponent(sessionId))
+        setAuth(xhr)
         xhr.onreadystatechange = function() {
             if (xhr.readyState === XMLHttpRequest.DONE && (xhr.status === 200 || xhr.status === 201)) {
                 var list = JSON.parse(xhr.responseText)
@@ -377,6 +410,8 @@ ApplicationWindow {
     function checkBackend() {
         var h = new XMLHttpRequest()
         h.open("GET", backendUrl + "/api/health")
+        // /health no requiere auth, pero si hay token lo enviamos igual.
+        setAuth(h)
         h.onreadystatechange = function() {
             if (h.readyState === XMLHttpRequest.DONE) {
                 if (h.status === 200) {
@@ -384,6 +419,7 @@ ApplicationWindow {
                     // Ver si hay key: GET config (no muestra la key, solo si vacía).
                     var c = new XMLHttpRequest()
                     c.open("GET", backendUrl + "/api/config")
+                    setAuth(c)
                     c.onreadystatechange = function() {
                         if (c.readyState === XMLHttpRequest.DONE && c.status === 200) {
                             try {
@@ -424,6 +460,7 @@ ApplicationWindow {
     function applyTheme() {
         var xhr = new XMLHttpRequest()
         xhr.open("GET", backendUrl + "/api/config")
+        setAuth(xhr)
         xhr.onreadystatechange = function() {
             if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
                 try {
@@ -755,6 +792,7 @@ ApplicationWindow {
         var req = new XMLHttpRequest()
         req.open("POST", backendUrl + "/api/voice/barge_in")
         req.setRequestHeader("Content-Type", "application/json")
+        setAuth(req)
         req.send(JSON.stringify({}))
         console.log("Barge-in solicitado")
     }
@@ -849,6 +887,7 @@ ApplicationWindow {
     function fetchVoiceExchange() {
         var req = new XMLHttpRequest()
         req.open("GET", backendUrl + "/api/voice/last")
+        setAuth(req)
         req.onreadystatechange = function() {
             if (req.readyState === XMLHttpRequest.DONE && xhr_ok(req)) {
                 try {
@@ -892,6 +931,7 @@ ApplicationWindow {
         var req = new XMLHttpRequest()
         req.open("POST", backendUrl + "/api/voice/log")
         req.setRequestHeader("Content-Type", "application/json")
+        setAuth(req)
         req.onreadystatechange = function() {
             if (req.readyState === XMLHttpRequest.DONE && xhr_ok(req)) {
                 try {
@@ -933,6 +973,7 @@ ApplicationWindow {
         var req = new XMLHttpRequest()
         req.open("POST", backendUrl + "/api/speak")
         req.setRequestHeader("Content-Type", "application/json")
+        setAuth(req)
         req.send(JSON.stringify({ text: text }))
     }
 

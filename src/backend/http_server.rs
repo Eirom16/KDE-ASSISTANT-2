@@ -18,12 +18,11 @@
 
 use anyhow::Result;
 use axum::{
-    extract::{Query, State},
+    extract::{Query, Request, State},
     http::StatusCode,
-    response::{
-        sse::{Event, KeepAlive, Sse},
-        IntoResponse,
-    },
+    middleware::{self, Next},
+    response::sse::{Event, KeepAlive, Sse},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -50,6 +49,38 @@ pub struct AppState {
     pub sessions: Arc<Mutex<SessionManager>>,
     pub speech: Arc<crate::backend::speech_service::SpeechService>,
     pub voice: Arc<crate::backend::voice_pipeline::VoicePipeline>,
+    /// Token bearer local (F0-3). Se exige en todo `/api/*` salvo `/health`.
+    pub local_token: String,
+}
+
+/// Middleware F0-3: auth + host + origin para `/api/*`.
+async fn auth_layer(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    let path = req.uri().path().to_string();
+    if !crate::backend::auth::path_requires_auth(&path) {
+        return next.run(req).await;
+    }
+    if !crate::backend::auth::valid_host(req.headers()) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "host no permitido" })),
+        )
+            .into_response();
+    }
+    if !crate::backend::auth::valid_origin(req.headers()) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "origin no permitido" })),
+        )
+            .into_response();
+    }
+    if !crate::backend::auth::valid_bearer(req.headers(), &state.local_token) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "unauthorized: falta Bearer local" })),
+        )
+            .into_response();
+    }
+    next.run(req).await
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,6 +120,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/voice/barge_in", post(voice_barge_in))
         .route("/api/speak", post(speak_text))
         .route("/api/speak/stop", post(speak_stop))
+        .layer(middleware::from_fn_with_state(state.clone(), auth_layer))
         .with_state(state)
 }
 

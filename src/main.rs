@@ -91,6 +91,8 @@ fn main() -> Result<()> {
 
     // Iniciar servidor HTTP local (IPC con la UI QML)
     const HTTP_PORT: u16 = 8765;
+    // Token local F0-3 para que el QML se autentique en /api/*.
+    let local_token = backend.http_state().local_token.clone();
     {
         let http_state = backend.http_state();
         runtime.spawn(async move {
@@ -248,9 +250,11 @@ fn main() -> Result<()> {
         // -apptype widget es necesario para QApplication (SystemTrayIcon lo requiere)
         // QML_XHR_ALLOW_FILE_READ=1 permite al polling de hotkeys leer el
         // archivo de estado via file:// (deshabilitado por defecto en QML)
+        // KDE_ASSISTANT_TOKEN autentica al QML en /api/* (F0-3).
         let qml_status = Command::new("qml6")
             .args(["-apptype", "widget", "-I", ".", "qml/Main.qml"])
             .env("QML_XHR_ALLOW_FILE_READ", "1")
+            .env("KDE_ASSISTANT_TOKEN", &local_token)
             .status()
             .context(
                 "lanzando qml6 (asegurate de tener Qt6 instalado: pacman -S qt6-declarative)",

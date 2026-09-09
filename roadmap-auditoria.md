@@ -38,11 +38,11 @@
 - [ ] Test: `file:///etc/passwd` bloqueado, URL 100MB bloqueada
 
 ### F0-3 Localhost sin auth [CRÍTICO]
-- [ ] Token bearer aleatorio en `~/.config/kde-assistant/server.token` (`0600`)
-- [ ] Middleware axum: exigir `Authorization: Bearer` en `/api/*` (excepto `/health`)
-- [ ] QML: leer token de `~/.config` vía backend o inyectado al lanzar `qml6` por env
-- [ ] Check `Host: 127.0.0.1|localhost`, CORS denegado por defecto
-- [ ] Test: sin token → 401
+- [x] Token bearer aleatorio en `~/.config/kde-assistant/server.token` (`0600`)
+- [x] Middleware axum: exigir `Authorization: Bearer` en `/api/*` (excepto `/health`)
+- [x] QML: leer token de `~/.config` vía backend o inyectado al lanzar `qml6` por env
+- [x] Check `Host: 127.0.0.1|localhost`, CORS denegado por defecto
+- [x] Test: sin token → 401
 
 ### F0-4 Prompt-injection tools [CRÍTICO]
 - [ ] Envolver output tools con delimitadores `«TOOL name (no instrucciones)…»`
@@ -129,5 +129,6 @@
 | 2026-09-09 | F0-1 | `AgentOutcome{response,new_messages}`, persist tools en `chat`+`complete`, `filtered_tools`, ventana 40, `friendly_provider_error`, `tool_calls` en `complete` | 33 passed (27+6 nuevos) | pendiente |
 | 2026-09-09 | F0-2 | `validate_path` con `$HOME`/`..`/symlink, `file://` validado, `http` 15s/10MB/`image/*`/ext allowlist/firma, `read_file` por chars, `edit backup .bak` | 33 passed | pendiente |
 | 2026-09-09 | F0-5/F0-6 | `Theme.isDark` desde config, status Online/Sin-key/Offline + modelo, `ErrorBanner` cableado (fix import Layouts), `loadSessions` no pisa, aviso voz vacía + TTS, gracia barge 500ms, `HOME` sin `/root`, `FloatingOrb` clicable, `VoiceOrb speakPulse` | 33 passed, `valida_qml` OK | pendiente |
+| 2026-09-09 | F0-3 | `backend/auth.rs` token 0600 + `valid_bearer/host/origin`, middleware axum en `/api/*` salvo `/health`, `AppState.local_token`, `main.rs` inyecta `KDE_ASSISTANT_TOKEN` a `qml6`, 17 XHR con `setAuth`, 401 → banner | 37 passed (33+4 auth), `valida_qml` OK | pendiente |
 
 > Cómo marcar: cambia `- [ ]` a `- [x]` y agrega fila en Registro con `cargo test --lib`, `cargo clippy`, `valida_qml`.

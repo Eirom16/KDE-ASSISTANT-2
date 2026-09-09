@@ -11,6 +11,16 @@ Item {
     property bool windowVisible: true
     property var recentSessions: []   // [{id, title}]
     property string backendUrl: "http://127.0.0.1:8765"
+    property string authToken: {
+        try {
+            var e = Qt.platform.environment
+            var t = e ? e["KDE_ASSISTANT_TOKEN"] : null
+            return t ? String(t) : ""
+        } catch (err) { return "" }
+    }
+    function setAuth(xhr) {
+        if (authToken !== "") xhr.setRequestHeader("Authorization", "Bearer " + authToken)
+    }
 
     signal showRequested()
     signal hideRequested()
@@ -22,6 +32,7 @@ Item {
     function refreshRecents() {
         var xhr = new XMLHttpRequest()
         xhr.open("GET", backendUrl + "/api/sessions")
+        setAuth(xhr)
         xhr.onreadystatechange = function() {
             if (xhr.readyState === 4 && (xhr.status === 200 || xhr.status === 0)) {
                 try {

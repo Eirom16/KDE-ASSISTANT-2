@@ -4,6 +4,7 @@
 
 pub mod ai_service;
 pub mod audio_capture;
+pub mod auth;
 pub mod chime_player;
 pub mod hotkey_listener;
 pub mod hotword;
@@ -93,6 +94,12 @@ impl Backend {
 
     /// Construye el estado compartido para el servidor HTTP local.
     pub fn http_state(&self) -> http_server::AppState {
+        // Token local F0-3: si falla, usar vacío (el middleware rechazará todo
+        // salvo /health; el log avisará).
+        let local_token = crate::backend::auth::ensure_server_token().unwrap_or_else(|e| {
+            log::warn!("No se pudo garantizar server.token: {e}");
+            String::new()
+        });
         http_server::AppState {
             ai: self.ai.clone(),
             tools: self.tools.clone(),
@@ -100,6 +107,7 @@ impl Backend {
             sessions: self.sessions.clone(),
             speech: self.speech.clone(),
             voice: self.voice.clone(),
+            local_token,
         }
     }
 

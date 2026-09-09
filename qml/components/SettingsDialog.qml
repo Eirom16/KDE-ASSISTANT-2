@@ -34,6 +34,17 @@ Rectangle {
 
     // Backend
     property string backendUrl: "http://127.0.0.1:8765"
+    // Token local F0-3 (misma env que Main; se reinyecta desde Main si se usa embebido).
+    property string authToken: {
+        try {
+            var e = Qt.platform.environment
+            var t = e ? e["KDE_ASSISTANT_TOKEN"] : null
+            return t ? String(t) : ""
+        } catch (err) { return "" }
+    }
+    function setAuth(xhr) {
+        if (authToken !== "") xhr.setRequestHeader("Authorization", "Bearer " + authToken)
+    }
     property var rawConfig: ({})   // config completa cargada del backend
     property var modelList: []     // modelos ofrecidos por la API
 
@@ -72,6 +83,7 @@ Rectangle {
     function loadConfig() {
         var xhr = new XMLHttpRequest()
         xhr.open("GET", backendUrl + "/api/config")
+        setAuth(xhr)
         xhr.onreadystatechange = function() {
             if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
                 var cfg = JSON.parse(xhr.responseText)
@@ -110,6 +122,7 @@ Rectangle {
         var xhr = new XMLHttpRequest()
         xhr.open("POST", backendUrl + "/api/ai-models")
         xhr.setRequestHeader("Content-Type", "application/json")
+        setAuth(xhr)
         xhr.onreadystatechange = function() {
             if (xhr.readyState === XMLHttpRequest.DONE) {
                 if (xhr.status === 200) {
@@ -169,6 +182,7 @@ Rectangle {
         var xhr = new XMLHttpRequest()
         xhr.open("POST", backendUrl + "/api/config")
         xhr.setRequestHeader("Content-Type", "application/json")
+        setAuth(xhr)
         xhr.onreadystatechange = function() {
             if (xhr.readyState === XMLHttpRequest.DONE) {
                 root.saved()
