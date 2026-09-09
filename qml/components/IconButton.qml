@@ -19,6 +19,12 @@ Rectangle {
     width: buttonSize
     height: buttonSize
     radius: width / 2
+    focusPolicy: Qt.StrongFocus
+    Accessible.role: Accessible.Button
+    Accessible.name: root.iconName
+    Keys.onReturnPressed: if (root.enabled) root.clicked()
+    Keys.onEnterPressed: if (root.enabled) root.clicked()
+    Keys.onSpacePressed: if (root.enabled) root.clicked()
     color: {
         if (active) return activeColor
         if (mouseArea.pressed) return Qt.darker(backgroundColor, 1.15)
@@ -42,8 +48,9 @@ Rectangle {
     MouseArea {
         id: mouseArea
         anchors.fill: parent
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
+        hoverEnabled: root.enabled
+        enabled: root.enabled
+        cursorShape: root.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
         onClicked: root.clicked()
     }
 

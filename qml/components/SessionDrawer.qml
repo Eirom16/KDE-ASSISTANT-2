@@ -56,12 +56,7 @@ Rectangle {
         onTriggered: root.confirmDeleteId = ""
     }
 
-    color: Qt.rgba(
-        isDark ? 0.11 : 0.96,
-        isDark ? 0.11 : 0.96,
-        isDark ? 0.12 : 0.97,
-        0.85
-    )
+    color: Theme.canvas
 
     border.width: 1
     border.color: Theme.hairline

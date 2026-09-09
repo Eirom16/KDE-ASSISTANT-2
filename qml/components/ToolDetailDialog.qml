@@ -28,7 +28,7 @@ Rectangle {
     }
 
     visible: open_
-    color: Qt.rgba(0, 0, 0, 0.5)
+    color: Theme.overlayBackdrop
     z: 999
 
     MouseArea {

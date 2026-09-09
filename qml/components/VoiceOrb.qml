@@ -108,7 +108,7 @@ Item {
                 if (root.state === "speaking") return "play-16"
                 return "unmute-16"
             }
-            color: "#ffffff"
+            color: Theme.inkOnPrimary
         }
     }
 

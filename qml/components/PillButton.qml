@@ -21,14 +21,21 @@ Rectangle {
     implicitHeight: row.implicitHeight + paddingV * 2
     implicitWidth: row.implicitWidth + paddingH * 2
     radius: Theme.radiusPill
+    // Foco por teclado (Fase 1 a11y minima): anillo primary.
+    focusPolicy: Qt.StrongFocus
+    Accessible.role: Accessible.Button
+    Accessible.name: root.text
+    Keys.onReturnPressed: root.clicked()
+    Keys.onEnterPressed: root.clicked()
+    Keys.onSpacePressed: root.clicked()
     color: {
         if (active) return activeColor
         if (mouseArea.pressed) return Theme.surfacePressed
         if (mouseArea.containsMouse) return Theme.surfaceHover
         return "transparent"
     }
-    border.width: active ? 0 : 1
-    border.color: Theme.hairline
+    border.width: active || activeFocus ? 0 : 1
+    border.color: activeFocus ? Theme.primary : Theme.hairline
 
     Behavior on color {
         ColorAnimation { duration: Theme.animFast }
@@ -37,6 +44,9 @@ Rectangle {
     Row {
         id: row
         anchors.centerIn: parent
+        // No desbordar al padre (drawer 220px): recorta el texto con elide.
+        width: Math.min(implicitWidth, parent.width - paddingH * 2)
+        clip: true
         spacing: Theme.spacingXs
 
         Octicon {
@@ -51,6 +61,9 @@ Rectangle {
             font: Theme.font(root.textSize, Theme.weightBold, -0.12)
             color: root.active ? Theme.inkOnPrimary : Theme.ink
             anchors.verticalCenter: parent.verticalCenter
+            width: Math.min(implicitWidth, row.width - (root.iconName !== "" ? root.iconSize + Theme.spacingXs : 0))
+            elide: Text.ElideRight
+            maximumLineCount: 1
         }
     }
 

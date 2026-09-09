@@ -67,6 +67,9 @@ QtObject {
     readonly property color shadowSoft: isDark ? Qt.rgba(0,0,0,0.30) : Qt.rgba(0,0,0,0.06)
     readonly property color shadowCard: isDark ? Qt.rgba(0,0,0,0.50) : Qt.rgba(0,0,0,0.10)
     readonly property color shadowOrb: Qt.rgba(0.16, 0.59, 1.00, 0.55)
+    // Overlay para backdrops de dialogs (unifica los Qt.rgba(0,0,0,0.5) sueltos)
+    readonly property color overlayBackdrop: Qt.rgba(0, 0, 0, 0.5)
+    readonly property color overlayImagePreview: Qt.rgba(0, 0, 0, 0.85)
 
     // ===== TYPOGRAPHY =====
     readonly property string fontFamily: "Inter, Noto Sans, system-ui, sans-serif"
@@ -115,13 +118,13 @@ QtObject {
     readonly property int radiusFull: 9999
 
     // ===== LAYOUT =====
-    readonly property int windowMinWidth: 575
+    readonly property int windowMinWidth: 360
     readonly property int windowMinHeight: 500
     readonly property int windowMaxWidth: 800
     readonly property int windowMaxHeight: 900
     readonly property int windowDefaultWidth: 575
     readonly property int windowDefaultHeight: 680
-    readonly property int drawerWidth: 240
+    readonly property int drawerWidth: 220
     readonly property int maxContentWidth: 720
     readonly property int inputBarHeight: 56
     readonly property int buttonIconSize: 44

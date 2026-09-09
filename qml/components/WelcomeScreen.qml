@@ -66,9 +66,10 @@ Item {
         // Sugerencias (pills)
         Item {
             width: parent.width
-            height: 80
+            height: suggestFlow.implicitHeight
 
             Flow {
+                id: suggestFlow
                 anchors.horizontalCenter: parent.horizontalCenter
                 spacing: Theme.spacingXs
                 width: parent.width

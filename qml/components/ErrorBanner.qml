@@ -56,20 +56,24 @@ Rectangle {
             width: parent.width
         }
 
-        Row {
+        Item {
             visible: root.retryable
-            spacing: Theme.spacingXs
-            Layout.alignment: Qt.AlignRight
-
-            PillButton {
-                text: qsTr("Reintentar")
-                iconName: "sync-16"
-                onClicked: root.retryClicked()
-            }
-            PillButton {
-                text: qsTr("Cerrar")
-                iconName: "x-16"
-                onClicked: root.dismissed()
+            width: parent.width
+            height: btnRow.implicitHeight
+            Row {
+                id: btnRow
+                anchors.right: parent.right
+                spacing: Theme.spacingXs
+                PillButton {
+                    text: qsTr("Reintentar")
+                    iconName: "sync-16"
+                    onClicked: root.retryClicked()
+                }
+                PillButton {
+                    text: qsTr("Cerrar")
+                    iconName: "x-16"
+                    onClicked: root.dismissed()
+                }
             }
         }
     }

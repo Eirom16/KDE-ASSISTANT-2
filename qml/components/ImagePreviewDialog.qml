@@ -16,7 +16,7 @@ Rectangle {
     signal closed()
 
     visible: open_
-    color: Qt.rgba(0, 0, 0, 0.85)
+    color: Theme.overlayImagePreview
     z: 999
 
     function show(url, cap) {
@@ -51,7 +51,7 @@ Rectangle {
             iconSize: Theme.iconSizeMd
             buttonSize: 44
             backgroundColor: "transparent"
-            iconColor: "#ffffff"
+            iconColor: Theme.onDark
             onClicked: root.hide()
         }
     }
@@ -103,7 +103,7 @@ Rectangle {
         anchors.rightMargin: Theme.spacingLg
         text: root.caption
         font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
-        color: "#ffffff"
+        color: Theme.onDark
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.Wrap
         maximumLineCount: 3

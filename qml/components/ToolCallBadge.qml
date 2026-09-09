@@ -179,7 +179,7 @@ Rectangle {
                         anchors.centerIn: parent
                         name: "check-16"
                         size: 12
-                        color: "#ffffff"
+                        color: Theme.inkOnPrimary
                     }
                     MouseArea {
                         anchors.fill: parent
@@ -194,7 +194,7 @@ Rectangle {
                         anchors.centerIn: parent
                         name: "x-16"
                         size: 12
-                        color: "#ffffff"
+                        color: Theme.inkOnPrimary
                     }
                     MouseArea {
                         anchors.fill: parent

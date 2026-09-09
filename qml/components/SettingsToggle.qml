@@ -66,7 +66,7 @@ Item {
                     width: parent.height - 4
                     height: width
                     radius: width / 2
-                    color: "white"
+                    color: Theme.inkOnPrimary
                     x: root.active ? parent.width - width - 2 : 2
                     y: 2
 

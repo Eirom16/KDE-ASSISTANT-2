@@ -134,15 +134,18 @@ Item {
         }
 
             // === Boton microfono (circular) ===
+            // Durante streaming se deshabilita: solo el boton enviar hace stop.
             IconButton {
                 Layout.alignment: Qt.AlignVCenter
                 iconName: root.recording ? "stop-16" : "unmute-16"
                 iconSize: Theme.iconSizeMd
-                buttonSize: 40
+                buttonSize: Theme.buttonIconSize
                 backgroundColor: Theme.surfaceChip
                 iconColor: root.recording ? Theme.inkOnPrimary : Theme.ink
-                active: root.recording
+                active: root.recording && !root.streaming
                 activeColor: Theme.error
+                opacity: root.streaming ? 0.4 : 1.0
+                enabled: !root.streaming
                 onClicked: {
                     if (root.recording) root.stopClicked()
                     else root.micClicked()
@@ -154,7 +157,7 @@ Item {
                 Layout.alignment: Qt.AlignVCenter
                 iconName: root.streaming ? "stop-16" : "paper-airplane-16"
                 iconSize: Theme.iconSizeMd
-                buttonSize: 40
+                buttonSize: Theme.buttonIconSize
                 backgroundColor: root.canSend || root.streaming ? Theme.primary : Theme.surfaceChip
                 iconColor: root.canSend || root.streaming ? Theme.inkOnPrimary : Theme.inkMuted
                 active: root.streaming
@@ -177,10 +180,11 @@ Item {
         anchors.top: bar.bottom
         anchors.topMargin: 6
         anchors.horizontalCenter: parent.horizontalCenter
-        // No recortar: texto centrado siempre visible
+        // Envuelve a 360px en vez de elidirse: dos lineas maximo.
         width: Math.min(implicitWidth, parent.width - 16)
         horizontalAlignment: Text.AlignHCenter
-        wrapMode: Text.NoWrap
+        wrapMode: Text.Wrap
+        maximumLineCount: 2
         elide: Text.ElideRight
         text: qsTr("Enter para enviar · Shift+Enter nueva linea")
         font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0.2)
