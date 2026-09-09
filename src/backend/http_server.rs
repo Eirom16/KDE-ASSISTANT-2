@@ -136,7 +136,7 @@ async fn voice_log(
             Json(serde_json::json!({ "error": "transcript vacio" })),
         );
     }
-    let sessions = state.sessions.lock().unwrap();
+    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
     // Reusar la sesion indicada si existe; si no, crear "Conversacion por voz".
     let sid = match body.session_id.as_deref() {
         Some(id) if sessions.get_session(id).ok().flatten().is_some() => id.to_string(),
@@ -372,7 +372,7 @@ async fn delete_session(
     State(state): State<AppState>,
     Query(q): Query<DeleteSessionQuery>,
 ) -> impl IntoResponse {
-    let sessions = state.sessions.lock().unwrap();
+    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
     match sessions.delete_session(&q.session_id) {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "status": "ok" }))),
         Err(e) => (
@@ -400,7 +400,7 @@ async fn list_messages(
     State(state): State<AppState>,
     Query(q): Query<MessagesQuery>,
 ) -> impl IntoResponse {
-    let sessions = state.sessions.lock().unwrap();
+    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
     match sessions.get_messages(&q.session_id) {
         Ok(msgs) => {
             let list: Vec<MessageInfo> = msgs
@@ -444,6 +444,33 @@ pub struct ChatCompleteResponse {
     pub transcript: String,
     pub response: String,
     pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<serde_json::Value>,
+}
+
+/// Mapea errores crudos del proveedor a mensajes comprensibles,
+/// recortando HTML/JSON gigantes que el proveedor pueda devolver.
+fn friendly_provider_error(raw: &str) -> String {
+    let snippet: String = raw.chars().take(500).collect();
+    if snippet.contains("401") || snippet.to_lowercase().contains("unauthorized") {
+        return "No autorizado (401). Verifica tu API key en Configuración.".to_string();
+    }
+    if snippet.contains("429") || snippet.to_lowercase().contains("rate limit") {
+        return "Límite de peticiones alcanzado (429). Espera unos segundos y reintenta."
+            .to_string();
+    }
+    if snippet.contains("404")
+        || snippet.to_lowercase().contains("model") && snippet.contains("not found")
+    {
+        return "Modelo no encontrado (404). Elige otro en Configuración → Modelo.".to_string();
+    }
+    if snippet.to_lowercase().contains("timeout") || snippet.to_lowercase().contains("timed out") {
+        return "Tiempo de espera agotado. Revisa tu conexión e inténtalo de nuevo.".to_string();
+    }
+    if snippet.to_lowercase().contains("connection") || snippet.to_lowercase().contains("dns") {
+        return format!("Sin conexión con el proveedor. Detalle: {snippet}");
+    }
+    format!("Error del asistente: {snippet}")
 }
 
 /// Chat sin streaming: espera la respuesta completa y la devuelve como JSON.
@@ -461,8 +488,9 @@ async fn chat_complete(
     // Construir historial
     let messages = build_messages(&state, &req).await;
 
-    // Ejecutar el agente (sin streaming al cliente)
-    let tools = tool_registry::all_tools();
+    // Ejecutar el agente (sin streaming al cliente). Respetar flags de config.
+    let cfg_snapshot = state.config.read().await.clone();
+    let tools = tool_registry::filtered_tools(&cfg_snapshot);
     let (tx, mut rx) = mpsc::channel::<StreamEvent>(256);
 
     let ai = state.ai.clone();
@@ -472,38 +500,73 @@ async fn chat_complete(
 
     // Consumir eventos (para no bloquear el canal) y capturar la respuesta
     let mut full_response = String::new();
+    // Capturar toolCalls para devolverlos al cliente (la UI los muestra).
+    let mut tool_calls_out: Vec<serde_json::Value> = Vec::new();
     while let Some(ev) = rx.recv().await {
-        if let StreamEvent::Token { content } = &ev {
-            full_response.push_str(content);
+        match &ev {
+            StreamEvent::Token { content } => full_response.push_str(content),
+            StreamEvent::ToolCall { tool } => {
+                tool_calls_out.push(serde_json::json!({
+                    "id": tool.id, "name": tool.name, "arguments": tool.arguments
+                }));
+            }
+            _ => {}
         }
     }
 
-    let response = match agent_task.await {
-        Ok(Ok(r)) => r,
+    let outcome = match agent_task.await {
+        Ok(Ok(o)) => o,
         Ok(Err(e)) => {
             log::warn!("Agente fallo: {e}");
-            e.to_string()
+            // Devolver el error como respuesta para que la UI lo muestre.
+            // No persistir tools parciales en este caso.
+            let body = ChatCompleteResponse {
+                transcript: req.message.clone(),
+                response: friendly_provider_error(&e.to_string()),
+                session_id: req.session_id.clone(),
+                tool_calls: tool_calls_out,
+            };
+            return (StatusCode::OK, Json(body));
         }
         Err(e) => {
             log::warn!("Task agente fallo: {e}");
-            format!("Error interno: {e}")
+            let body = ChatCompleteResponse {
+                transcript: req.message.clone(),
+                response: format!("Error interno: {e}"),
+                session_id: req.session_id.clone(),
+                tool_calls: tool_calls_out,
+            };
+            return (StatusCode::OK, Json(body));
         }
     };
 
     // Si el agente retorno vacio (por ejemplo tool calls sin texto final),
     // usamos lo capturado en el stream.
-    let response = if response.is_empty() {
+    let mut response = if outcome.response.is_empty() {
         full_response
     } else {
-        response
+        outcome.response.clone()
     };
+    if response.trim().is_empty() && !outcome.new_messages.is_empty() {
+        // Turno solo-tools sin texto: resumir para que el chat no quede vacío.
+        response = format!(
+            "He ejecutado {} herramienta(s). Revisa los detalles en el chat.",
+            outcome.new_messages.len()
+        );
+    }
 
-    // Persistir usuario + respuesta
+    // Persistir usuario + historial nuevo del turno (assistant+tools+final).
     if let Some(sid) = &req.session_id {
-        let sessions = state.sessions.lock().unwrap();
+        let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
         let _ = sessions.add_message(sid, &Message::user(req.message.clone()));
         maybe_auto_title(&sessions, sid, &req.message);
-        let _ = sessions.add_message(sid, &Message::assistant(response.clone()));
+        for m in &outcome.new_messages {
+            let _ = sessions.add_message(sid, m);
+        }
+        // Si por alguna razón no hubo mensajes nuevos pero sí texto, guardar final.
+        if outcome.new_messages.is_empty() && !response.trim().is_empty() {
+            let _ = sessions.add_message(sid, &Message::assistant(response.clone()));
+        }
     }
 
     // Regla voz/texto: el chat escrito solo habla si auto_speak esta activo
@@ -523,6 +586,7 @@ async fn chat_complete(
         transcript: req.message.clone(),
         response,
         session_id: req.session_id.clone(),
+        tool_calls: tool_calls_out,
     };
     (StatusCode::OK, Json(body))
 }
@@ -543,7 +607,7 @@ async fn health() -> impl IntoResponse {
 
 /// Lista las sesiones guardadas.
 async fn list_sessions(State(state): State<AppState>) -> impl IntoResponse {
-    let sessions = state.sessions.lock().unwrap();
+    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
     let raw = match sessions.list_sessions() {
         Ok(s) => s,
         Err(e) => {
@@ -571,7 +635,7 @@ async fn create_session(
     State(state): State<AppState>,
     Json(body): Json<CreateSessionRequest>,
 ) -> impl IntoResponse {
-    let sessions = state.sessions.lock().unwrap();
+    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
     let title = body
         .title
         .unwrap_or_else(|| "Nueva conversación".to_string());
@@ -604,16 +668,17 @@ async fn chat(
     // Canal de stream events
     let (tx, rx) = mpsc::channel::<StreamEvent>(256);
 
-    // Ejecutar el agente en un task
+    // Ejecutar el agente en un task (respetar flags de config).
     let ai = state.ai.clone();
     let tools_exec = state.tools.clone();
-    let tools = tool_registry::all_tools();
+    let cfg_snapshot = state.config.read().await.clone();
+    let tools = tool_registry::filtered_tools(&cfg_snapshot);
     let msgs = messages.clone();
     let agent_task = tokio::spawn(async move { ai.run_agent(msgs, tools, tools_exec, tx).await });
 
     // Persistir el mensaje del usuario
     if let Some(sid) = &req.session_id {
-        let sessions = state.sessions.lock().unwrap();
+        let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
         let _ = sessions.add_message(sid, &Message::user(req.message.clone()));
         maybe_auto_title(&sessions, sid, &req.message);
     }
@@ -629,12 +694,25 @@ async fn chat(
         Ok::<Event, Infallible>(Event::default().event(event_name).data(data))
     });
 
-    // Persistir la respuesta cuando termina el agente
+    // Persistir el historial nuevo del turno (assistant+tools+final) cuando termina.
     tokio::spawn(async move {
-        if let Ok(Ok(response)) = agent_task.await {
-            if let Some(sid) = &sid2 {
-                let sessions = state2.sessions.lock().unwrap();
-                let _ = sessions.add_message(sid, &Message::assistant(response));
+        match agent_task.await {
+            Ok(Ok(outcome)) => {
+                if let Some(sid) = &sid2 {
+                    let sessions = state2.sessions.lock().unwrap_or_else(|e| e.into_inner());
+                    for m in &outcome.new_messages {
+                        let _ = sessions.add_message(sid, m);
+                    }
+                    if outcome.new_messages.is_empty() && !outcome.response.trim().is_empty() {
+                        let _ = sessions.add_message(sid, &Message::assistant(outcome.response));
+                    }
+                }
+            }
+            Ok(Err(e)) => {
+                log::warn!("Agente SSE fallo: {e}");
+            }
+            Err(e) => {
+                log::warn!("Task agente SSE fallo: {e}");
             }
         }
     });
@@ -677,12 +755,15 @@ async fn build_messages(state: &AppState, req: &ChatRequest) -> Vec<Message> {
     let mut messages = Vec::new();
     messages.push(Message::system(system_prompt));
 
-    // Cargar historial si hay session_id
+    // Cargar historial si hay session_id (ventana deslizante: últimos 40
+    // para no saturar contexto ni superar max_tokens del proveedor).
+    const MAX_HISTORY: usize = 40;
     if let Some(sid) = &req.session_id {
-        let sessions = state.sessions.lock().unwrap();
+        let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
         if let Ok(history) = sessions.get_messages(sid) {
             // Inyectar historial (sin el system prompt duplicado)
-            messages.extend(history);
+            let start = history.len().saturating_sub(MAX_HISTORY);
+            messages.extend(history.into_iter().skip(start));
         }
     }
 

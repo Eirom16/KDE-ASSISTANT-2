@@ -68,39 +68,69 @@ impl ToolExecutor {
     }
 
     /// Valida que un path este dentro de los paths permitidos.
+    /// Expande `~`, `$HOME`, canonicaliza y deniega symlinks que escapen.
     fn validate_path(&self, path: &str) -> Result<PathBuf> {
         let cfg = self.get_config_snapshot();
         if !cfg.tools.read_file && !cfg.tools.create_file && !cfg.tools.edit_file {
             bail!("Acceso al sistema de archivos deshabilitado en la configuracion");
         }
+        if path.trim().is_empty() {
+            bail!("Path vacío no permitido");
+        }
 
-        let path = Path::new(path);
-        let canonical = if path.exists() {
-            std::fs::canonicalize(path).context("resolviendo path")?
+        // Expandir ~ y $HOME en el path pedido.
+        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+        let expanded_str = expand_home(path, &home);
+        let path_buf = PathBuf::from(&expanded_str);
+
+        // Rechazar NUL y paths absurdamente largos.
+        if expanded_str.contains('\0') || expanded_str.len() > 4096 {
+            bail!("Path inválido");
+        }
+
+        let canonical = if path_buf.exists() {
+            std::fs::canonicalize(&path_buf).context("resolviendo path")?
         } else {
-            // Para creacion, validar el directorio padre
-            if let Some(parent) = path.parent() {
-                if parent.exists() {
-                    std::fs::canonicalize(parent)?.join(path.file_name().unwrap_or_default())
-                } else {
-                    path.to_path_buf()
+            // Para creación: canonicalizar el ancestro existente más cercano
+            // y unir el resto sin permitir `..` que escape.
+            let mut cur = path_buf.as_path();
+            let mut suffix: Vec<std::ffi::OsString> = Vec::new();
+            while !cur.exists() {
+                match (cur.file_name(), cur.parent()) {
+                    (Some(name), Some(parent)) => {
+                        if name == ".." {
+                            bail!("Path con '..' fuera de zona permitida");
+                        }
+                        suffix.push(name.to_os_string());
+                        cur = parent;
+                    }
+                    _ => break,
                 }
-            } else {
-                path.to_path_buf()
             }
+            let base = if cur.as_os_str().is_empty() {
+                PathBuf::from("/")
+            } else if cur.exists() {
+                std::fs::canonicalize(cur).context("resolviendo padre")?
+            } else {
+                PathBuf::from(cur)
+            };
+            let mut out = base;
+            for comp in suffix.iter().rev() {
+                out.push(comp);
+            }
+            out
         };
 
-        // Expandir ~ en allowed_paths
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+        // Expandir ~/$HOME en allowed_paths y canonicalizar lo que exista.
         for allowed in &cfg.tools.allowed_paths {
-            let allowed_expanded = if let Some(stripped) = allowed.strip_prefix("~/") {
-                home.join(stripped)
-            } else if allowed == "~" {
-                home.clone()
+            let allowed_expanded_str = expand_home(allowed, &home);
+            let allowed_path = PathBuf::from(&allowed_expanded_str);
+            let allowed_canon = if allowed_path.exists() {
+                std::fs::canonicalize(&allowed_path).unwrap_or(allowed_path)
             } else {
-                PathBuf::from(allowed)
+                allowed_path
             };
-            if canonical.starts_with(&allowed_expanded) {
+            if canonical.starts_with(&allowed_canon) {
                 return Ok(canonical);
             }
         }
@@ -190,6 +220,14 @@ impl ToolExecutor {
             other => bail!(format!("Modo no soportado: {other}")),
         };
 
+        // Backup antes de overwrite (permite deshacer desde el sistema).
+        if args.mode == "overwrite" {
+            let bak = validated.with_extension("bak");
+            // No fallar si el backup falla; solo avisar.
+            if let Err(e) = fs::copy(&validated, &bak).await {
+                log::warn!("No se pudo crear backup de {}: {e}", validated.display());
+            }
+        }
         fs::write(&validated, final_content).await?;
         Ok(ToolResult::success(
             tc.id.clone(),
@@ -213,13 +251,12 @@ impl ToolExecutor {
             .await
             .with_context(|| format!("leyendo {}", validated.display()))?;
 
-        // Limitar a 32KB para no saturar el contexto
-        let truncated = if content.len() > 32_000 {
-            format!(
-                "{}...\n[truncado, total {} bytes]",
-                &content[..32_000],
-                content.len()
-            )
+        // Limitar a ~32k chars (no bytes) para no romper UTF-8 ni saturar contexto.
+        const MAX_CHARS: usize = 32_000;
+        let char_count = content.chars().count();
+        let truncated = if char_count > MAX_CHARS {
+            let head: String = content.chars().take(MAX_CHARS).collect();
+            format!("{head}...\n[truncado, total {char_count} chars]")
         } else {
             content
         };
@@ -297,27 +334,51 @@ impl ToolExecutor {
             .unwrap_or("");
 
         let local_path = if source.starts_with("http://") || source.starts_with("https://") {
-            // Descargar a cache
+            // Descargar a cache con límites (10MB, timeout 15s, solo imágenes).
+            const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
             let cache_dir = dirs::cache_dir()
                 .ok_or_else(|| anyhow!("sin cache_dir"))?
                 .join("kde-assistant/images");
             fs::create_dir_all(&cache_dir).await?;
 
-            let ext = source
-                .rsplit('.')
-                .next()
-                .and_then(|s| s.split('?').next())
-                .unwrap_or("jpg");
-            let ext = if ext.len() > 5 { "jpg" } else { ext };
+            let ext = sanitize_image_ext(source);
             let file_name = format!("{}.{}", chrono::Utc::now().timestamp_millis(), ext);
             let dest = cache_dir.join(&file_name);
 
-            let client = reqwest::Client::new();
-            let bytes = client.get(source).send().await?.bytes().await?;
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(15))
+                .user_agent("KDE-Assistant/2.0")
+                .build()?;
+            let resp = client.get(source).send().await?.error_for_status()?;
+            // Validar content-type si el servidor lo envía.
+            if let Some(ct) = resp.headers().get(reqwest::header::CONTENT_TYPE) {
+                let ct = ct.to_str().unwrap_or("").to_lowercase();
+                if !ct.is_empty() && !ct.starts_with("image/") && !ct.contains("octet-stream") {
+                    bail!("URL no es una imagen (content-type: {ct})");
+                }
+            }
+            if let Some(len) = resp.content_length() {
+                if len > MAX_IMAGE_BYTES as u64 {
+                    bail!("Imagen demasiado grande ({} bytes, máx 10MB)", len);
+                }
+            }
+            let bytes = resp.bytes().await?;
+            if bytes.len() > MAX_IMAGE_BYTES {
+                bail!("Imagen demasiado grande ({} bytes, máx 10MB)", bytes.len());
+            }
+            // Verificación mínima de firma (JPEG/PNG/GIF/WebP/BMP).
+            if !looks_like_image(&bytes) {
+                log::warn!("show_image: la descarga no parece imagen conocida, se guarda igual");
+            }
             fs::write(&dest, &bytes).await?;
             dest.to_string_lossy().to_string()
         } else if let Some(stripped) = source.strip_prefix("file://") {
-            stripped.to_string()
+            // file:// también debe respetar allowed_paths (antes era bypass).
+            if stripped.trim().is_empty() {
+                bail!("file:// vacío no permitido");
+            }
+            let validated = self.validate_path(stripped)?;
+            validated.to_string_lossy().to_string()
         } else {
             // Path local
             let validated = self.validate_path(source)?;
@@ -337,6 +398,65 @@ impl ToolExecutor {
 pub struct ConfigSnapshot;
 
 // === Helpers ===
+
+/// Expande `~`, `~/` y `$HOME`/`~user` básico al home real.
+fn expand_home(input: &str, home: &Path) -> String {
+    if input == "~" {
+        return home.to_string_lossy().to_string();
+    }
+    if let Some(rest) = input.strip_prefix("~/") {
+        return home.join(rest).to_string_lossy().to_string();
+    }
+    if let Some(rest) = input.strip_prefix("$HOME/") {
+        return home.join(rest).to_string_lossy().to_string();
+    }
+    if input == "$HOME" {
+        return home.to_string_lossy().to_string();
+    }
+    input.to_string()
+}
+
+/// Extensión segura para imágenes descargadas (allowlist).
+fn sanitize_image_ext(url: &str) -> String {
+    let raw = url
+        .rsplit('.')
+        .next()
+        .and_then(|s| s.split('?').next())
+        .and_then(|s| s.split('#').next())
+        .unwrap_or("jpg")
+        .to_lowercase();
+    // Solo alfanumérico corto.
+    let clean: String = raw.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    match clean.as_str() {
+        "jpg" | "jpeg" => "jpg".to_string(),
+        "png" | "gif" | "webp" | "bmp" | "svg" => clean,
+        _ => "jpg".to_string(),
+    }
+}
+
+/// Heurística mínima de firma de imagen.
+fn looks_like_image(bytes: &[u8]) -> bool {
+    if bytes.len() < 4 {
+        return false;
+    }
+    // JPEG FF D8 FF, PNG 89 50 4E 47, GIF 47 49 46, WebP RIFF....WEBP, BMP 42 4D
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF])
+        || bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47])
+        || bytes.starts_with(&[0x47, 0x49, 0x46])
+        || bytes.starts_with(&[0x42, 0x4D])
+    {
+        return true;
+    }
+    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return true;
+    }
+    // SVG textual
+    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]).to_lowercase();
+    if head.contains("<svg") {
+        return true;
+    }
+    false
+}
 
 /// Resuelve un nombre de app a (programa, args[]) sin usar shell.
 fn resolve_app(name: &str) -> Option<(String, Vec<String>)> {
@@ -623,6 +743,31 @@ mod tests {
     #[test]
     fn strip_tags_removes_html() {
         assert_eq!(strip_tags("<b>hola</b> mundo"), "hola mundo");
+    }
+
+    #[test]
+    fn expand_home_variants() {
+        let home = PathBuf::from("/home/test");
+        assert_eq!(expand_home("~", &home), "/home/test");
+        assert_eq!(expand_home("~/Doc", &home), "/home/test/Doc");
+        assert_eq!(expand_home("$HOME/Doc", &home), "/home/test/Doc");
+        assert_eq!(expand_home("/tmp/x", &home), "/tmp/x");
+    }
+
+    #[test]
+    fn sanitize_ext_allowlist() {
+        assert_eq!(sanitize_image_ext("https://x/y.png?z=1"), "png");
+        assert_eq!(sanitize_image_ext("https://x/y.EXE"), "jpg");
+        assert_eq!(sanitize_image_ext("https://x/y"), "jpg");
+        assert_eq!(sanitize_image_ext("https://x/photo.webp"), "webp");
+    }
+
+    #[test]
+    fn image_signature_detection() {
+        assert!(looks_like_image(&[0xFF, 0xD8, 0xFF, 0x00]));
+        assert!(looks_like_image(&[0x89, 0x50, 0x4E, 0x47]));
+        assert!(!looks_like_image(b"hola mundo"));
+        assert!(looks_like_image(b"<svg xmlns='x'></svg>"));
     }
 
     #[tokio::test]

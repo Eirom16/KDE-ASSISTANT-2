@@ -22,6 +22,14 @@ use crate::models::{Config, Message, StreamEvent, Tool, ToolCall};
 
 const MAX_ITERATIONS_DEFAULT: u32 = 8;
 
+/// Resultado del agente: respuesta final + mensajes nuevos (assistant+tools)
+/// para persistir el historial completo del turno.
+#[derive(Debug, Clone)]
+pub struct AgentOutcome {
+    pub response: String,
+    pub new_messages: Vec<Message>,
+}
+
 pub struct AiService {
     config: Arc<RwLock<Config>>,
     http: reqwest::Client,
@@ -311,19 +319,25 @@ impl AiService {
     /// Bucle de agente ReAct. Mantiene `messages`, ejecuta tool_calls, los
     /// reenvia al LLM, repite hasta respuesta final o max iteraciones.
     /// Emite `StreamEvent`s por el canal: Token, ToolCall, ToolResult, Done/Error.
+    /// Retorna `AgentOutcome` con la respuesta final y los mensajes nuevos
+    /// (assistant+tools) para que el llamador los persista en SQLite.
     pub async fn run_agent(
         &self,
         mut messages: Vec<Message>,
         tools: Vec<Tool>,
         tools_exec: Arc<ToolExecutor>,
         tx: mpsc::Sender<StreamEvent>,
-    ) -> Result<String> {
+    ) -> Result<AgentOutcome> {
         let cfg = self.snapshot();
         let max_iter = if cfg.ai.max_tool_iterations == 0 {
             MAX_ITERATIONS_DEFAULT
         } else {
             cfg.ai.max_tool_iterations
         };
+        let base_len = messages.len();
+        // Historial nuevo del turno (para persistir). Incluye assistant+tools
+        // intermedios y el assistant final.
+        let mut new_messages: Vec<Message> = Vec::new();
 
         for iteration in 0..max_iter {
             log::info!("Agent iter {}/{}", iteration + 1, max_iter);
@@ -369,10 +383,10 @@ impl AiService {
                 // Primero el mensaje assistant con los tool_calls (formato
                 // OpenAI/Groq: los resultados `tool` siempre van precedidos
                 // de su llamada).
-                messages.push(Message::assistant_with_tools(
-                    full_text.clone(),
-                    pending_tool_calls.clone(),
-                ));
+                let ass =
+                    Message::assistant_with_tools(full_text.clone(), pending_tool_calls.clone());
+                messages.push(ass.clone());
+                new_messages.push(ass);
                 for tc in &pending_tool_calls {
                     log::info!("Ejecutando tool: {} (id={})", tc.name, tc.id);
                     let result = tools_exec.execute(tc).await.unwrap_or_else(|e| {
@@ -385,11 +399,13 @@ impl AiService {
                             image_url: result.image_url.clone(),
                         })
                         .await;
-                    messages.push(Message::tool_with_image(
+                    let tool_msg = Message::tool_with_image(
                         result.tool_call_id,
                         result.content,
                         result.image_url,
-                    ));
+                    );
+                    messages.push(tool_msg.clone());
+                    new_messages.push(tool_msg);
                 }
                 continue; // siguiente iteracion
             }
@@ -400,7 +416,19 @@ impl AiService {
                     full_content: full_text.clone(),
                 })
                 .await;
-            return Ok(full_text);
+            // El assistant final también forma parte del historial persistido.
+            let final_msg = Message::assistant(full_text.clone());
+            // Evitar duplicar si el turno solo fue tools sin texto y el
+            // llamador ya persistirá los intermedios: igual lo incluimos
+            // solo si aporta texto o si no hubo tools.
+            if !full_text.is_empty() || new_messages.is_empty() {
+                new_messages.push(final_msg);
+            }
+            let _ = base_len;
+            return Ok(AgentOutcome {
+                response: full_text,
+                new_messages,
+            });
         }
 
         let _ = tx

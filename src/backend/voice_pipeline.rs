@@ -67,6 +67,9 @@ pub struct VoicePipeline {
     amplitude: Arc<AtomicU32>, // f32 bits 0..1
     speaking: Arc<AtomicBool>,
     barge_counter: Arc<AtomicU32>,
+    /// Momento (ms epoch) en que empezó el TTS actual. Sirve para gracia
+    /// anti-auto-corte: ignorar barge los primeros 500ms (el mic capta el altavoz).
+    speaking_since_ms: Arc<AtomicU32>,
 }
 
 /// Ultimo intercambio por voz (para que la UI lo muestre en el chat).
@@ -104,6 +107,7 @@ impl VoicePipeline {
             amplitude: Arc::new(AtomicU32::new(0.0f32.to_bits())),
             speaking: Arc::new(AtomicBool::new(false)),
             barge_counter: Arc::new(AtomicU32::new(0)),
+            speaking_since_ms: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -125,7 +129,7 @@ impl VoicePipeline {
         self.speaking.store(false, Ordering::Relaxed);
         self.barge_counter.store(0, Ordering::Relaxed);
         {
-            let mut buf = self.buffer.lock().unwrap();
+            let mut buf = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
             buf.clear();
             if buf.sample_rate.load(Ordering::Relaxed) == 0 {
                 buf.sample_rate.store(48000, Ordering::Relaxed);
@@ -138,7 +142,7 @@ impl VoicePipeline {
 
     /// Inicia una grabacion (limpia el buffer y marca recording=true).
     pub fn start_recording(&self, sample_rate: u32) {
-        let mut buf = self.buffer.lock().unwrap();
+        let mut buf = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
         buf.clear();
         buf.sample_rate.store(sample_rate, Ordering::Relaxed);
         buf.recording.store(true, Ordering::Relaxed);
@@ -159,23 +163,30 @@ impl VoicePipeline {
 
         // Barge-in: si esta hablando y hay voz fuerte, interrumpir.
         // Umbral 0.28 + 3 frames consecutivos (~60-90 ms) para evitar falsos.
+        // Gracia 500ms tras iniciar TTS: el mic capta el altavoz y si no,
+        // toda respuesta larga se auto-corta.
         if self.speaking.load(Ordering::Relaxed) {
-            if let Some(lvl) = lvl_opt {
-                if lvl > 0.28 {
-                    let cnt = self.barge_counter.fetch_add(1, Ordering::Relaxed) + 1;
-                    if cnt >= 3 {
-                        self.barge_in_silent();
+            let since = self.speaking_since_ms.load(Ordering::Relaxed);
+            let now = now_ms() as u32;
+            let in_grace = now.saturating_sub(since) < 500;
+            if !in_grace {
+                if let Some(lvl) = lvl_opt {
+                    if lvl > 0.28 {
+                        let cnt = self.barge_counter.fetch_add(1, Ordering::Relaxed) + 1;
+                        if cnt >= 3 {
+                            self.barge_in_silent();
+                        }
+                    } else if lvl < 0.18 {
+                        // Silencio sostenido resetea contador
+                        self.barge_counter.store(0, Ordering::Relaxed);
                     }
-                } else if lvl < 0.18 {
-                    // Silencio sostenido resetea contador
-                    self.barge_counter.store(0, Ordering::Relaxed);
                 }
             }
             // No guardar en buffer mientras habla (salvo que barge-in ya reinicio escucha)
             // Si barge_in_silent se activo, recording ya es true, asi que el push de abajo lo captura.
         }
 
-        let mut buf = self.buffer.lock().unwrap();
+        let mut buf = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
         if buf.recording.load(Ordering::Relaxed) {
             buf.push(samples);
         }
@@ -193,7 +204,7 @@ impl VoicePipeline {
 
     /// Detiene la grabacion y retorna los samples (a 16kHz mono).
     pub fn stop_recording(&self) -> Vec<f32> {
-        let mut buf = self.buffer.lock().unwrap();
+        let mut buf = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
         buf.recording.store(false, Ordering::Relaxed);
         let src_rate = buf.sample_rate.load(Ordering::Relaxed);
         let samples = std::mem::take(&mut buf.samples);
@@ -205,21 +216,21 @@ impl VoicePipeline {
     pub fn is_recording(&self) -> bool {
         self.buffer
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .recording
             .load(Ordering::Relaxed)
     }
 
     /// Longitud actual de la grabacion en samples.
     pub fn recording_len(&self) -> usize {
-        self.buffer.lock().unwrap().len()
+        self.buffer.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
     /// Sample rate de la captura actual (0 si no hay).
     pub fn sample_rate(&self) -> u32 {
         self.buffer
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .sample_rate
             .load(Ordering::Relaxed)
     }
@@ -227,7 +238,7 @@ impl VoicePipeline {
     /// RMS de los ultimos `n` samples grabados (0.0 si no hay).
     /// Sirve para detectar silencio y cortar la grabacion antes del maximo.
     pub fn recent_rms(&self, n: usize) -> f32 {
-        let buf = self.buffer.lock().unwrap();
+        let buf = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
         if buf.samples.is_empty() {
             return 0.0;
         }
@@ -242,7 +253,7 @@ impl VoicePipeline {
         let sr = self
             .buffer
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .sample_rate
             .load(Ordering::SeqCst);
         self.start_recording(sr.max(1));
@@ -298,18 +309,19 @@ impl VoicePipeline {
         // Guardar ANTES de marcar idle: la UI lee el intercambio al ver idle.
         if let Ok((t, r)) = &r {
             if !t.is_empty() {
-                *self.last_exchange.lock().unwrap() = Some(VoiceExchange {
-                    transcript: t.clone(),
-                    response: r.clone(),
-                    timestamp_ms: now_ms(),
-                });
+                *self.last_exchange.lock().unwrap_or_else(|e| e.into_inner()) =
+                    Some(VoiceExchange {
+                        transcript: t.clone(),
+                        response: r.clone(),
+                        timestamp_ms: now_ms(),
+                    });
             }
         }
         // Si hay barge-in activo (escucha reiniciada), no pisar listening
         let is_listening = self
             .buffer
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .recording
             .load(Ordering::Relaxed);
         if !is_listening {
@@ -338,8 +350,25 @@ impl VoicePipeline {
             .speech
             .transcribe(audio, language_override.as_deref())
             .await?;
-        if transcript.is_empty() {
-            return Ok((String::new(), String::new()));
+        // F0-6 (B2): antes se retornaba ("","") en silencio y la UI no mostraba
+        // nada ("¿qué pasó?"). Ahora aviso visible + hablado.
+        if transcript.trim().is_empty() {
+            log::info!("VoicePipeline STT vacío: aviso al usuario");
+            let aviso = "No te escuché, ¿puedes repetirlo?".to_string();
+            Self::write_state("speaking");
+            self.speaking.store(true, Ordering::Relaxed);
+            self.speaking_since_ms
+                .store(now_ms() as u32, Ordering::Relaxed);
+            self.barge_counter.store(0, Ordering::Relaxed);
+            let speak_res = self.speech.speak(&aviso).await;
+            self.speaking.store(false, Ordering::Relaxed);
+            if let Err(e) = speak_res {
+                log::warn!("TTS aviso fallo: {e}");
+            }
+            return Ok((
+                "(inaudible)".to_string(),
+                "No te escuché, ¿puedes repetirlo?".to_string(),
+            ));
         }
         log::info!("VoicePipeline STT: '{}'", transcript);
 
@@ -352,6 +381,8 @@ impl VoicePipeline {
         if !response.is_empty() {
             Self::write_state("speaking");
             self.speaking.store(true, Ordering::Relaxed);
+            self.speaking_since_ms
+                .store(now_ms() as u32, Ordering::Relaxed);
             self.barge_counter.store(0, Ordering::Relaxed);
             let speak_res = self.speech.speak(&response).await;
             self.speaking.store(false, Ordering::Relaxed);
@@ -360,7 +391,7 @@ impl VoicePipeline {
             if self
                 .buffer
                 .lock()
-                .unwrap()
+                .unwrap_or_else(|e| e.into_inner())
                 .recording
                 .load(Ordering::Relaxed)
             {
@@ -380,12 +411,14 @@ impl VoicePipeline {
         text: &str,
         tx: Option<tokio::sync::mpsc::Sender<StreamEvent>>,
     ) -> Result<String> {
-        let system_prompt = self.config.read().await.ai.system_prompt.clone();
+        let cfg = self.config.read().await.clone();
         let messages = vec![
-            Message::system(system_prompt),
+            Message::system(cfg.ai.system_prompt.clone()),
             Message::user(text.to_string()),
         ];
-        let tools = tool_registry::all_tools();
+        // NOTA F0-1: la voz aún no inyecta historial de sesión (siguiente paso).
+        // Al menos respetar los flags de tools para no llamar tools deshabilitadas.
+        let tools = tool_registry::filtered_tools(&cfg);
 
         let (stream_tx, mut stream_rx) = tokio::sync::mpsc::channel::<StreamEvent>(256);
 
@@ -409,8 +442,8 @@ impl VoicePipeline {
         });
 
         // Esperar a que el agente termine
-        let result = run_task.await.context("run_agent task")??;
+        let outcome = run_task.await.context("run_agent task")??;
         let _ = forward_task;
-        Ok(result)
+        Ok(outcome.response)
     }
 }

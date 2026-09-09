@@ -3,7 +3,7 @@
 //! Define los schemas JSON (formato OpenAI function calling) para las 6 herramientas
 //! del agente: open_app, create_file, edit_file, read_file, web_search, show_image.
 
-use crate::models::{Tool, ToolFunction, ToolParameters, ToolProperty};
+use crate::models::{Config, Tool, ToolFunction, ToolParameters, ToolProperty};
 use std::collections::HashMap;
 
 pub fn all_tools() -> Vec<Tool> {
@@ -227,5 +227,70 @@ fn show_image_tool() -> Tool {
                 required: vec!["source".to_string()],
             },
         },
+    }
+}
+
+/// Herramientas filtradas según la configuración del usuario.
+///
+/// Respeta `ai.enable_tool_calling` (si es false → ninguna) y cada
+/// flag `tools.{open_app,create_file,edit_file,read_file,web_search,show_image}`.
+/// El executor también valida por si llega una llamada deshabilitada.
+pub fn filtered_tools(cfg: &Config) -> Vec<Tool> {
+    if !cfg.ai.enable_tool_calling {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    if cfg.tools.open_app {
+        out.push(open_app_tool());
+    }
+    if cfg.tools.create_file {
+        out.push(create_file_tool());
+    }
+    if cfg.tools.edit_file {
+        out.push(edit_file_tool());
+    }
+    if cfg.tools.read_file {
+        out.push(read_file_tool());
+    }
+    if cfg.tools.web_search {
+        out.push(web_search_tool());
+    }
+    if cfg.tools.show_image {
+        out.push(show_image_tool());
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::Config;
+
+    #[test]
+    fn disabled_tool_calling_returns_empty() {
+        let mut cfg = Config::default();
+        cfg.ai.enable_tool_calling = false;
+        assert!(filtered_tools(&cfg).is_empty());
+    }
+
+    #[test]
+    fn per_tool_flags_filter() {
+        let mut cfg = Config::default();
+        cfg.ai.enable_tool_calling = true;
+        cfg.tools.open_app = true;
+        cfg.tools.create_file = false;
+        cfg.tools.edit_file = false;
+        cfg.tools.read_file = false;
+        cfg.tools.web_search = false;
+        cfg.tools.show_image = false;
+        let tools = filtered_tools(&cfg);
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].function.name, "open_app");
+    }
+
+    #[test]
+    fn all_enabled_by_default() {
+        let cfg = Config::default();
+        assert_eq!(filtered_tools(&cfg).len(), 6);
     }
 }

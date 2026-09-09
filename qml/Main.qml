@@ -215,8 +215,15 @@ ApplicationWindow {
                         processBlock(pending)
                         pending = ""
                     }
-                    if (sawError && !rawText) rawText = "⚠ " + sawError
+                    if (sawError && !rawText) {
+                        rawText = "⚠ " + sawError
+                        lastError = qsTr("Error del asistente")
+                        lastErrorDetail = sawError
+                        showErrorBanner = true
+                    }
                     streaming = false
+                    // Re-chequear salud tras error (puede ser 401/429).
+                    if (sawError) checkBackend()
                     refreshUI(false)
                 }
             }
@@ -234,10 +241,25 @@ ApplicationWindow {
         xhr.open("GET", backendUrl + "/api/sessions")
         xhr.onreadystatechange = function() {
             if (xhr.readyState === XMLHttpRequest.DONE && (xhr.status === 200 || xhr.status === 201)) {
-                sessions = JSON.parse(xhr.responseText)
-                if (sessions.length > 0) {
-                    currentSessionId = sessions[0].id
+                try {
+                    sessions = JSON.parse(xhr.responseText)
+                } catch (e) { sessions = [] }
+                // Solo auto-seleccionar si no hay selección o ya no existe.
+                var exists = false
+                for (var i = 0; i < sessions.length; i++) {
+                    if (sessions[i].id === currentSessionId) { exists = true; break }
                 }
+                if (!exists) {
+                    if (sessions.length > 0) {
+                        currentSessionId = sessions[0].id
+                        loadMessages(currentSessionId)
+                    } else {
+                        currentSessionId = ""
+                    }
+                }
+            } else if (xhr.readyState === XMLHttpRequest.DONE) {
+                backendOnline = false
+                backendStatus = "offline"
             }
         }
         xhr.send()
@@ -320,8 +342,102 @@ ApplicationWindow {
     property bool drawerOpen: false
     property bool streaming: false
     property string voiceState: "idle"  // "idle" | "listening" | "processing" | "speaking"
+    // Estado backend (F0-5): se actualiza con /api/health + /api/config.
+    property bool backendOnline: false
+    property string backendStatus: "offline" // offline | online | nokey
+    property string lastError: ""
+    property string lastErrorDetail: ""
+    property bool showErrorBanner: false
+    property string lastModel: ""
 
-    Component.onCompleted: loadSessions()
+    Component.onCompleted: {
+        loadSessions()
+        checkBackend()
+        applyTheme()
+        // F0-6: si cacheBase quedó vacío (sin HOME), desactivar polling.
+        if (!cacheBase) {
+            console.warn("HOME no disponible: polling de hotkey/voz desactivado")
+            filePollingEnabled = false
+        }
+    }
+
+    function backendStatusText() {
+        if (backendStatus === "online") return qsTr("Online")
+        if (backendStatus === "nokey") return qsTr("Sin key")
+        return qsTr("Offline")
+    }
+
+    function backendStatusColor() {
+        if (backendStatus === "online") return Theme.success
+        if (backendStatus === "nokey") return Theme.warn
+        return Theme.error
+    }
+
+    // Comprueba salud del backend y si hay API key configurada.
+    function checkBackend() {
+        var h = new XMLHttpRequest()
+        h.open("GET", backendUrl + "/api/health")
+        h.onreadystatechange = function() {
+            if (h.readyState === XMLHttpRequest.DONE) {
+                if (h.status === 200) {
+                    backendOnline = true
+                    // Ver si hay key: GET config (no muestra la key, solo si vacía).
+                    var c = new XMLHttpRequest()
+                    c.open("GET", backendUrl + "/api/config")
+                    c.onreadystatechange = function() {
+                        if (c.readyState === XMLHttpRequest.DONE && c.status === 200) {
+                            try {
+                                var cfg = JSON.parse(c.responseText)
+                                var key = (cfg.ai && cfg.ai.api_key) ? String(cfg.ai.api_key).trim() : ""
+                                var model = (cfg.ai && cfg.ai.model) ? String(cfg.ai.model) : ""
+                                lastModel = model
+                                backendStatus = key !== "" ? "online" : "nokey"
+                                if (key === "") {
+                                    lastError = qsTr("Falta API key")
+                                    lastErrorDetail = qsTr("Abre Configuración y pon tu key de Groq/OpenRouter/OpenAI.")
+                                    showErrorBanner = true
+                                } else if (showErrorBanner && lastError === qsTr("Falta API key")) {
+                                    showErrorBanner = false
+                                }
+                            } catch (e) {
+                                backendStatus = "online"
+                            }
+                        }
+                    }
+                    c.send()
+                } else {
+                    backendOnline = false
+                    backendStatus = "offline"
+                    lastError = qsTr("Backend no disponible")
+                    lastErrorDetail = qsTr("No se pudo contactar 127.0.0.1:8765. ¿Está corriendo kde-assistant?")
+                    showErrorBanner = true
+                }
+            }
+        }
+        // Timeout manual: si no responde en 4s, marcar offline.
+        h.send()
+    }
+
+    // Aplica tema desde backend (ui.theme: system|dark|light).
+    // system → respeta el actual de Theme (por defecto dark) para no parpadear;
+    // dark/light fuerzan. Se re-aplica al guardar Settings.
+    function applyTheme() {
+        var xhr = new XMLHttpRequest()
+        xhr.open("GET", backendUrl + "/api/config")
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
+                try {
+                    var cfg = JSON.parse(xhr.responseText)
+                    var t = cfg.ui && cfg.ui.theme ? String(cfg.ui.theme) : "system"
+                    if (t === "dark") Theme.isDark = true
+                    else if (t === "light") Theme.isDark = false
+                    // system: no forzar; el usuario puede alternar desde Breeze
+                    // (fase 2: leer portal color-scheme vía backend y exponerlo aquí).
+                } catch (e) {}
+            }
+        }
+        xhr.send()
+    }
 
     // === Background frosted ===
     // Esquinas exteriores cuadradas para asentar en la decoracion Breeze;
@@ -408,7 +524,7 @@ ApplicationWindow {
                     color: Theme.ink
                 }
 
-                // Status indicator (conectado a backend)
+                // Status indicator (refleja /api/health + key)
                 Row {
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
@@ -417,21 +533,48 @@ ApplicationWindow {
 
                     Rectangle {
                         width: 6; height: 6; radius: 3
-                        color: Theme.success
+                        color: backendStatusColor()
                         anchors.verticalCenter: parent.verticalCenter
                         SequentialAnimation on opacity {
+                            running: root.backendStatus === "online"
                             loops: Animation.Infinite
                             NumberAnimation { from: 1.0; to: 0.4; duration: 1200 }
                             NumberAnimation { from: 0.4; to: 1.0; duration: 1200 }
                         }
                     }
                     Text {
-                        text: qsTr("Online")
+                        text: backendStatusText() + (lastModel !== "" ? " · " + lastModel.split("/").pop() : "")
                         font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
                         color: Theme.inkMuted
                         anchors.verticalCenter: parent.verticalCenter
+                        elide: Text.ElideRight
+                        maximumLineCount: 1
+                    }
+                    // Reintentar health al hacer click
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.checkBackend()
                     }
                 }
+            }
+
+            // === Error banner (F0-5: antes muerto, ahora cableado) ===
+            ErrorBanner {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.spacingMd
+                Layout.rightMargin: Theme.spacingMd
+                Layout.topMargin: Theme.spacingXs
+                Layout.bottomMargin: 0
+                visible: root.showErrorBanner
+                message: root.lastError
+                detail: root.lastErrorDetail
+                retryable: true
+                onRetryClicked: {
+                    root.showErrorBanner = false
+                    root.checkBackend()
+                }
+                onDismissed: root.showErrorBanner = false
             }
 
             // === Voice Orb (centrado, visible cuando no es idle) ===
@@ -574,11 +717,16 @@ ApplicationWindow {
     property string hotkeyStamp: ""
     property string lastHotkeyStamp: ""
     property string lastVoiceStamp: ""
+    // F0-6: si no hay HOME, no leer /root ajeno: desactivar polling con aviso.
+    // (Sin side-effects dentro del binding: el flag se calcula en onCompleted.)
+    property bool filePollingEnabled: true
     property string cacheBase: {
-        // Qt6: intentar Qt.platform.environment, fallback a HOME hardcodeada
-        var env = Qt.platform.environment
+        var env = null
+        try { env = Qt.platform.environment } catch (e) { env = null }
         var home = env ? env["HOME"] : null
-        if (!home) home = "/root"
+        if (!home || String(home).trim() === "") {
+            return ""
+        }
         return "file://" + home + "/.cache/kde-assistant/"
     }
     property string homePath: cacheBase + "hotkey.state"
@@ -612,6 +760,7 @@ ApplicationWindow {
     }
 
     function pollHotkeys() {
+        if (!filePollingEnabled || !root.homePath) return
         var req = new XMLHttpRequest()
         req.open("GET", root.homePath + "?t=" + Date.now())
         req.onreadystatechange = function() {
@@ -648,6 +797,7 @@ ApplicationWindow {
     }
 
     function pollVoiceLevel() {
+        if (!filePollingEnabled || !root.voiceLevelPath) return
         var req = new XMLHttpRequest()
         req.open("GET", root.voiceLevelPath + "?t=" + Date.now())
         req.onreadystatechange = function() {
@@ -663,6 +813,7 @@ ApplicationWindow {
     // Solo los estados nuevos pisan el voiceState local.
     property string lastVoiceCycle: "0"   // timestamp_ms ya mostrado en el chat
     function pollVoiceState() {
+        if (!filePollingEnabled || !root.voicePath) return
         var req = new XMLHttpRequest()
         req.open("GET", root.voicePath + "?t=" + Date.now())
         req.onreadystatechange = function() {

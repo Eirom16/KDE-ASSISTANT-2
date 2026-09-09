@@ -33,7 +33,9 @@ Window {
     maximumHeight: height
 
     color: "transparent"
-    flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowTransparentForInput
+    // F0-6: sin WindowTransparentForInput para que el click (barge-in) funcione.
+    // Si se quiere click-through real, hacerlo configurable; por defecto clicable.
+    flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
     visible: voiceState !== "idle"
 
     // Esquina inferior derecha de la pantalla

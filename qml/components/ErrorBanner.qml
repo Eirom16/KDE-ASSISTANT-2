@@ -2,6 +2,7 @@
 // Usado para mostrar errores de conexion, tool call fallido, etc.
 
 import QtQuick
+import QtQuick.Layouts
 import qml 1.0
 import "."
 

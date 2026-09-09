@@ -18,6 +18,15 @@ Item {
     width: size
     height: size
 
+    // F0-6: pulso para speaking (Date.now() en binding no es reactivo).
+    property real speakPulse: 0.0
+    SequentialAnimation on speakPulse {
+        running: root.state === "speaking"
+        loops: Animation.Infinite
+        NumberAnimation { from: 0.0; to: 1.0; duration: 450; easing.type: Easing.InOutSine }
+        NumberAnimation { from: 1.0; to: 0.0; duration: 450; easing.type: Easing.InOutSine }
+    }
+
     // === Capas de ondas expansivas (estados activos) ===
     Repeater {
         model: state === "listening" || state === "speaking" ? 3 : 0
@@ -112,7 +121,7 @@ Item {
         if (root.state === "listening") {
             return 0.85 + root.amplitude * 0.45  // 0.85 a 1.3
         } else if (root.state === "speaking") {
-            return 1.0 + Math.sin(Date.now() / 200) * 0.05
+            return 1.0 + root.speakPulse * 0.07
         } else if (root.state === "processing") {
             return 0.85
         }

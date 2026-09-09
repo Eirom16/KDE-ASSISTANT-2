@@ -77,12 +77,12 @@ async fn chat_with_openrouter() {
     }
     println!();
 
-    let result = timeout(Duration::from_secs(60), task)
+    let outcome = timeout(Duration::from_secs(60), task)
         .await
         .expect("timeout")
         .expect("task")
         .expect("run_agent");
 
-    eprintln!("\nResultado final: {result}");
+    eprintln!("\nResultado final: {}", outcome.response);
     assert!(tokens > 0, "debio recibir al menos un token");
 }
