@@ -27,7 +27,8 @@ Item {
     signal stopClicked()
 
     implicitWidth: 480
-    implicitHeight: bar.implicitHeight + hintText.height + 4
+    // Altura barre + hint; la barre crece con el contenido
+    implicitHeight: bar.implicitHeight + hintText.implicitHeight + 8
 
     // === Floating capsule bar ===
     Rectangle {
@@ -35,8 +36,10 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.margins: Theme.spacingXs
-        implicitHeight: inputBox.implicitHeight + 16
+        anchors.leftMargin: Theme.spacingXs
+        anchors.rightMargin: Theme.spacingXs
+        anchors.topMargin: Theme.spacingXs
+        implicitHeight: inputBox.implicitHeight + 24
         radius: Theme.radiusPill
         color: Qt.rgba(
             Theme.surface.r,
@@ -65,20 +68,24 @@ Item {
             id: inputBox
             anchors.left: parent.left
             anchors.right: parent.right
+            anchors.top: parent.top
             anchors.bottom: parent.bottom
-            anchors.margins: 4
-            anchors.leftMargin: 8
-            spacing: 4
+            anchors.margins: 6
+            anchors.leftMargin: 10
+            spacing: 6
 
             // === TextInput (auto-creciente hasta maxTextH) ===
             ScrollView {
                 id: scroll
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.min(input.contentHeight, root.maxTextH)
+                // Altura del scroll incluye padding del TextArea
+                Layout.preferredHeight: Math.min(input.implicitHeight, root.maxTextH + input.topPadding + input.bottomPadding)
+                Layout.alignment: Qt.AlignVCenter
                 clip: true
-                ScrollBar.vertical.policy: input.contentHeight > root.maxTextH ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                ScrollBar.vertical.policy: input.implicitHeight > root.maxTextH + input.topPadding + input.bottomPadding ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
-                    TextArea {
+                TextArea {
                     id: input
                     placeholderText: qsTr("Escribe un mensaje...")
                     placeholderTextColor: Theme.inkMuted
@@ -87,10 +94,11 @@ Item {
                     wrapMode: TextEdit.Wrap
                     background: null
                     selectByMouse: true
+                    verticalAlignment: TextEdit.AlignVCenter
                     leftPadding: Theme.spacingSm
                     rightPadding: Theme.spacingXs
-                    topPadding: Theme.spacingXs
-                    bottomPadding: Theme.spacingXs
+                    topPadding: 6
+                    bottomPadding: 6
                     // Enter envia (el TextArea multilinea lo consumiria si no)
                     Keys.onReturnPressed: function(event) {
                         if (event.modifiers & Qt.ShiftModifier) {
@@ -163,8 +171,13 @@ Item {
     Text {
         id: hintText
         anchors.top: bar.bottom
-        anchors.topMargin: 4
+        anchors.topMargin: 6
         anchors.horizontalCenter: parent.horizontalCenter
+        // No recortar: texto centrado siempre visible
+        width: Math.min(implicitWidth, parent.width - 16)
+        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.NoWrap
+        elide: Text.ElideRight
         text: qsTr("Enter para enviar · Shift+Enter nueva linea")
         font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0.2)
         color: Theme.inkMuted

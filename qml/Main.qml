@@ -484,25 +484,23 @@ ApplicationWindow {
             }
 
             // === Input bar (flotante) ===
-            Item {
+            // Altura sigue al InputBar (auto-crece hasta 4 lineas)
+            InputBar {
+                id: inputBar
                 Layout.fillWidth: true
-                Layout.preferredHeight: 64
                 Layout.margins: Theme.spacingSm
-
-                InputBar {
-                    anchors.fill: parent
-                    streaming: root.streaming
-                    recording: root.voiceState === "listening"
-                    onSendClicked: function(text) {
-                        root.sendMessage(text)
-                    }
-                    onMicClicked: {
-                        root.voiceState = root.voiceState === "listening" ? "idle" : "listening"
-                    }
-                    onStopClicked: {
-                        root.streaming = false
-                        root.voiceState = "idle"
-                    }
+                Layout.preferredHeight: implicitHeight
+                streaming: root.streaming
+                recording: root.voiceState === "listening"
+                onSendClicked: function(text) {
+                    root.sendMessage(text)
+                }
+                onMicClicked: {
+                    root.voiceState = root.voiceState === "listening" ? "idle" : "listening"
+                }
+                onStopClicked: {
+                    root.streaming = false
+                    root.voiceState = "idle"
                 }
             }
         }
