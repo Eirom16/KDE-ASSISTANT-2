@@ -57,7 +57,9 @@ Item {
             id: list
             anchors.fill: parent
             anchors.leftMargin: Theme.spacingMd
-            anchors.rightMargin: Theme.spacingMd + 8
+            // Gutter derecho amplio: el ScrollBar es overlay y no debe
+            // tapar la burbuja del usuario ni los labels "Tu"/timestamp.
+            anchors.rightMargin: Theme.spacingMd + 14
             anchors.topMargin: Theme.spacingLg
             anchors.bottomMargin: Theme.spacingLg
             visible: !chatRoot.showWelcome
@@ -112,8 +114,10 @@ Item {
 
                 MessageBubble {
                     id: bubble
-                    // Centrada con ancho máximo (evita hueco en ventana ancha)
-                    width: Math.min(parent.width, Theme.maxContentWidth)
+                    // Centrada con ancho máximo (evita hueco en ventana ancha).
+                    // Se restan 10px para que el ScrollBar overlay no tape
+                    // la burbuja del usuario ni los labels "Tu"/timestamp.
+                    width: Math.min(parent.width - 10, Theme.maxContentWidth)
                     anchors.horizontalCenter: parent.horizontalCenter
                     role: modelData.role || "assistant"
                     authorLabel: modelData.authorLabel || ""
