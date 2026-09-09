@@ -4,8 +4,13 @@
 //! Ejecutar:  OPENROUTER_API_KEY=sk-... cargo test --test agent_smoke -- --nocapture
 
 use kde_assistant_lib::{
-    backend::ai_service::AiService, backend::tool_executor::ToolExecutor,
-    backend::tool_registry::all_tools, models::Config, models::Message, models::StreamEvent,
+    backend::ai_service::AiService,
+    backend::approvals::{ApprovalManager, ApprovalPolicy},
+    backend::tool_executor::ToolExecutor,
+    backend::tool_registry::all_tools,
+    models::Config,
+    models::Message,
+    models::StreamEvent,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -42,9 +47,18 @@ async fn chat_with_openrouter() {
     // Re-crear el AiService dentro de un Arc<...> para spawn
     let svc_for_task = svc_arc.clone();
     let tools_exec_clone = tools_exec.clone();
+    let approvals = Arc::new(ApprovalManager::new());
     let task = tokio::spawn(async move {
         svc_for_task
-            .run_agent(messages, all_tools(), tools_exec_clone, tx)
+            .run_agent(
+                messages,
+                all_tools(),
+                tools_exec_clone,
+                approvals,
+                ApprovalPolicy::from_config(true),
+                None,
+                tx,
+            )
             .await
     });
 
@@ -66,6 +80,14 @@ async fn chat_with_openrouter() {
                 image_url,
             } => {
                 eprintln!("\n[tool_result] {tool_call_id} -> {content} {image_url:?}");
+            }
+            StreamEvent::ToolApprovalNeeded {
+                tool_call_id,
+                name,
+                permission,
+                ..
+            } => {
+                eprintln!("\n[approval] {tool_call_id} {name} ({permission})");
             }
             StreamEvent::Done { full_content } => {
                 eprintln!("\n[done] len={}", full_content.len());

@@ -256,6 +256,25 @@ pub struct ToolsConfig {
     /// F2-3: enviar notificaciones nativas KDE.
     #[serde(default = "default_true")]
     pub notify: bool,
+    /// F4-1: pedir confirmación para tools 🟡 (las 🔴 siempre preguntan).
+    /// En false, las 🟡 se ejecutan solas (modo potencia).
+    #[serde(default = "default_true")]
+    pub confirm_sensitive: bool,
+    /// F4-2: control multimedia (playerctl).
+    #[serde(default = "default_true")]
+    pub media: bool,
+    /// F4-2: volumen (wpctl/pactl).
+    #[serde(default = "default_true")]
+    pub volume: bool,
+    /// F4-2: brillo (brightnessctl).
+    #[serde(default = "default_true")]
+    pub brightness: bool,
+    /// F4-2: estado de red (nmcli/bluetoothctl, solo lectura).
+    #[serde(default = "default_true")]
+    pub network_status: bool,
+    /// F4-2: recordatorios en memoria.
+    #[serde(default = "default_true")]
+    pub remind_in: bool,
     #[serde(default = "default_allowed_paths")]
     pub allowed_paths: Vec<String>,
 }
@@ -407,6 +426,12 @@ impl Config {
                 open_url: true,
                 system_info: true,
                 notify: true,
+                confirm_sensitive: true,
+                media: true,
+                volume: true,
+                brightness: true,
+                network_status: true,
+                remind_in: true,
                 allowed_paths: default_allowed_paths(),
             },
             shortcuts: ShortcutsConfig {

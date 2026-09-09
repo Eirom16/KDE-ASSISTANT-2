@@ -22,6 +22,9 @@ Item {
     signal copyRequested(string text)
     signal playRequested(string text)
     signal regenerateRequested()
+    signal toolApproveRequested(string toolCallId)
+    signal toolDenyRequested(string toolCallId)
+    signal toolDetailRequested(string toolName, string result)
 
     function findCaption(url) {
         var list = chatRoot.messages || []
@@ -108,6 +111,9 @@ Item {
                     onCopyRequested: function(text) { chatRoot.copyRequested(text) }
                     onPlayRequested: function(text) { chatRoot.playRequested(text) }
                     onRegenerateRequested: chatRoot.regenerateRequested()
+                    onToolApproveRequested: function(id) { chatRoot.toolApproveRequested(id) }
+                    onToolDenyRequested: function(id) { chatRoot.toolDenyRequested(id) }
+                    onToolDetailRequested: function(name, result) { chatRoot.toolDetailRequested(name, result) }
                     onImageClicked: function(url) {
                         chatRoot.imageClicked(url, chatRoot.findCaption(url))
                     }

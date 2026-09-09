@@ -3,6 +3,7 @@
 //! Coordina todos los servicios: AI, sesiones, voz, hotword, KDE integration.
 
 pub mod ai_service;
+pub mod approvals;
 pub mod audio_capture;
 pub mod auth;
 pub mod chime_player;
@@ -33,6 +34,7 @@ pub struct Backend {
     pub ai: Arc<ai_service::AiService>,
     pub sessions: Arc<Mutex<session_manager::SessionManager>>,
     pub tools: Arc<tool_executor::ToolExecutor>,
+    pub approvals: Arc<approvals::ApprovalManager>,
     pub speech: Arc<speech_service::SpeechService>,
     pub audio: Arc<RwLock<Option<audio_capture::AudioCapture>>>,
     pub chimes: Arc<chime_player::ChimePlayer>,
@@ -58,7 +60,12 @@ impl Backend {
 
         let ai = Arc::new(ai_service::AiService::new(config.clone()).await?);
         let sessions = Arc::new(Mutex::new(session_manager::SessionManager::new().await?));
-        let tools = Arc::new(tool_executor::ToolExecutor::new(config.clone()));
+        // F4-3: el executor audita en SQLite.
+        let tools = Arc::new(tool_executor::ToolExecutor::with_audit(
+            config.clone(),
+            sessions.clone(),
+        ));
+        let approvals = Arc::new(approvals::ApprovalManager::new());
         let speech = Arc::new(speech_service::SpeechService::new(config.clone()).await?);
         let chimes = Arc::new(chime_player::ChimePlayer::new().await?);
         let hotword = Arc::new(hotword::HotwordDetector::new(config.clone()).await?);
@@ -68,6 +75,7 @@ impl Backend {
             speech.clone(),
             ai.clone(),
             tools.clone(),
+            approvals.clone(),
             chimes.clone(),
         ));
 
@@ -78,6 +86,7 @@ impl Backend {
             ai,
             sessions,
             tools,
+            approvals,
             speech,
             audio: Arc::new(RwLock::new(None)),
             chimes,
@@ -103,6 +112,7 @@ impl Backend {
         http_server::AppState {
             ai: self.ai.clone(),
             tools: self.tools.clone(),
+            approvals: self.approvals.clone(),
             config: self.config.clone(),
             sessions: self.sessions.clone(),
             speech: self.speech.clone(),

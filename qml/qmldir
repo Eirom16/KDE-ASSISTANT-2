@@ -13,4 +13,6 @@ VoiceOrb 1.0 components/VoiceOrb.qml
 SessionDrawer 1.0 components/SessionDrawer.qml
 ChatView 1.0 components/ChatView.qml
 WelcomeScreen 1.0 components/WelcomeScreen.qml
+ToolDetailDialog 1.0 components/ToolDetailDialog.qml
+AuditDialog 1.0 components/AuditDialog.qml
 Main 1.0 Main.qml

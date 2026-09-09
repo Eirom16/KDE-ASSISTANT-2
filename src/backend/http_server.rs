@@ -45,6 +45,7 @@ use tokio::sync::RwLock;
 pub struct AppState {
     pub ai: Arc<AiService>,
     pub tools: Arc<ToolExecutor>,
+    pub approvals: Arc<crate::backend::approvals::ApprovalManager>,
     pub config: Arc<RwLock<Config>>,
     pub sessions: Arc<Mutex<SessionManager>>,
     pub speech: Arc<crate::backend::speech_service::SpeechService>,
@@ -133,6 +134,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/speak/stop", post(speak_stop))
         .route("/api/audio/devices", get(audio_devices))
         .route("/api/audio/device", post(set_audio_device))
+        .route("/api/tools", get(list_tools))
+        .route("/api/tools/approve", post(approve_tool))
+        .route("/api/tools/audit", get(list_tool_audit))
         .layer(middleware::from_fn_with_state(state.clone(), auth_layer))
         .with_state(state)
 }
@@ -226,8 +230,21 @@ async fn chat_regenerate(
             let tools_exec = state.tools.clone();
             let cfg_snapshot = state.config.read().await.clone();
             let tools = tool_registry::filtered_tools(&cfg_snapshot);
-            let agent_task =
-                tokio::spawn(async move { ai.run_agent(messages, tools, tools_exec, tx).await });
+            let approvals = state.approvals.clone();
+            let policy = agent_policy(&cfg_snapshot);
+            let sid_for_task = sid.clone();
+            let agent_task = tokio::spawn(async move {
+                ai.run_agent(
+                    messages,
+                    tools,
+                    tools_exec,
+                    approvals,
+                    policy,
+                    Some(sid_for_task),
+                    tx,
+                )
+                .await
+            });
             let cancel_key = sid.clone();
             register_task(&state, &cancel_key, agent_task.abort_handle());
 
@@ -427,6 +444,85 @@ async fn voice_barge_in(State(state): State<AppState>) -> impl IntoResponse {
         StatusCode::OK,
         Json(serde_json::json!({ "status": "barge_in" })),
     )
+}
+
+/// Catálogo de herramientas con nivel de permiso y flag (F4-1).
+async fn list_tools(State(state): State<AppState>) -> impl IntoResponse {
+    let cfg = state.config.read().await.clone();
+    let enabled = tool_registry::filtered_tools(&cfg);
+    let enabled_names: std::collections::HashSet<&str> =
+        enabled.iter().map(|t| t.function.name.as_str()).collect();
+    let list: Vec<serde_json::Value> = tool_registry::all_tools()
+        .iter()
+        .map(|t| {
+            let name = t.function.name.as_str();
+            serde_json::json!({
+                "name": name,
+                "description": t.function.description,
+                "permission": tool_registry::permission(name).as_str(),
+                "enabled": enabled_names.contains(name),
+            })
+        })
+        .collect();
+    Json(list).into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApproveToolRequest {
+    pub tool_call_id: String,
+    pub approved: bool,
+}
+
+/// Resuelve una petición de confirmación pendiente (F4-1).
+async fn approve_tool(
+    State(state): State<AppState>,
+    Json(body): Json<ApproveToolRequest>,
+) -> impl IntoResponse {
+    if body.tool_call_id.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "tool_call_id vacío" })),
+        );
+    }
+    if state.approvals.resolve(&body.tool_call_id, body.approved) {
+        (
+            StatusCode::OK,
+            Json(
+                serde_json::json!({ "status": if body.approved { "approved" } else { "denied" } }),
+            ),
+        )
+    } else {
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "petición expirada o inexistente" })),
+        )
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ToolAuditQuery {
+    #[serde(default = "default_audit_limit")]
+    pub limit: i64,
+}
+
+fn default_audit_limit() -> i64 {
+    50
+}
+
+/// Historial de herramientas ejecutadas (F4-3).
+async fn list_tool_audit(
+    State(state): State<AppState>,
+    Query(q): Query<ToolAuditQuery>,
+) -> impl IntoResponse {
+    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+    match sessions.list_tool_audit(q.limit) {
+        Ok(rows) => Json(rows).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
 }
 
 /// Dispositivos de entrada + selección actual (F3-3).
@@ -792,6 +888,10 @@ fn unregister_if_finished(state: &AppState, key: &str) {
     }
 }
 
+fn agent_policy(cfg: &Config) -> crate::backend::approvals::ApprovalPolicy {
+    crate::backend::approvals::ApprovalPolicy::from_config(cfg.tools.confirm_sensitive)
+}
+
 /// Chat sin streaming: espera la respuesta completa y la devuelve como JSON.
 /// Usado por la UI QML (XMLHttpRequest no hace streaming SSE de forma fiable).
 async fn chat_complete(
@@ -815,7 +915,13 @@ async fn chat_complete(
     let ai = state.ai.clone();
     let tools_exec = state.tools.clone();
     let msgs = messages.clone();
-    let agent_task = tokio::spawn(async move { ai.run_agent(msgs, tools, tools_exec, tx).await });
+    let approvals = state.approvals.clone();
+    let policy = agent_policy(&cfg_snapshot);
+    let session = req.session_id.clone();
+    let agent_task = tokio::spawn(async move {
+        ai.run_agent(msgs, tools, tools_exec, approvals, policy, session, tx)
+            .await
+    });
     // F0-7: registrar para /api/chat/cancel.
     let cancel_key = task_key(&req.session_id);
     register_task(&state, &cancel_key, agent_task.abort_handle());
@@ -1016,7 +1122,13 @@ async fn chat(
     let cfg_snapshot = state.config.read().await.clone();
     let tools = tool_registry::filtered_tools(&cfg_snapshot);
     let msgs = messages.clone();
-    let agent_task = tokio::spawn(async move { ai.run_agent(msgs, tools, tools_exec, tx).await });
+    let approvals = state.approvals.clone();
+    let policy = agent_policy(&cfg_snapshot);
+    let session = req.session_id.clone();
+    let agent_task = tokio::spawn(async move {
+        ai.run_agent(msgs, tools, tools_exec, approvals, policy, session, tx)
+            .await
+    });
     // F0-7: registrar para /api/chat/cancel.
     let cancel_key = task_key(&req.session_id);
     register_task(&state, &cancel_key, agent_task.abort_handle());
@@ -1143,6 +1255,15 @@ fn sse_event(ev: StreamEvent) -> (&'static str, String) {
         } => (
             "tool_result",
             serde_json::json!({ "tool_call_id": tool_call_id, "content": content, "image_url": image_url }).to_string(),
+        ),
+        StreamEvent::ToolApprovalNeeded {
+            tool_call_id,
+            name,
+            arguments,
+            permission,
+        } => (
+            "approval_needed",
+            serde_json::json!({ "tool_call_id": tool_call_id, "name": name, "arguments": arguments, "permission": permission }).to_string(),
         ),
         StreamEvent::Done { full_content } => (
             "done",

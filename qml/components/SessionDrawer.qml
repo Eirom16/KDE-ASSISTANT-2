@@ -21,6 +21,7 @@ Rectangle {
     signal sessionRenameRequested(string id, string title)
     signal newSessionClicked()
     signal settingsClicked()
+    signal auditRequested()
 
     // F1-2: búsqueda + edición inline de título.
     property string filter: ""
@@ -284,11 +285,30 @@ Rectangle {
         anchors.margins: Theme.spacingMd
         height: 36
 
-        PillButton {
-            text: qsTr("Configuracion")
-            iconName: "gear-16"
-            anchors.horizontalCenter: parent.horizontalCenter
-            onClicked: root.settingsClicked()
+        RowLayout {
+            anchors.fill: parent
+            spacing: Theme.spacingXs
+
+            PillButton {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                text: qsTr("Configuracion")
+                iconName: "gear-16"
+                textSize: Theme.fontSizeBodySmall
+                onClicked: root.settingsClicked()
+            }
+
+            IconButton {
+                Layout.preferredWidth: 36
+                Layout.preferredHeight: 36
+                Layout.alignment: Qt.AlignVCenter
+                iconName: "history-16"
+                iconSize: 16
+                buttonSize: 36
+                backgroundColor: "transparent"
+                iconColor: Theme.inkMuted
+                onClicked: root.auditRequested()
+            }
         }
     }
 }

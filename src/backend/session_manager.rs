@@ -33,6 +33,20 @@ pub struct MessageRow {
     pub timestamp: String,
 }
 
+/// Fila de auditoría de herramientas (F4-3).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ToolAuditRow {
+    pub id: i64,
+    pub timestamp: String,
+    pub session_id: Option<String>,
+    pub tool: String,
+    pub args: String,
+    pub success: bool,
+    pub duration_ms: i64,
+    pub permission: String,
+    pub decided: String,
+}
+
 pub struct SessionManager {
     conn: Connection,
     #[allow(dead_code)]
@@ -78,10 +92,81 @@ impl SessionManager {
 
             CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
             CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at DESC);
+
+            -- F4-3: auditoría de herramientas ejecutadas.
+            CREATE TABLE IF NOT EXISTS tool_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                session_id TEXT,
+                tool TEXT NOT NULL,
+                args TEXT NOT NULL DEFAULT '',
+                success INTEGER NOT NULL DEFAULT 0,
+                duration_ms INTEGER NOT NULL DEFAULT 0,
+                permission TEXT NOT NULL DEFAULT '',
+                decided TEXT NOT NULL DEFAULT 'auto'
+            );
+            CREATE INDEX IF NOT EXISTS idx_audit_ts ON tool_audit(timestamp DESC);
             "#,
         )?;
 
         Ok(Self { conn, db_path })
+    }
+
+    /// Registra una ejecución en la auditoría (F4-3).
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_tool_audit(
+        &self,
+        session_id: Option<&str>,
+        tool: &str,
+        args_json: &str,
+        success: bool,
+        duration_ms: u64,
+        permission: &str,
+        decided: &str,
+    ) -> Result<()> {
+        // Args recortados (pueden llevar contenidos grandes).
+        let args: String = args_json.chars().take(2000).collect();
+        self.conn.execute(
+            "INSERT INTO tool_audit (timestamp, session_id, tool, args, success, duration_ms, permission, decided)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                Utc::now().to_rfc3339(),
+                session_id,
+                tool,
+                args,
+                success as i32,
+                duration_ms as i64,
+                permission,
+                decided
+            ],
+        )?;
+        Ok(())
+    }
+    /// Últimas `limit` entradas de auditoría (más recientes primero).
+    pub fn list_tool_audit(&self, limit: i64) -> Result<Vec<ToolAuditRow>> {
+        let limit = limit.clamp(1, 200);
+        let mut stmt = self.conn.prepare(
+            "SELECT id, timestamp, session_id, tool, args, success, duration_ms, permission, decided
+             FROM tool_audit ORDER BY id DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit], |row| {
+            Ok(ToolAuditRow {
+                id: row.get(0)?,
+                timestamp: row.get(1)?,
+                session_id: row.get(2)?,
+                tool: row.get(3)?,
+                args: row.get(4)?,
+                success: row.get::<_, i32>(5)? != 0,
+                duration_ms: row.get(6)?,
+                permission: row.get(7)?,
+                decided: row.get(8)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
     }
 
     pub fn create_session(&self, title: impl Into<String>) -> Result<Session> {
@@ -325,6 +410,17 @@ mod tests {
                 image_url TEXT,
                 timestamp TEXT NOT NULL
             );
+            CREATE TABLE tool_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                session_id TEXT,
+                tool TEXT NOT NULL,
+                args TEXT NOT NULL DEFAULT '',
+                success INTEGER NOT NULL DEFAULT 0,
+                duration_ms INTEGER NOT NULL DEFAULT 0,
+                permission TEXT NOT NULL DEFAULT '',
+                decided TEXT NOT NULL DEFAULT 'auto'
+            );
             "#,
         )?;
         Ok(SessionManager {
@@ -394,5 +490,32 @@ mod tests {
         let m = test_db().unwrap();
         let s = m.create_session("S").unwrap();
         assert_eq!(m.delete_trailing_after_last_user(&s.id).unwrap(), 0);
+    }
+
+    #[test]
+    fn tool_audit_roundtrip() {
+        let m = test_db().unwrap();
+        let s = m.create_session("S").unwrap();
+        m.record_tool_audit(
+            Some(&s.id),
+            "read_file",
+            r#"{"path":"/x"}"#,
+            true,
+            12,
+            "green",
+            "auto",
+        )
+        .unwrap();
+        m.record_tool_audit(None, "edit_file", "{}", false, 3, "red", "denied")
+            .unwrap();
+        let rows = m.list_tool_audit(10).unwrap();
+        assert_eq!(rows.len(), 2);
+        // Más recientes primero.
+        assert_eq!(rows[0].tool, "edit_file");
+        assert!(!rows[0].success);
+        assert_eq!(rows[0].decided, "denied");
+        assert_eq!(rows[1].tool, "read_file");
+        assert!(rows[1].success);
+        assert_eq!(m.list_tool_audit(1).unwrap().len(), 1);
     }
 }

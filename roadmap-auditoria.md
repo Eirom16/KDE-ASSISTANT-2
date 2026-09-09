@@ -108,9 +108,10 @@
 
 ## Fase 4 — Herramientas y automatización (P2)
 
-- [ ] Trait `Tool{meta,schema,permission,run}` + niveles 🟢🟡🔴 con confirm inline
-- [ ] Tools sistema: `playerctl/wpctl/brightnessctl/nmcli/bluetoothctl`, ventanas/KWin, timers
-- [ ] Audit-log UI (qué hizo, cuándo, output completo, deshacer)
+- [x] Niveles 🟢🟡🔴 + confirmación inline (`ApprovalManager`, `approval_needed`, botones en badge, `confirm_sensitive`)
+- [x] Tools sistema: `media`, `volume`, `brightness`, `network_status`, `remind_in` (16 total)
+- [x] Audit-log UI (tabla `tool_audit`, `/api/tools/audit`, diálogo detalle + historial)
+- [ ] Ventanas/KWin y timers persistentes (pospuesto: Wayland limita `kdotool`; timers en memoria documentados)
 
 ## Fase 5 — Memoria y personalización (P2)
 
@@ -138,5 +139,6 @@
 | 2026-09-09 | F1-3/F1-4 | `open_app` XDG (`scan_dirs/parse/score/split_exec` + 3 tests), atajos parseados desde config (`parse_shortcut`, `new_session` en config, listener cableado), voz `wake/threshold/greeting/stt_model(tiny/base)` + descarga según elección, badge proveedor en titlebar, hint tools ON/OFF | 48 passed, QML OK | pendiente |
 | 2026-09-09 | F2 | Tray (Dictar+prefill, acciones rápidas, 5 recientes, siempre-visible persistido), tools `find/open/reveal/open_url/system_info/notify` (11 total, badges), `fs_enabled()` | 53 passed, `valida_qml` OK | pendiente |
 | 2026-09-09 | F3 | Push voz SSE (`VoiceSignal` broadcast + `/api/voice/stream`, throttle nivel), escucha continua (`auto_listen`, `record/wait/continue`, wake+PTT), micro seleccionable (`/api/audio/*`, VU en Settings) | 56 passed, `valida_qml` OK | pendiente |
+| 2026-09-09 | F4 | Permisos 🟢🟡🔴 + `ApprovalManager` + `approval_needed` + botones badge, 5 tools sistema (16 total), auditoría SQLite + `/api/tools/audit` + diálogos | 64 passed, QML OK | pendiente |
 
 > Cómo marcar: cambia `- [ ]` a `- [x]` y agrega fila en Registro con `cargo test --lib`, `cargo clippy`, `valida_qml`.

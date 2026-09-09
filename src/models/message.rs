@@ -1,6 +1,7 @@
 //! Mensaje del chat
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::models::ToolCall;
 
@@ -98,6 +99,15 @@ pub enum StreamEvent {
         content: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         image_url: Option<String>,
+    },
+
+    /// Petición de confirmación para una tool 🟡/🔴 (F4-1).
+    /// El agente se queda esperando `POST /api/tools/approve`.
+    ToolApprovalNeeded {
+        tool_call_id: String,
+        name: String,
+        arguments: HashMap<String, serde_json::Value>,
+        permission: String,
     },
 
     /// Stream completo

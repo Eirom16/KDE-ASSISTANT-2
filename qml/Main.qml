@@ -217,9 +217,29 @@ ApplicationWindow {
                 if (obj) {
                     for (var j = 0; j < toolArr.length; j++) {
                         if (toolArr[j].id === obj.tool_call_id) {
-                            toolArr[j].status = "success"
-                            toolArr[j].result = obj.content || ""
-                            if (obj.image_url) toolArr[j].imageUrl = obj.image_url
+                            var denied = obj.content && (obj.content.indexOf("El usuario denegó") === 0 || obj.content.indexOf("Acción sensible denegada") === 0)
+                            toolArr[j].status = denied ? "error" : "success"
+                            toolArr[j].result = denied ? qsTr("Denegada por ti") : (obj.content || "")
+                            if (!denied && obj.image_url) toolArr[j].imageUrl = obj.image_url
+                            break
+                        }
+                    }
+                    // Sin entrada previa (p.ej. regenerate): crearla como éxito.
+                    var found = false
+                    for (var m = 0; m < toolArr.length; m++) {
+                        if (toolArr[m].id === obj.tool_call_id) { found = true; break }
+                    }
+                    if (!found && obj.tool_call_id) {
+                        toolArr.push({ id: obj.tool_call_id, name: "tool", status: "success", result: obj.content || "", imageUrl: obj.image_url || "", caption: "" })
+                    }
+                }
+            } else if (ev === "approval_needed") {
+                // F4-1: la tool espera tu decisión (botones en el badge).
+                if (obj) {
+                    for (var n = 0; n < toolArr.length; n++) {
+                        if (toolArr[n].id === obj.tool_call_id) {
+                            toolArr[n].status = "confirm"
+                            toolArr[n].result = qsTr("Requiere confirmación") + (obj.permission ? " (" + obj.permission + ")" : "")
                             break
                         }
                     }
@@ -478,6 +498,28 @@ ApplicationWindow {
         g.send()
     }
 
+    // F4-1: resuelve una confirmación pendiente (botones del badge).
+    function approveTool(toolCallId, approved) {
+        if (!toolCallId) return
+        // Optimista: marcar el badge mientras el backend reanuda al agente.
+        var arr = messages.slice()
+        for (var i = 0; i < arr.length; i++) {
+            var tcs = arr[i].toolCalls || []
+            for (var j = 0; j < tcs.length; j++) {
+                if (tcs[j].id === toolCallId && tcs[j].status === "confirm") {
+                    tcs[j].status = approved ? "running" : "error"
+                    tcs[j].result = approved ? qsTr("Aprobada, ejecutando…") : qsTr("Denegada por ti")
+                }
+            }
+        }
+        messages = arr
+        var req = new XMLHttpRequest()
+        req.open("POST", backendUrl + "/api/tools/approve")
+        req.setRequestHeader("Content-Type", "application/json")
+        setAuth(req)
+        req.send(JSON.stringify({ tool_call_id: toolCallId, approved: approved }))
+    }
+
     // F0-7: cancela el streaming local (xhr.abort) + backend (/api/chat/cancel).
     function cancelChat() {
         if (activeChatXhr) {
@@ -670,6 +712,9 @@ ApplicationWindow {
             onSessionRenameRequested: function(id, title) {
                 root.renameSession(id, title)
             }
+            onAuditRequested: {
+                auditDialog.show()
+            }
             onSettingsClicked: {
                 root.drawerOpen = false
                 settings.show()
@@ -822,6 +867,15 @@ ApplicationWindow {
                 onRegenerateRequested: {
                     root.regenerate()
                 }
+                onToolApproveRequested: function(id) {
+                    root.approveTool(id, true)
+                }
+                onToolDenyRequested: function(id) {
+                    root.approveTool(id, false)
+                }
+                onToolDetailRequested: function(name, result) {
+                    toolDetail.show(name, result)
+                }
             }
 
             // Buffer oculto para copiar al portapapeles
@@ -861,6 +915,21 @@ ApplicationWindow {
         id: imagePreview
         anchors.fill: parent
         open_: false
+    }
+
+    // === Tool detail dialog (F4-3) ===
+    ToolDetailDialog {
+        id: toolDetail
+        anchors.fill: parent
+        open_: false
+    }
+
+    // === Audit dialog (F4-3) ===
+    AuditDialog {
+        id: auditDialog
+        anchors.fill: parent
+        open_: false
+        backendUrl: root.backendUrl
     }
 
     // === Settings dialog (overlay) ===

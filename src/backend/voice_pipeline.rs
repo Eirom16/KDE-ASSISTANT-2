@@ -69,6 +69,7 @@ pub struct VoicePipeline {
     pub speech: Arc<SpeechService>,
     pub ai: Arc<AiService>,
     pub tools: Arc<ToolExecutor>,
+    pub approvals: Arc<crate::backend::approvals::ApprovalManager>,
     pub chimes: Arc<ChimePlayer>,
     pub buffer: Arc<Mutex<RecordingBuffer>>,
     last_exchange: Arc<Mutex<Option<VoiceExchange>>>,
@@ -108,6 +109,7 @@ impl VoicePipeline {
         speech: Arc<SpeechService>,
         ai: Arc<AiService>,
         tools: Arc<ToolExecutor>,
+        approvals: Arc<crate::backend::approvals::ApprovalManager>,
         chimes: Arc<ChimePlayer>,
     ) -> Self {
         Self {
@@ -115,6 +117,7 @@ impl VoicePipeline {
             speech,
             ai,
             tools,
+            approvals,
             chimes,
             buffer: Arc::new(Mutex::new(RecordingBuffer::new())),
             last_exchange: Arc::new(Mutex::new(None)),
@@ -628,10 +631,21 @@ impl VoicePipeline {
         // Ejecutar el agente en un task; los eventos van por stream_tx
         let svc = self.ai.clone();
         let exec = self.tools.clone();
+        let appr = self.approvals.clone();
         let msgs = messages.clone();
         let tools_c = tools.clone();
-        let run_task =
-            tokio::spawn(async move { svc.run_agent(msgs, tools_c, exec, stream_tx).await });
+        let run_task = tokio::spawn(async move {
+            svc.run_agent(
+                msgs,
+                tools_c,
+                exec,
+                appr,
+                crate::backend::approvals::ApprovalPolicy::voice(),
+                None,
+                stream_tx,
+            )
+            .await
+        });
 
         // Reenviar eventos al canal externo (si hay consumidor)
         let forward_task = tokio::spawn(async move {
@@ -663,9 +677,10 @@ mod tests {
         let cfg = Arc::new(RwLock::new(Config::default()));
         let ai = Arc::new(AiService::new(cfg.clone()).await.unwrap());
         let tools = Arc::new(ToolExecutor::new(cfg.clone()));
+        let approvals = Arc::new(crate::backend::approvals::ApprovalManager::new());
         let speech = Arc::new(SpeechService::new(cfg.clone()).await.unwrap());
         let chimes = Arc::new(ChimePlayer::new().await.unwrap());
-        VoicePipeline::new(cfg, speech, ai, tools, chimes)
+        VoicePipeline::new(cfg, speech, ai, tools, approvals, chimes)
     }
 
     #[tokio::test]

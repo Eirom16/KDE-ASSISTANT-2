@@ -202,6 +202,9 @@ La UI QML se comunica con el backend Rust via este servidor HTTP:
 | `GET`  | `/api/voice/stream`  | Push SSE de voz (`state`/`level`) |
 | `GET`  | `/api/audio/devices` | Micrófonos disponibles + actual |
 | `POST` | `/api/audio/device`  | Guarda micrófono (`{"name"}`) |
+| `GET`  | `/api/tools`         | Catálogo tools (permiso + flag) |
+| `POST` | `/api/tools/approve` | Resuelve confirmación (`{tool_call_id, approved}`) |
+| `GET`  | `/api/tools/audit?limit=N` | Historial de ejecuciones |
 | `POST` | `/api/speak` / `/api/speak/stop` | Reproduce/detiene TTS |
 
 ## Estado

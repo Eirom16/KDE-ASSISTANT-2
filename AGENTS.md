@@ -222,19 +222,27 @@ loop {
 
 ## Herramientas Expuestas al LLM
 
-| Nombre | Descripcion | Icono |
-|---|---|---|
-| `open_app(name)` | Lanza app del sistema | `rocket-16.svg` |
-| `create_file(path, content)` | Crea archivo | `file-added-16.svg` |
-| `edit_file(path, mode, content)` | Edita/append | `pencil-16.svg` |
-| `read_file(path)` | Lee archivo | `file-16.svg` |
-| `web_search(query)` | Busca en web | `search-16.svg` |
-| `show_image(source, caption?)` | Inyecta imagen en chat | `image-16.svg` |
-| `find_file(query, dir?)` | Busca archivos por nombre | `search-16.svg` |
-| `open_file(path, reveal?)` | Abre con app por defecto / revela en Dolphin | `file-16.svg` |
-| `open_url(url)` | Abre URL http(s) en navegador | `link-16.svg` |
-| `system_info()` | Info del sistema (solo lectura) | `terminal-16.svg` |
-| `notify(title, body)` | Notificación nativa KDE | `bell-16.svg` |
+| Nombre | Descripcion | Icono | Permiso |
+|---|---|---|---|
+| `open_app(name)` | Lanza app del sistema | `rocket-16.svg` | 🟡 |
+| `create_file(path, content)` | Crea archivo | `file-added-16.svg` | 🟡 |
+| `edit_file(path, mode, content)` | Edita/append | `pencil-16.svg` | 🔴 |
+| `read_file(path)` | Lee archivo | `file-16.svg` | 🟢 |
+| `web_search(query)` | Busca en web | `search-16.svg` | 🟢 |
+| `show_image(source, caption?)` | Inyecta imagen en chat | `image-16.svg` | 🟢 |
+| `find_file(query, dir?)` | Busca archivos por nombre | `search-16.svg` | 🟢 |
+| `open_file(path, reveal?)` | Abre con app por defecto / revela en Dolphin | `file-16.svg` | 🟡 |
+| `open_url(url)` | Abre URL http(s) en navegador | `link-16.svg` | 🟡 |
+| `system_info()` | Info del sistema (solo lectura) | `terminal-16.svg` | 🟢 |
+| `notify(title, body)` | Notificación nativa KDE | `bell-16.svg` | 🟡 |
+| `media(action)` | Multimedia play/pause/next/prev/status | `play-16.svg` | 🟡 |
+| `volume(action, level?)` | Volumen get/set/mute/unmute | `unmute-16.svg` | 🟡 |
+| `brightness(action, level?)` | Brillo get/set | `sun-16.svg`* | 🟡 |
+| `network_status()` | Red/bluetooth (solo lectura) | `terminal-16.svg` | 🟢 |
+| `remind_in(minutes, text)` | Recordatorio (en memoria) | `bell-16.svg` | 🟡 |
+
+\* `sun-16.svg` no existe en assets: el badge usa `tools-16.svg` hasta añadir el icono.
+Permisos: 🟢 auto · 🟡 confirma (`tools.confirm_sensitive`, modo potencia en false) · 🔴 siempre confirma. En voz manos-libres las 🟡 van en auto y las 🔴 se deniegan al momento.
 
 Todas se definen en `src/backend/tool_executor.rs` con sus schemas JSON.
 

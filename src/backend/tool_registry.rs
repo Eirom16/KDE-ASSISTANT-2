@@ -7,6 +7,37 @@
 use crate::models::{Config, Tool, ToolFunction, ToolParameters, ToolProperty};
 use std::collections::HashMap;
 
+/// Nivel de permiso de una herramienta (F4-1).
+/// 🟢 Green: solo lectura o inocuas → se ejecutan solas.
+/// 🟡 Yellow: cambian estado visible → piden confirmación (salvo modo potencia).
+/// 🔴 Red: destructivas o disruptivas → siempre piden confirmación explícita.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Permission {
+    Green,
+    Yellow,
+    Red,
+}
+
+impl Permission {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Permission::Green => "green",
+            Permission::Yellow => "yellow",
+            Permission::Red => "red",
+        }
+    }
+}
+
+/// Nivel de cada herramienta.
+pub fn permission(name: &str) -> Permission {
+    match name {
+        "read_file" | "web_search" | "show_image" | "find_file" | "system_info"
+        | "network_status" => Permission::Green,
+        "edit_file" => Permission::Red,
+        _ => Permission::Yellow,
+    }
+}
+
 pub fn all_tools() -> Vec<Tool> {
     vec![
         open_app_tool(),
@@ -20,6 +51,11 @@ pub fn all_tools() -> Vec<Tool> {
         open_url_tool(),
         system_info_tool(),
         notify_tool(),
+        media_tool(),
+        volume_tool(),
+        brightness_tool(),
+        network_status_tool(),
+        remind_in_tool(),
     ]
 }
 
@@ -366,6 +402,150 @@ fn notify_tool() -> Tool {
     }
 }
 
+fn enum_prop(desc: &str, values: &[&str]) -> ToolProperty {
+    ToolProperty {
+        prop_type: "string".to_string(),
+        description: Some(desc.to_string()),
+        r#enum: Some(values.iter().map(|s| s.to_string()).collect()),
+        items: None,
+    }
+}
+
+fn media_tool() -> Tool {
+    let mut properties = HashMap::new();
+    properties.insert(
+        "action".to_string(),
+        enum_prop(
+            "Acción multimedia",
+            &["play", "pause", "play-pause", "next", "previous", "status"],
+        ),
+    );
+
+    Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "media".to_string(),
+            description: "Controla la reproducción multimedia (playerctl): play, pause, next, previous o status."
+                .to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties,
+                required: vec!["action".to_string()],
+            },
+        },
+    }
+}
+
+fn volume_tool() -> Tool {
+    let mut properties = HashMap::new();
+    properties.insert(
+        "action".to_string(),
+        enum_prop("Acción de volumen", &["get", "set", "mute", "unmute"]),
+    );
+    properties.insert(
+        "level".to_string(),
+        ToolProperty {
+            prop_type: "number".to_string(),
+            description: Some("Nivel 0.0-1.0 (solo para set)".to_string()),
+            r#enum: None,
+            items: None,
+        },
+    );
+
+    Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "volume".to_string(),
+            description: "Consulta o ajusta el volumen del sistema (wpctl/pactl). set necesita level 0.0-1.0."
+                .to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties,
+                required: vec!["action".to_string()],
+            },
+        },
+    }
+}
+
+fn brightness_tool() -> Tool {
+    let mut properties = HashMap::new();
+    properties.insert(
+        "action".to_string(),
+        enum_prop("Acción de brillo", &["get", "set"]),
+    );
+    properties.insert(
+        "level".to_string(),
+        ToolProperty {
+            prop_type: "number".to_string(),
+            description: Some("Nivel 1-100 (solo para set)".to_string()),
+            r#enum: None,
+            items: None,
+        },
+    );
+
+    Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "brightness".to_string(),
+            description:
+                "Consulta o ajusta el brillo de pantalla (brightnessctl). set necesita level 1-100."
+                    .to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties,
+                required: vec!["action".to_string()],
+            },
+        },
+    }
+}
+
+fn network_status_tool() -> Tool {
+    Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "network_status".to_string(),
+            description: "Muestra el estado de red y bluetooth (nmcli/bluetoothctl). Solo lectura."
+                .to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties: HashMap::new(),
+                required: vec![],
+            },
+        },
+    }
+}
+
+fn remind_in_tool() -> Tool {
+    let mut properties = HashMap::new();
+    properties.insert(
+        "minutes".to_string(),
+        ToolProperty {
+            prop_type: "number".to_string(),
+            description: Some("Minutos a esperar (0.1-1440)".to_string()),
+            r#enum: None,
+            items: None,
+        },
+    );
+    properties.insert(
+        "text".to_string(),
+        str_prop("Texto del recordatorio (máx 500 chars)"),
+    );
+
+    Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "remind_in".to_string(),
+            description: "Crea un recordatorio con notificación nativa. Solo funciona mientras la app siga abierta."
+                .to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties,
+                required: vec!["minutes".to_string(), "text".to_string()],
+            },
+        },
+    }
+}
+
 /// Herramientas filtradas según la configuración del usuario.
 ///
 /// Respeta `ai.enable_tool_calling` (si es false → ninguna) y cada
@@ -410,6 +590,21 @@ pub fn filtered_tools(cfg: &Config) -> Vec<Tool> {
     if cfg.tools.notify {
         out.push(notify_tool());
     }
+    if cfg.tools.media {
+        out.push(media_tool());
+    }
+    if cfg.tools.volume {
+        out.push(volume_tool());
+    }
+    if cfg.tools.brightness {
+        out.push(brightness_tool());
+    }
+    if cfg.tools.network_status {
+        out.push(network_status_tool());
+    }
+    if cfg.tools.remind_in {
+        out.push(remind_in_tool());
+    }
     out
 }
 
@@ -440,6 +635,11 @@ mod tests {
         cfg.tools.open_url = false;
         cfg.tools.system_info = false;
         cfg.tools.notify = false;
+        cfg.tools.media = false;
+        cfg.tools.volume = false;
+        cfg.tools.brightness = false;
+        cfg.tools.network_status = false;
+        cfg.tools.remind_in = false;
         let tools = filtered_tools(&cfg);
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].function.name, "open_app");
@@ -448,6 +648,17 @@ mod tests {
     #[test]
     fn all_enabled_by_default() {
         let cfg = Config::default();
-        assert_eq!(filtered_tools(&cfg).len(), 11);
+        assert_eq!(filtered_tools(&cfg).len(), 16);
+    }
+
+    #[test]
+    fn permission_levels() {
+        use super::permission;
+        assert_eq!(permission("read_file"), super::Permission::Green);
+        assert_eq!(permission("network_status"), super::Permission::Green);
+        assert_eq!(permission("open_app"), super::Permission::Yellow);
+        assert_eq!(permission("media"), super::Permission::Yellow);
+        assert_eq!(permission("edit_file"), super::Permission::Red);
+        assert_eq!(permission("whatever_unknown"), super::Permission::Yellow);
     }
 }

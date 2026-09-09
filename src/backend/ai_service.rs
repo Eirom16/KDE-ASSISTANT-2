@@ -321,11 +321,18 @@ impl AiService {
     /// Emite `StreamEvent`s por el canal: Token, ToolCall, ToolResult, Done/Error.
     /// Retorna `AgentOutcome` con la respuesta final y los mensajes nuevos
     /// (assistant+tools) para que el llamador los persista en SQLite.
+    ///
+    /// F4-1: las tools 🟡/🔴 piden confirmación (`approvals` + `policy`).
+    /// `session_id` solo se usa para la auditoría.
+    #[allow(clippy::too_many_arguments)]
     pub async fn run_agent(
         &self,
         mut messages: Vec<Message>,
         tools: Vec<Tool>,
         tools_exec: Arc<ToolExecutor>,
+        approvals: Arc<crate::backend::approvals::ApprovalManager>,
+        policy: crate::backend::approvals::ApprovalPolicy,
+        session_id: Option<String>,
         tx: mpsc::Sender<StreamEvent>,
     ) -> Result<AgentOutcome> {
         let cfg = self.snapshot();
@@ -389,7 +396,75 @@ impl AiService {
                 new_messages.push(ass);
                 for tc in &pending_tool_calls {
                     log::info!("Ejecutando tool: {} (id={})", tc.name, tc.id);
-                    let result = tools_exec.execute(tc).await.unwrap_or_else(|e| {
+                    // F4-1: puerta de confirmación para 🟡/🔴.
+                    let level = crate::backend::tool_registry::permission(&tc.name);
+                    let need_confirm = match level {
+                        crate::backend::tool_registry::Permission::Green => false,
+                        crate::backend::tool_registry::Permission::Yellow => policy.confirm_yellow,
+                        crate::backend::tool_registry::Permission::Red => policy.confirm_red,
+                    };
+                    let mut decided = "auto";
+                    if need_confirm {
+                        if !policy.interactive {
+                            // Voz manos-libres: sin UI que confirme, denegar al
+                            // momento (las 🟡 ya van en auto por su política).
+                            tools_exec.record_denial(tc, session_id.clone());
+                            let denial = crate::models::ToolResult::error(
+                                tc.id.clone(),
+                                "Acción sensible denegada en modo voz: requiere confirmación en el chat.",
+                            );
+                            let _ = tx
+                                .send(StreamEvent::ToolResult {
+                                    tool_call_id: denial.tool_call_id.clone(),
+                                    content: denial.content.clone(),
+                                    image_url: None,
+                                })
+                                .await;
+                            let wrapped =
+                                wrap_tool_output(&tc.name, &denial.content, denial.success);
+                            let tool_msg =
+                                Message::tool_with_image(denial.tool_call_id, wrapped, None);
+                            messages.push(tool_msg.clone());
+                            new_messages.push(tool_msg);
+                            continue;
+                        }
+                        let _ = tx
+                            .send(StreamEvent::ToolApprovalNeeded {
+                                tool_call_id: tc.id.clone(),
+                                name: tc.name.clone(),
+                                arguments: tc.arguments.clone(),
+                                permission: level.as_str().to_string(),
+                            })
+                            .await;
+                        if approvals.request(&tc.id, level.as_str()).await {
+                            decided = "approved";
+                        } else {
+                            tools_exec.record_denial(tc, session_id.clone());
+                            let denial = crate::models::ToolResult::error(
+                                tc.id.clone(),
+                                "El usuario denegó esta acción. Continúa sin ella o propone una alternativa.",
+                            );
+                            let _ = tx
+                                .send(StreamEvent::ToolResult {
+                                    tool_call_id: denial.tool_call_id.clone(),
+                                    content: denial.content.clone(),
+                                    image_url: None,
+                                })
+                                .await;
+                            let wrapped =
+                                wrap_tool_output(&tc.name, &denial.content, denial.success);
+                            let tool_msg =
+                                Message::tool_with_image(denial.tool_call_id, wrapped, None);
+                            messages.push(tool_msg.clone());
+                            new_messages.push(tool_msg);
+                            continue;
+                        }
+                    }
+                    let ctx = crate::backend::tool_executor::ToolCtx {
+                        session_id: session_id.clone(),
+                        decided: decided.to_string(),
+                    };
+                    let result = tools_exec.execute(tc, &ctx).await.unwrap_or_else(|e| {
                         crate::models::ToolResult::error(tc.id.clone(), e.to_string())
                     });
                     let _ = tx

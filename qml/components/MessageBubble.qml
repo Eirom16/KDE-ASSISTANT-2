@@ -33,6 +33,10 @@ Item {
     signal playRequested(string text)
     // F1-1: regenerar turno (botón) o reintentar tras tool en error (badge).
     signal regenerateRequested()
+    // F4-1/F4-3: aprobar/denegar tool pendiente, ver detalle del resultado.
+    signal toolApproveRequested(string toolCallId)
+    signal toolDenyRequested(string toolCallId)
+    signal toolDetailRequested(string toolName, string result)
 
     implicitHeight: column.implicitHeight + 8
     implicitWidth: column.implicitWidth
@@ -143,6 +147,9 @@ Item {
                     imageUrl: modelData.imageUrl || ""
                     onImageClicked: root.imageClicked(modelData.imageUrl)
                     onRetryClicked: root.regenerateRequested()
+                    onApproveClicked: root.toolApproveRequested(modelData.id || "")
+                    onDenyClicked: root.toolDenyRequested(modelData.id || "")
+                    onDetailRequested: root.toolDetailRequested(modelData.name || "", modelData.result || "")
                 }
             }
         }

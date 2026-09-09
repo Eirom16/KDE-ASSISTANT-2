@@ -14,11 +14,30 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::fs;
 
+use crate::backend::session_manager::SessionManager;
 use crate::models::{Config, ToolCall, ToolResult};
+
+/// Contexto de una ejecución (F4-3): para la auditoría.
+#[derive(Debug, Clone)]
+pub struct ToolCtx {
+    pub session_id: Option<String>,
+    /// "auto" | "approved" | "denied".
+    pub decided: String,
+}
+
+impl ToolCtx {
+    pub fn auto(session_id: Option<String>) -> Self {
+        Self {
+            session_id,
+            decided: "auto".to_string(),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct ToolExecutor {
     config: std::sync::Arc<tokio::sync::RwLock<Config>>,
+    sessions: Option<std::sync::Arc<std::sync::Mutex<SessionManager>>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -30,11 +49,26 @@ struct EditArgs {
 
 impl ToolExecutor {
     pub fn new(config: std::sync::Arc<tokio::sync::RwLock<Config>>) -> Self {
-        Self { config }
+        Self {
+            config,
+            sessions: None,
+        }
     }
 
-    pub async fn execute(&self, tool_call: &ToolCall) -> Result<ToolResult> {
+    /// Constructor con auditoría persistente (F4-3).
+    pub fn with_audit(
+        config: std::sync::Arc<tokio::sync::RwLock<Config>>,
+        sessions: std::sync::Arc<std::sync::Mutex<SessionManager>>,
+    ) -> Self {
+        Self {
+            config,
+            sessions: Some(sessions),
+        }
+    }
+
+    pub async fn execute(&self, tool_call: &ToolCall, ctx: &ToolCtx) -> Result<ToolResult> {
         let id = tool_call.id.clone();
+        let t0 = std::time::Instant::now();
         let result = match tool_call.name.as_str() {
             "open_app" => self.open_app(tool_call).await,
             "create_file" => self.create_file(tool_call).await,
@@ -47,16 +81,60 @@ impl ToolExecutor {
             "open_url" => self.open_url(tool_call).await,
             "system_info" => self.system_info(tool_call).await,
             "notify" => self.notify(tool_call).await,
+            "media" => self.media(tool_call).await,
+            "volume" => self.volume(tool_call).await,
+            "brightness" => self.brightness(tool_call).await,
+            "network_status" => self.network_status(tool_call).await,
+            "remind_in" => self.remind_in(tool_call).await,
             other => Err(anyhow!("Herramienta desconocida: {other}")),
         };
+        let ms = t0.elapsed().as_millis() as u64;
 
-        match result {
+        let final_res = match result {
             Ok(mut r) => {
                 r.tool_call_id = id;
                 Ok(r)
             }
             Err(e) => Ok(ToolResult::error(id, e.to_string())),
+        };
+
+        // Auditoría best-effort (nunca rompe la ejecución).
+        if let Ok(r) = &final_res {
+            self.audit(tool_call, ctx, r.success, ms);
         }
+        final_res
+    }
+
+    /// Registra una denegación del usuario (F4-1/F4-3): no se ejecutó nada.
+    pub fn record_denial(&self, tool_call: &ToolCall, session_id: Option<String>) {
+        let ctx = ToolCtx {
+            session_id,
+            decided: "denied".to_string(),
+        };
+        self.audit(tool_call, &ctx, false, 0);
+    }
+
+    fn audit(&self, tool_call: &ToolCall, ctx: &ToolCtx, success: bool, ms: u64) {
+        let Some(sessions) = self.sessions.clone() else {
+            return;
+        };
+        let args_json =
+            serde_json::to_string(&tool_call.arguments).unwrap_or_else(|_| "{}".to_string());
+        let permission = crate::backend::tool_registry::permission(&tool_call.name).as_str();
+        let tool = tool_call.name.clone();
+        let sid = ctx.session_id.clone();
+        let decided = ctx.decided.clone();
+        // Insert bloqueante breve (igual estilo que los handlers HTTP).
+        let sessions = sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = sessions.record_tool_audit(
+            sid.as_deref(),
+            &tool,
+            &args_json,
+            success,
+            ms,
+            permission,
+            &decided,
+        );
     }
 
     fn arg_string<'a>(args: &'a HashMap<String, serde_json::Value>, key: &str) -> Result<&'a str> {
@@ -587,10 +665,274 @@ impl ToolExecutor {
             bail!("El servicio de notificaciones no respondió")
         }
     }
+
+    // === media (F4-2, playerctl) ===
+    async fn media(&self, tc: &ToolCall) -> Result<ToolResult> {
+        let cfg = self.get_config_snapshot();
+        if !cfg.tools.media {
+            bail!("media deshabilitado en configuracion");
+        }
+        let action = Self::arg_string(&tc.arguments, "action")?;
+        let arg = match action {
+            "play" | "pause" | "play-pause" | "next" | "previous" | "status" => action.to_string(),
+            // Alias en español.
+            "reproducir" => "play".to_string(),
+            "pausar" => "pause".to_string(),
+            "alternar" => "play-pause".to_string(),
+            "siguiente" => "next".to_string(),
+            "anterior" => "previous".to_string(),
+            "estado" => "status".to_string(),
+            other => {
+                bail!("Acción no soportada: {other} (play|pause|play-pause|next|previous|status)")
+            }
+        };
+        let out = run_cmd(&["playerctl", &arg], 10).await?;
+        let text = out.trim();
+        Ok(ToolResult::success(
+            tc.id.clone(),
+            if text.is_empty() {
+                format!("Multimedia: {arg} ok")
+            } else {
+                format!("Multimedia ({arg}): {text}")
+            },
+        ))
+    }
+
+    // === volume (F4-2, wpctl con fallback pactl) ===
+    async fn volume(&self, tc: &ToolCall) -> Result<ToolResult> {
+        let cfg = self.get_config_snapshot();
+        if !cfg.tools.volume {
+            bail!("volume deshabilitado en configuracion");
+        }
+        let action = Self::arg_string(&tc.arguments, "action")?;
+        match action {
+            "get" | "estado" => {
+                let out = match run_cmd(&["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], 10).await
+                {
+                    Ok(o) => o,
+                    Err(_) => run_cmd(&["pactl", "get-sink-volume", "@DEFAULT_SINK@"], 10).await?,
+                };
+                Ok(ToolResult::success(
+                    tc.id.clone(),
+                    format!("Volumen: {}", out.trim()),
+                ))
+            }
+            "set" => {
+                let level = tc
+                    .arguments
+                    .get("level")
+                    .and_then(|v| v.as_f64())
+                    .ok_or_else(|| anyhow!("Argumento 'level' (0.0-1.0) requerido para set"))?;
+                if !(0.0..=1.0).contains(&level) {
+                    bail!("level fuera de rango (0.0-1.0): {level}");
+                }
+                let pct = format!("{:.0}%", level * 100.0);
+                let set_wp =
+                    run_cmd(&["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", &pct], 10).await;
+                if let Err(e) = set_wp {
+                    let pactl_pct = format!("{:.0}%", level * 100.0);
+                    run_cmd(
+                        &["pactl", "set-sink-volume", "@DEFAULT_SINK@", &pactl_pct],
+                        10,
+                    )
+                    .await
+                    .with_context(|| format!("ni wpctl ni pactl disponibles ({e})"))?;
+                }
+                Ok(ToolResult::success(
+                    tc.id.clone(),
+                    format!("Volumen al {pct}"),
+                ))
+            }
+            "mute" | "silenciar" => {
+                set_mute(true).await?;
+                Ok(ToolResult::success(tc.id.clone(), "Audio silenciado"))
+            }
+            "unmute" | "activar" => {
+                set_mute(false).await?;
+                Ok(ToolResult::success(tc.id.clone(), "Audio activado"))
+            }
+            other => bail!("Acción no soportada: {other} (get|set|mute|unmute)"),
+        }
+    }
+
+    // === brightness (F4-2, brightnessctl) ===
+    async fn brightness(&self, tc: &ToolCall) -> Result<ToolResult> {
+        let cfg = self.get_config_snapshot();
+        if !cfg.tools.brightness {
+            bail!("brightness deshabilitado en configuracion");
+        }
+        let action = Self::arg_string(&tc.arguments, "action")?;
+        match action {
+            "get" | "estado" => {
+                let cur = run_cmd(&["brightnessctl", "get"], 10).await?;
+                let max = run_cmd(&["brightnessctl", "max"], 10).await?;
+                let (c, m): (f64, f64) = (
+                    cur.trim().parse().unwrap_or(0.0),
+                    max.trim().parse::<f64>().unwrap_or(1.0).max(1.0),
+                );
+                Ok(ToolResult::success(
+                    tc.id.clone(),
+                    format!("Brillo: {:.0}%", c / m * 100.0),
+                ))
+            }
+            "set" => {
+                let level = tc
+                    .arguments
+                    .get("level")
+                    .and_then(|v| v.as_f64())
+                    .ok_or_else(|| anyhow!("Argumento 'level' (1-100) requerido para set"))?;
+                if !(1.0..=100.0).contains(&level) {
+                    bail!("level fuera de rango (1-100): {level}");
+                }
+                run_cmd(&["brightnessctl", "set", &format!("{level:.0}%")], 10).await?;
+                Ok(ToolResult::success(
+                    tc.id.clone(),
+                    format!("Brillo al {level:.0}%"),
+                ))
+            }
+            other => bail!("Acción no soportada: {other} (get|set)"),
+        }
+    }
+
+    // === network_status (F4-2, solo lectura) ===
+    async fn network_status(&self, tc: &ToolCall) -> Result<ToolResult> {
+        let cfg = self.get_config_snapshot();
+        if !cfg.tools.network_status {
+            bail!("network_status deshabilitado en configuracion");
+        }
+        let mut lines = Vec::new();
+        if let Ok(out) = run_cmd(&["nmcli", "-t", "-f", "STATE", "general"], 10).await {
+            let state = out.trim().to_string();
+            if !state.is_empty() {
+                lines.push(format!("Red: {state}"));
+            }
+        }
+        if let Ok(out) = run_cmd(
+            &[
+                "nmcli",
+                "-t",
+                "-f",
+                "NAME,TYPE",
+                "connection",
+                "show",
+                "--active",
+            ],
+            10,
+        )
+        .await
+        {
+            let conns: Vec<&str> = out.lines().filter(|l| !l.trim().is_empty()).collect();
+            if !conns.is_empty() {
+                lines.push(format!("Conexiones: {}", conns.join(", ")));
+            }
+        }
+        if let Ok(out) = run_cmd(&["bluetoothctl", "show"], 5).await {
+            let powered = out
+                .lines()
+                .find(|l| l.trim().starts_with("Powered:"))
+                .map(|l| l.trim().to_string())
+                .unwrap_or_default();
+            if !powered.is_empty() {
+                lines.push(format!("Bluetooth: {powered}"));
+            }
+        }
+        if lines.is_empty() {
+            lines.push("Sin información de red (¿nmcli/bluetoothctl instalados?)".to_string());
+        }
+        Ok(ToolResult::success(tc.id.clone(), lines.join("\n")))
+    }
+
+    // === remind_in (F4-2) ===
+    async fn remind_in(&self, tc: &ToolCall) -> Result<ToolResult> {
+        let cfg = self.get_config_snapshot();
+        if !cfg.tools.remind_in {
+            bail!("remind_in deshabilitado en configuracion");
+        }
+        let minutes = tc
+            .arguments
+            .get("minutes")
+            .and_then(|v| v.as_f64())
+            .ok_or_else(|| anyhow!("Argumento 'minutes' requerido"))?;
+        if !(0.1..=1440.0).contains(&minutes) {
+            bail!("minutes fuera de rango (0.1-1440): {minutes}");
+        }
+        let text = Self::arg_string(&tc.arguments, "text")?;
+        let text: String = text.chars().take(500).collect();
+        if text.trim().is_empty() {
+            bail!("Texto vacío");
+        }
+        let secs = (minutes * 60.0) as u64;
+        let text_for_task = text.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+            let _ = std::process::Command::new("dbus-send")
+                .args([
+                    "--session",
+                    "--print-reply",
+                    "--dest=org.freedesktop.Notifications",
+                    "--type=method_call",
+                    "/org/freedesktop/Notifications",
+                    "org.freedesktop.Notifications.Notify",
+                    "string:KDE Assistant",
+                    "uint32:0",
+                    "string:kde-assistant",
+                    "string:Recordatorio",
+                    &format!("string:{text_for_task}"),
+                    "string:",
+                    "array:string:",
+                    "dict:string:",
+                    "int32:-1",
+                ])
+                .status();
+        });
+        Ok(ToolResult::success(
+            tc.id.clone(),
+            format!("Recordatorio en {minutes} min: {text} (solo mientras la app siga abierta)"),
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ConfigSnapshot;
+
+// === Helpers de comandos del sistema (F4-2, sin shell) ===
+
+/// Ejecuta un binario con args (sin shell), con timeout. Retorna stdout.
+async fn run_cmd(args: &[&str], timeout_secs: u64) -> Result<String> {
+    let (bin, rest) = args.split_first().ok_or_else(|| anyhow!("sin comando"))?;
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_secs),
+        tokio::process::Command::new(bin)
+            .args(rest)
+            .stdin(std::process::Stdio::null())
+            .output(),
+    )
+    .await
+    .map_err(|_| anyhow!("timeout ejecutando {bin}"))?
+    .map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            anyhow!("comando no encontrado: {bin}")
+        } else {
+            anyhow!("ejecutando {bin}: {e}")
+        }
+    })?;
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        bail!("{bin} falló: {}", err.trim());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+async fn set_mute(mute: bool) -> Result<()> {
+    let v = if mute { "1" } else { "0" };
+    match run_cmd(&["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", v], 10).await {
+        Ok(_) => Ok(()),
+        Err(_) => {
+            run_cmd(&["pactl", "set-sink-mute", "@DEFAULT_SINK@", v], 10).await?;
+            Ok(())
+        }
+    }
+}
 
 // === Helpers ===
 
@@ -1462,7 +1804,10 @@ mod tests {
                 "url".to_string(),
                 serde_json::Value::String(bad.to_string()),
             );
-            let res = ex.execute(&tc("open_url", args)).await.unwrap();
+            let res = ex
+                .execute(&tc("open_url", args), &ToolCtx::auto(None))
+                .await
+                .unwrap();
             assert!(!res.success, "debería rechazar {bad}");
         }
     }
@@ -1475,7 +1820,10 @@ mod tests {
             "query".to_string(),
             serde_json::Value::String("  ".to_string()),
         );
-        let res = ex.execute(&tc("find_file", args)).await.unwrap();
+        let res = ex
+            .execute(&tc("find_file", args), &ToolCtx::auto(None))
+            .await
+            .unwrap();
         assert!(!res.success);
     }
 
@@ -1493,10 +1841,66 @@ mod tests {
         assert!(human_bytes(2 * 1024 * 1024 * 1024).contains("GB"));
     }
 
+    fn media_tc(action: &str) -> ToolCall {
+        let mut args = HashMap::new();
+        args.insert(
+            "action".to_string(),
+            serde_json::Value::String(action.to_string()),
+        );
+        tc("media", args)
+    }
+
+    #[tokio::test]
+    async fn media_rejects_bad_action_without_spawning() {
+        let ex = dummy_executor();
+        let res = ex
+            .execute(&media_tc("explotar"), &ToolCtx::auto(None))
+            .await
+            .unwrap();
+        assert!(!res.success);
+        assert!(res.content.contains("no soportada"));
+    }
+
+    #[tokio::test]
+    async fn volume_validates_level() {
+        let ex = dummy_executor();
+        let mut args = HashMap::new();
+        args.insert(
+            "action".to_string(),
+            serde_json::Value::String("set".to_string()),
+        );
+        args.insert("level".to_string(), serde_json::Value::from(9.9));
+        let res = ex
+            .execute(&tc("volume", args), &ToolCtx::auto(None))
+            .await
+            .unwrap();
+        assert!(!res.success);
+        assert!(res.content.contains("rango"));
+    }
+
+    #[tokio::test]
+    async fn remind_validates_range() {
+        let ex = dummy_executor();
+        let mut args = HashMap::new();
+        args.insert("minutes".to_string(), serde_json::Value::from(99999.0));
+        args.insert(
+            "text".to_string(),
+            serde_json::Value::String("hola".to_string()),
+        );
+        let res = ex
+            .execute(&tc("remind_in", args), &ToolCtx::auto(None))
+            .await
+            .unwrap();
+        assert!(!res.success);
+    }
+
     #[tokio::test]
     async fn execute_unknown_tool_returns_error_result() {
         let ex = dummy_executor();
-        let res = ex.execute(&tc("no_existe", HashMap::new())).await.unwrap();
+        let res = ex
+            .execute(&tc("no_existe", HashMap::new()), &ToolCtx::auto(None))
+            .await
+            .unwrap();
         assert!(!res.success);
         assert!(res.content.contains("desconocida"));
     }
