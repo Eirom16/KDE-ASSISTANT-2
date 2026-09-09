@@ -21,6 +21,7 @@ Rectangle {
     implicitHeight: row.implicitHeight + paddingV * 2
     implicitWidth: row.implicitWidth + paddingH * 2
     radius: Theme.radiusPill
+    clip: true
     color: {
         if (active) return activeColor
         if (mouseArea.pressed) return Theme.surfacePressed

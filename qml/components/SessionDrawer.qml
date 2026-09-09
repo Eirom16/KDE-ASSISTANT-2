@@ -131,11 +131,11 @@ Rectangle {
                     delegate: Item {
                         required property var modelData
                         width: root.drawerWidth - Theme.spacingMd * 2
-                        height: 56
+                        height: 60
 
                         ColumnLayout {
                             anchors.fill: parent
-                            spacing: 2
+                            spacing: 4
 
                             RowLayout {
                                 Layout.fillWidth: true
@@ -185,10 +185,11 @@ Rectangle {
                                     visible: root.editingId !== modelData.id
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
+                                    // Solo título y recortado en JS: el contador vive
+                                    // en la línea de fecha (antes se solapaban).
                                     text: {
                                         var t = modelData.title || qsTr("Sin titulo")
-                                        var n = modelData.message_count || 0
-                                        return n > 0 ? t + "  ·  " + n : t
+                                        return t.length > 22 ? t.substring(0, 21) + "…" : t
                                     }
                                     iconName: modelData.id === root.currentId ? "hubot-16" : "history-16"
                                     active: modelData.id === root.currentId
