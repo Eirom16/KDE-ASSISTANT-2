@@ -115,11 +115,11 @@ QtObject {
     readonly property int radiusFull: 9999
 
     // ===== LAYOUT =====
-    readonly property int windowMinWidth: 360
+    readonly property int windowMinWidth: 575
     readonly property int windowMinHeight: 500
     readonly property int windowMaxWidth: 800
     readonly property int windowMaxHeight: 900
-    readonly property int windowDefaultWidth: 420
+    readonly property int windowDefaultWidth: 575
     readonly property int windowDefaultHeight: 680
     readonly property int drawerWidth: 240
     readonly property int maxContentWidth: 720
