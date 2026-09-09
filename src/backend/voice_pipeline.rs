@@ -13,6 +13,7 @@
 use anyhow::{Context, Result};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use tokio::sync::broadcast;
 
 use crate::backend::ai_service::AiService;
 use crate::backend::audio_capture::resample_to_16k;
@@ -22,6 +23,13 @@ use crate::backend::tool_executor::ToolExecutor;
 use crate::backend::tool_registry;
 use crate::models::{Config, Message, StreamEvent};
 use tokio::sync::RwLock;
+
+/// Señal de voz para la UI (F3-1: push SSE en vez de polling de archivos).
+#[derive(Debug, Clone)]
+pub enum VoiceSignal {
+    State { state: String },
+    Level { level: f32 },
+}
 
 /// Buffer de grabacion compartida entre el thread de audio y el orquestador.
 pub struct RecordingBuffer {
@@ -70,6 +78,12 @@ pub struct VoicePipeline {
     /// Momento (ms epoch) en que empezó el TTS actual. Sirve para gracia
     /// anti-auto-corte: ignorar barge los primeros 500ms (el mic capta el altavoz).
     speaking_since_ms: Arc<AtomicU32>,
+    /// Bus push de estado/nivel para la UI (F3-1, SSE `/api/voice/stream`).
+    signal_tx: broadcast::Sender<VoiceSignal>,
+    last_state: Arc<Mutex<String>>,
+    /// Throttle del nivel: último envío (ms epoch + valor).
+    last_level_ms: Arc<AtomicU32>,
+    last_level_sent: Arc<AtomicU32>, // f32 bits
 }
 
 /// Ultimo intercambio por voz (para que la UI lo muestre en el chat).
@@ -108,7 +122,24 @@ impl VoicePipeline {
             speaking: Arc::new(AtomicBool::new(false)),
             barge_counter: Arc::new(AtomicU32::new(0)),
             speaking_since_ms: Arc::new(AtomicU32::new(0)),
+            signal_tx: broadcast::channel(64).0,
+            last_state: Arc::new(Mutex::new("idle".to_string())),
+            last_level_ms: Arc::new(AtomicU32::new(0)),
+            last_level_sent: Arc::new(AtomicU32::new(0.0f32.to_bits())),
         }
+    }
+
+    /// Suscribe un receptor de señales de voz (para `/api/voice/stream`).
+    pub fn subscribe(&self) -> broadcast::Receiver<VoiceSignal> {
+        self.signal_tx.subscribe()
+    }
+
+    /// Último estado emitido ("idle" si aún ninguno).
+    pub fn current_state(&self) -> String {
+        self.last_state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     pub fn amplitude(&self) -> f32 {
@@ -136,7 +167,7 @@ impl VoicePipeline {
             }
             buf.recording.store(true, Ordering::Relaxed);
         }
-        Self::write_state("listening");
+        self.emit_state("listening");
         log::info!("Barge-in: TTS interrumpido, escucha reiniciada");
     }
 
@@ -157,7 +188,7 @@ impl VoicePipeline {
             let rms = (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32).sqrt();
             let lvl = (rms * 6.0).min(1.0);
             self.amplitude.store(lvl.to_bits(), Ordering::Relaxed);
-            Self::write_level(lvl);
+            self.emit_level(lvl);
             lvl_opt = Some(lvl);
         }
 
@@ -192,14 +223,26 @@ impl VoicePipeline {
         }
     }
 
-    fn write_level(level: f32) {
+    /// Emite el nivel a la UI (SSE + archivo compat). Throttle: 100ms o salto >0.08.
+    fn emit_level(&self, level: f32) {
+        let level = level.clamp(0.0, 1.0);
+        let now = now_ms() as u32;
+        let last_ms = self.last_level_ms.load(Ordering::Relaxed);
+        let prev = f32::from_bits(self.last_level_sent.load(Ordering::Relaxed));
+        if now.saturating_sub(last_ms) < 100 && (level - prev).abs() <= 0.08 {
+            return;
+        }
+        self.last_level_ms.store(now, Ordering::Relaxed);
+        self.last_level_sent
+            .store(level.to_bits(), Ordering::Relaxed);
         let cache_dir = match dirs::cache_dir() {
             Some(d) => d.join("kde-assistant"),
             None => return,
         };
         let _ = std::fs::create_dir_all(&cache_dir);
         let path = cache_dir.join("voice.level");
-        let _ = std::fs::write(&path, format!("{:.3}", level.clamp(0.0, 1.0)));
+        let _ = std::fs::write(&path, format!("{level:.3}"));
+        let _ = self.signal_tx.send(VoiceSignal::Level { level });
     }
 
     /// Detiene la grabacion y retorna los samples (a 16kHz mono).
@@ -257,12 +300,34 @@ impl VoicePipeline {
             .sample_rate
             .load(Ordering::SeqCst);
         self.start_recording(sr.max(1));
-        Self::write_state("listening");
+        self.emit_state("listening");
         log::info!("Escuchando... (grabacion iniciada)");
     }
 
-    /// Escribe el estado de voz para la UI (`~/.cache/kde-assistant/voice.state`).
+    /// Emite el estado de voz a la UI (SSE + archivo compat).
     /// Estados: idle | listening | processing | speaking
+    /// El archivo se conserva para debug/fallback; la UI usa el SSE.
+    pub fn emit_state(&self, state: &str) {
+        *self.last_state.lock().unwrap_or_else(|e| e.into_inner()) = state.to_string();
+        let cache_dir = match dirs::cache_dir() {
+            Some(d) => d.join("kde-assistant"),
+            None => return,
+        };
+        let _ = std::fs::create_dir_all(&cache_dir);
+        let path = cache_dir.join("voice.state");
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let content = format!("{state}|{timestamp}");
+        let _ = std::fs::write(&path, content);
+        let _ = self.signal_tx.send(VoiceSignal::State {
+            state: state.to_string(),
+        });
+    }
+
+    /// Compat: emite estado sin instancia (solo archivo, sin SSE).
+    /// Preferir `emit_state` cuando haya `&self`.
     pub fn write_state(state: &str) {
         let cache_dir = match dirs::cache_dir() {
             Some(d) => d.join("kde-assistant"),
@@ -325,7 +390,7 @@ impl VoicePipeline {
             .recording
             .load(Ordering::Relaxed);
         if !is_listening {
-            Self::write_state("idle");
+            self.emit_state("idle");
         }
         r
     }
@@ -336,7 +401,7 @@ impl VoicePipeline {
         tx: Option<tokio::sync::mpsc::Sender<StreamEvent>>,
     ) -> Result<(String, String)> {
         // 1. STT
-        Self::write_state("processing");
+        self.emit_state("processing");
         self.chimes.play_process();
         let language_override: Option<String> = {
             let cfg = self.config.read().await;
@@ -355,7 +420,7 @@ impl VoicePipeline {
         if transcript.trim().is_empty() {
             log::info!("VoicePipeline STT vacío: aviso al usuario");
             let aviso = "No te escuché, ¿puedes repetirlo?".to_string();
-            Self::write_state("speaking");
+            self.emit_state("speaking");
             self.speaking.store(true, Ordering::Relaxed);
             self.speaking_since_ms
                 .store(now_ms() as u32, Ordering::Relaxed);
@@ -379,7 +444,7 @@ impl VoicePipeline {
         // (regla: voz pregunta -> voz responde; el chat por texto nunca
         // habla salvo que auto_speak este activo, ver chat_complete).
         if !response.is_empty() {
-            Self::write_state("speaking");
+            self.emit_state("speaking");
             self.speaking.store(true, Ordering::Relaxed);
             self.speaking_since_ms
                 .store(now_ms() as u32, Ordering::Relaxed);
@@ -445,5 +510,50 @@ impl VoicePipeline {
         let outcome = run_task.await.context("run_agent task")??;
         let _ = forward_task;
         Ok(outcome.response)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::ai_service::AiService;
+    use crate::backend::chime_player::ChimePlayer;
+    use crate::backend::speech_service::SpeechService;
+    use crate::backend::tool_executor::ToolExecutor;
+
+    async fn test_pipeline() -> VoicePipeline {
+        let cfg = Arc::new(RwLock::new(Config::default()));
+        let ai = Arc::new(AiService::new(cfg.clone()).await.unwrap());
+        let tools = Arc::new(ToolExecutor::new(cfg.clone()));
+        let speech = Arc::new(SpeechService::new(cfg.clone()).await.unwrap());
+        let chimes = Arc::new(ChimePlayer::new().await.unwrap());
+        VoicePipeline::new(cfg, speech, ai, tools, chimes)
+    }
+
+    #[tokio::test]
+    async fn signal_broadcast_state() {
+        let vp = test_pipeline().await;
+        let mut rx = vp.subscribe();
+        assert_eq!(vp.current_state(), "idle");
+        vp.emit_state("listening");
+        assert_eq!(vp.current_state(), "listening");
+        match rx.recv().await.unwrap() {
+            VoiceSignal::State { state } => assert_eq!(state, "listening"),
+            other => panic!("esperaba State, llegó {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn signal_level_throttled() {
+        let vp = test_pipeline().await;
+        let mut rx = vp.subscribe();
+        vp.emit_level(0.5);
+        match rx.recv().await.unwrap() {
+            VoiceSignal::Level { level } => assert!((level - 0.5).abs() < 0.001),
+            other => panic!("esperaba Level, llegó {other:?}"),
+        }
+        // Segundo envío inmediato con delta pequeño: throttled, no llega nada.
+        vp.emit_level(0.52);
+        assert!(rx.try_recv().is_err());
     }
 }

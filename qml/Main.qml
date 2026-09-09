@@ -515,6 +515,7 @@ ApplicationWindow {
         loadSessions()
         checkBackend()
         applyTheme()
+        startVoiceStream()
         // F0-6: si cacheBase quedó vacío (sin HOME), desactivar polling.
         if (!cacheBase) {
             console.warn("HOME no disponible: polling de hotkey/voz desactivado")
@@ -939,7 +940,6 @@ ApplicationWindow {
     // aqui solo se refleja el estado visual (VoiceOrb).
     property string hotkeyStamp: ""
     property string lastHotkeyStamp: ""
-    property string lastVoiceStamp: ""
     // F0-6: si no hay HOME, no leer /root ajeno: desactivar polling con aviso.
     // (Sin side-effects dentro del binding: el flag se calcula en onCompleted.)
     property bool filePollingEnabled: true
@@ -953,8 +953,6 @@ ApplicationWindow {
         return "file://" + home + "/.cache/kde-assistant/"
     }
     property string homePath: cacheBase + "hotkey.state"
-    property string voicePath: cacheBase + "voice.state"
-    property string voiceLevelPath: cacheBase + "voice.level"
     property real voiceLevel: 0.0
     Timer {
         id: hotkeyTimer
@@ -963,15 +961,14 @@ ApplicationWindow {
         repeat: true
         onTriggered: {
             pollHotkeys()
-            pollVoiceState()
         }
     }
+    // F3-1: reintento del stream de voz si se cae (el backend lo mantiene vivo).
     Timer {
-        id: levelTimer
-        interval: 80
-        running: root.voiceState === "listening"
-        repeat: true
-        onTriggered: pollVoiceLevel()
+        id: voiceRetryTimer
+        interval: 2000
+        repeat: false
+        onTriggered: startVoiceStream()
     }
 
     function bargeIn() {
@@ -1020,54 +1017,94 @@ ApplicationWindow {
         req.send()
     }
 
-    function pollVoiceLevel() {
-        if (!filePollingEnabled || !root.voiceLevelPath) return
-        var req = new XMLHttpRequest()
-        req.open("GET", root.voiceLevelPath + "?t=" + Date.now())
-        req.onreadystatechange = function() {
-            if (req.readyState === 4 && (req.status === 200 || req.status === 0)) {
-                var v = parseFloat(req.responseText.trim())
-                if (!isNaN(v)) root.voiceLevel = Math.max(0, Math.min(1, v))
+    // F3-1: push de estado/nivel por SSE (adiós polling de voice.state/level).
+    // Un solo XHR persistente; si se cae, reintenta a los 2s.
+    property var voiceStreamXhr: null
+    function startVoiceStream() {
+        if (voiceStreamXhr) {
+            try { voiceStreamXhr.abort() } catch (e) {}
+            voiceStreamXhr = null
+        }
+        var xhr = new XMLHttpRequest()
+        voiceStreamXhr = xhr
+        var processedLen = 0
+        var pending = ""
+        xhr.open("GET", backendUrl + "/api/voice/stream")
+        setAuth(xhr)
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 3 || xhr.readyState === 4) {
+                if (xhr.status === 401) {
+                    lastError = qsTr("No autorizado")
+                    lastErrorDetail = qsTr("Token local inválido. Reinicia la app.")
+                    showErrorBanner = true
+                    voiceStreamXhr = null
+                    return
+                }
+                var full = xhr.responseText || ""
+                var newPart = full.substring(processedLen)
+                processedLen = full.length
+                pending += newPart
+                var parts = pending.split("\n\n")
+                pending = parts.pop()
+                for (var k = 0; k < parts.length; k++) {
+                    processVoiceBlock(parts[k])
+                }
+                if (xhr.readyState === 4) {
+                    // El backend no cierra el stream salvo error: reintentar.
+                    voiceStreamXhr = null
+                    if (pending && pending.indexOf("event:") >= 0) {
+                        processVoiceBlock(pending)
+                        pending = ""
+                    }
+                    voiceRetryTimer.restart()
+                }
             }
         }
-        req.send()
+        xhr.send()
+    }
+
+    function processVoiceBlock(block) {
+        var lines = block.split("\n")
+        var ev = ""
+        var dataStr = ""
+        for (var i = 0; i < lines.length; i++) {
+            var ln = lines[i].trim()
+            if (ln.indexOf("event:") === 0) ev = ln.substring(6).trim()
+            else if (ln.indexOf("data:") === 0) dataStr += ln.substring(5).trim()
+        }
+        if (!ev || !dataStr) return
+        var obj = null
+        try { obj = JSON.parse(dataStr) } catch (e) { return }
+        if (ev === "state" && obj && obj.state) {
+            handleVoiceState(obj.state)
+        } else if (ev === "level" && obj && obj.level !== undefined) {
+            var v = parseFloat(obj.level)
+            if (!isNaN(v)) root.voiceLevel = Math.max(0, Math.min(1, v))
+        }
+    }
+
+    // Aplica un estado de voz (llega por SSE; antes era pollVoiceState).
+    function handleVoiceState(state) {
+        if (state !== "listening" && state !== "processing"
+                && state !== "speaking" && state !== "idle") return
+        var was = root.voiceState
+        if (was === state) return
+        root.voiceState = state
+        // Al invocar por voz la app se abre aunque este minimizada
+        if (state === "listening" && was !== "listening") {
+            root.show()
+            root.raise()
+            root.requestActivate()
+        }
+        // Al terminar un ciclo de voz, traer el intercambio al chat
+        if (state === "idle" && was !== "idle") {
+            fetchVoiceExchange()
+        }
     }
 
     // El backend escribe listening|processing|speaking|idle con timestamp.
     // Solo los estados nuevos pisan el voiceState local.
     property string lastVoiceCycle: "0"   // timestamp_ms ya mostrado en el chat
-    function pollVoiceState() {
-        if (!filePollingEnabled || !root.voicePath) return
-        var req = new XMLHttpRequest()
-        req.open("GET", root.voicePath + "?t=" + Date.now())
-        req.onreadystatechange = function() {
-            if (req.readyState === 4) {
-                if (req.status === 200 || req.status === 0) {
-                    var content = req.responseText.trim()
-                    if (content && content !== root.lastVoiceStamp) {
-                        root.lastVoiceStamp = content
-                        var state = content.split("|")[0]
-                        if (state === "listening" || state === "processing"
-                                || state === "speaking" || state === "idle") {
-                            var was = root.voiceState
-                            root.voiceState = state
-                            // Al invocar por voz la app se abre aunque este minimizada
-                            if (state === "listening" && was !== "listening") {
-                                root.show()
-                                root.raise()
-                                root.requestActivate()
-                            }
-                            // Al terminar un ciclo de voz, traer el intercambio al chat
-                            if (state === "idle" && was !== "idle") {
-                                fetchVoiceExchange()
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        req.send()
-    }
 
     // Trae el ultimo intercambio por voz y lo agrega al chat actual.
     function fetchVoiceExchange() {

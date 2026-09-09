@@ -126,6 +126,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/config", get(get_config).post(update_config))
         .route("/api/ai-models", post(list_ai_models))
         .route("/api/voice/last", get(voice_last))
+        .route("/api/voice/stream", get(voice_stream))
         .route("/api/voice/log", post(voice_log))
         .route("/api/voice/barge_in", post(voice_barge_in))
         .route("/api/speak", post(speak_text))
@@ -300,6 +301,45 @@ async fn voice_last(State(state): State<AppState>) -> impl IntoResponse {
         }))
         .into_response(),
     }
+}
+
+/// Stream push de estado/nivel de voz (F3-1, SSE).
+/// Eventos: `state` {state}, `level` {level}.
+/// Reemplaza el polling de `voice.state`/`voice.level` por archivos.
+async fn voice_stream(
+    State(state): State<AppState>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    use futures_util::stream::{self, StreamExt};
+
+    let rx = state.voice.subscribe();
+    let init_state = state.voice.current_state();
+    let init = stream::once(async move {
+        let data = serde_json::json!({ "state": init_state }).to_string();
+        Ok::<Event, Infallible>(Event::default().event("state").data(data))
+    });
+    let live = futures_util::stream::unfold(rx, |mut rx| async move {
+        loop {
+            match rx.recv().await {
+                Ok(sig) => {
+                    let (name, data) = match sig {
+                        crate::backend::voice_pipeline::VoiceSignal::State { state } => {
+                            ("state", serde_json::json!({ "state": state }).to_string())
+                        }
+                        crate::backend::voice_pipeline::VoiceSignal::Level { level } => {
+                            ("level", serde_json::json!({ "level": level }).to_string())
+                        }
+                    };
+                    break Some((
+                        Ok::<Event, Infallible>(Event::default().event(name).data(data)),
+                        rx,
+                    ));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break None,
+            }
+        }
+    });
+    Sse::new(init.chain(live)).keep_alive(KeepAlive::default())
 }
 
 /// Persiste un intercambio por voz en una sesion (la crea si no hay).
