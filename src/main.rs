@@ -101,8 +101,7 @@ fn main() -> Result<()> {
     const HTTP_PORT: u16 = 8765;
     // Falla rápido si el puerto está ocupado (otra instancia vieja con OTRO
     // token: la UI lanzaría contra ese backend y todo daría 401 "No autorizado").
-    if std::net::TcpListener::bind(std::net::SocketAddr::from(([127, 0, 0, 1], HTTP_PORT)))
-        .is_err()
+    if std::net::TcpListener::bind(std::net::SocketAddr::from(([127, 0, 0, 1], HTTP_PORT))).is_err()
     {
         eprintln!(
             "Puerto {HTTP_PORT} en uso. ¿Hay otra instancia de kde-assistant corriendo?\n\
@@ -269,10 +268,11 @@ fn main() -> Result<()> {
                 String::new()
             });
         let mut qml_cmd = Command::new("qml6");
-        // El módulo generado va PRIMERO para que eclipse al fallback de
-        // qml/auth (vacío, solo para dev/valida_qml).
+        // El módulo generado va el ÚLTIMO: ante un módulo duplicado el motor
+        // QML prefiere el último -I (verificado empíricamente; qmlimportscanner
+        // dice lo contrario). Así eclipsa al fallback vacío de qml/auth.
         if !auth_inc.is_empty() {
-            qml_cmd.args(["-apptype", "widget", "-I", &auth_inc, "-I", "."]);
+            qml_cmd.args(["-apptype", "widget", "-I", ".", "-I", &auth_inc]);
         } else {
             qml_cmd.args(["-apptype", "widget", "-I", "."]);
         }

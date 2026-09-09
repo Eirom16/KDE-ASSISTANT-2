@@ -64,6 +64,7 @@ async fn auth_layer(State(state): State<AppState>, req: Request, next: Next) -> 
         return next.run(req).await;
     }
     if !crate::backend::auth::valid_host(req.headers()) {
+        log::debug!("auth: host rechazado para {}", path);
         return (
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({ "error": "host no permitido" })),
@@ -71,6 +72,7 @@ async fn auth_layer(State(state): State<AppState>, req: Request, next: Next) -> 
             .into_response();
     }
     if !crate::backend::auth::valid_origin(req.headers()) {
+        log::debug!("auth: origin rechazado para {}", path);
         return (
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({ "error": "origin no permitido" })),
@@ -78,6 +80,7 @@ async fn auth_layer(State(state): State<AppState>, req: Request, next: Next) -> 
             .into_response();
     }
     if !crate::backend::auth::valid_bearer(req.headers(), &state.local_token) {
+        log::debug!("auth: bearer inválido para {}", path);
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({ "error": "unauthorized: falta Bearer local" })),
