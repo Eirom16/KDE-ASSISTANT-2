@@ -42,6 +42,11 @@ impl ToolExecutor {
             "read_file" => self.read_file(tool_call).await,
             "web_search" => self.web_search(tool_call).await,
             "show_image" => self.show_image(tool_call).await,
+            "find_file" => self.find_file(tool_call).await,
+            "open_file" => self.open_file(tool_call).await,
+            "open_url" => self.open_url(tool_call).await,
+            "system_info" => self.system_info(tool_call).await,
+            "notify" => self.notify(tool_call).await,
             other => Err(anyhow!("Herramienta desconocida: {other}")),
         };
 
@@ -71,7 +76,7 @@ impl ToolExecutor {
     /// Expande `~`, `$HOME`, canonicaliza y deniega symlinks que escapen.
     fn validate_path(&self, path: &str) -> Result<PathBuf> {
         let cfg = self.get_config_snapshot();
-        if !cfg.tools.read_file && !cfg.tools.create_file && !cfg.tools.edit_file {
+        if !cfg.tools.fs_enabled() {
             bail!("Acceso al sistema de archivos deshabilitado en la configuracion");
         }
         if path.trim().is_empty() {
@@ -392,12 +397,421 @@ impl ToolExecutor {
         };
         Ok(ToolResult::success(tc.id.clone(), msg).with_image(&local_path))
     }
+
+    // === find_file (F2-2) ===
+    async fn find_file(&self, tc: &ToolCall) -> Result<ToolResult> {
+        let cfg = self.get_config_snapshot();
+        if !cfg.tools.find_file {
+            bail!("find_file deshabilitado en configuracion");
+        }
+        let query = Self::arg_string(&tc.arguments, "query")?;
+        if query.trim().is_empty() {
+            bail!("Argumento 'query' vacío");
+        }
+        // Directorio base opcional (por defecto, todos los allowed_paths).
+        let base: Option<PathBuf> = match tc.arguments.get("dir").and_then(|v| v.as_str()) {
+            Some(d) if !d.trim().is_empty() => Some(self.validate_path(d)?),
+            _ => None,
+        };
+        let roots: Vec<PathBuf> = match base {
+            Some(b) => vec![b],
+            None => {
+                let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+                cfg.tools
+                    .allowed_paths
+                    .iter()
+                    .map(|a| PathBuf::from(expand_home(a, &home)))
+                    .filter(|p| p.exists())
+                    .collect()
+            }
+        };
+        if roots.is_empty() {
+            bail!("No hay directorios permitidos para buscar");
+        }
+        let q = query.to_lowercase();
+        // Walk bloqueante en spawn_blocking (I/O síncrono).
+        let results = tokio::task::spawn_blocking(move || find_files_sync(&roots, &q))
+            .await
+            .context("búsqueda de archivos")??;
+        if results.is_empty() {
+            return Ok(ToolResult::success(
+                tc.id.clone(),
+                format!("Sin resultados para: {query}"),
+            ));
+        }
+        let mut out = format!("Resultados para '{query}':\n");
+        for r in &results {
+            out.push_str(&format!("- {}\n", r.display()));
+        }
+        Ok(ToolResult::success(tc.id.clone(), out))
+    }
+
+    // === open_file (F2-2) ===
+    async fn open_file(&self, tc: &ToolCall) -> Result<ToolResult> {
+        let cfg = self.get_config_snapshot();
+        if !cfg.tools.open_file {
+            bail!("open_file deshabilitado en configuracion");
+        }
+        let path = Self::arg_string(&tc.arguments, "path")?;
+        let validated = self.validate_path(path)?;
+        if !validated.exists() {
+            bail!(format!("No existe: {}", validated.display()));
+        }
+        let reveal = tc
+            .arguments
+            .get("reveal")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        // REGLA: nunca sh -c, siempre Command con args.
+        if reveal {
+            // Mostrar en Dolphin (seleccionado); fallback a abrir el padre.
+            match Command::new("dolphin")
+                .arg("--select")
+                .arg(&validated)
+                .spawn()
+            {
+                Ok(_) => Ok(ToolResult::success(
+                    tc.id.clone(),
+                    format!("Mostrando en Dolphin: {}", validated.display()),
+                )),
+                Err(_) => {
+                    let parent = validated
+                        .parent()
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or(validated.clone());
+                    Command::new("xdg-open")
+                        .arg(&parent)
+                        .spawn()
+                        .with_context(|| "abriendo carpeta padre")?;
+                    Ok(ToolResult::success(
+                        tc.id.clone(),
+                        format!(
+                            "Dolphin no disponible; carpeta abierta: {}",
+                            parent.display()
+                        ),
+                    ))
+                }
+            }
+        } else {
+            Command::new("xdg-open")
+                .arg(&validated)
+                .spawn()
+                .with_context(|| format!("abriendo {}", validated.display()))?;
+            Ok(ToolResult::success(
+                tc.id.clone(),
+                format!("Abierto: {}", validated.display()),
+            ))
+        }
+    }
+
+    // === open_url (F2-2) ===
+    async fn open_url(&self, tc: &ToolCall) -> Result<ToolResult> {
+        let cfg = self.get_config_snapshot();
+        if !cfg.tools.open_url {
+            bail!("open_url deshabilitado en configuracion");
+        }
+        let url = Self::arg_string(&tc.arguments, "url")?;
+        let url = url.trim();
+        // Solo http(s). Nada de file:/javascript:/data:.
+        if !(url.starts_with("https://") || url.starts_with("http://")) {
+            bail!("Solo se permiten URLs http(s): {url}");
+        }
+        if url.contains([' ', '\n', '\r', '\t']) {
+            bail!("URL inválida");
+        }
+        if url.len() > 2048 {
+            bail!("URL demasiado larga");
+        }
+        Command::new("xdg-open")
+            .arg(url)
+            .spawn()
+            .with_context(|| "abriendo URL en el navegador")?;
+        Ok(ToolResult::success(
+            tc.id.clone(),
+            format!("URL abierta en el navegador: {url}"),
+        ))
+    }
+
+    // === system_info (F2-3, solo lectura) ===
+    async fn system_info(&self, tc: &ToolCall) -> Result<ToolResult> {
+        let cfg = self.get_config_snapshot();
+        if !cfg.tools.system_info {
+            bail!("system_info deshabilitado en configuracion");
+        }
+        let info = tokio::task::spawn_blocking(collect_system_info)
+            .await
+            .context("info del sistema")?;
+        Ok(ToolResult::success(tc.id.clone(), info))
+    }
+
+    // === notify (F2-3) ===
+    async fn notify(&self, tc: &ToolCall) -> Result<ToolResult> {
+        let cfg = self.get_config_snapshot();
+        if !cfg.tools.notify {
+            bail!("notify deshabilitado en configuracion");
+        }
+        let title = Self::arg_string(&tc.arguments, "title")?;
+        let body = Self::arg_string(&tc.arguments, "body")?;
+        let title: String = title.chars().take(100).collect();
+        let body: String = body.chars().take(500).collect();
+        if title.trim().is_empty() {
+            bail!("Título vacío");
+        }
+        // REGLA: nunca sh -c, siempre Command con args.
+        let status = Command::new("dbus-send")
+            .args([
+                "--session",
+                "--print-reply",
+                "--dest=org.freedesktop.Notifications",
+                "--type=method_call",
+                "/org/freedesktop/Notifications",
+                "org.freedesktop.Notifications.Notify",
+                "string:KDE Assistant",
+                "uint32:0",
+                "string:kde-assistant",
+                &format!("string:{title}"),
+                &format!("string:{body}"),
+                "string:",
+                "array:string:",
+                "dict:string:",
+                "int32:-1",
+            ])
+            .status()
+            .context("enviando notificación")?;
+        if status.success() {
+            Ok(ToolResult::success(
+                tc.id.clone(),
+                format!("Notificación enviada: {title}"),
+            ))
+        } else {
+            bail!("El servicio de notificaciones no respondió")
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ConfigSnapshot;
 
 // === Helpers ===
+
+/// Información del sistema sin dependencias nuevas (lee /proc y /sys).
+/// Todo best-effort: lo que falte se omite sin fallar.
+fn collect_system_info() -> String {
+    let mut lines = Vec::new();
+    if let Some(os) = os_pretty_name() {
+        lines.push(format!("Sistema: {os}"));
+    }
+    if let Some(k) = kernel_release() {
+        lines.push(format!("Kernel: {k}"));
+    }
+    if let Some(up) = uptime_human() {
+        lines.push(format!("Uptime: {up}"));
+    }
+    let (cpus, model) = cpu_summary();
+    if cpus > 0 {
+        lines.push(if model.is_empty() {
+            format!("CPU: {cpus} hilos")
+        } else {
+            format!("CPU: {model} ({cpus} hilos)")
+        });
+    }
+    if let Some((total, avail)) = mem_summary() {
+        lines.push(format!(
+            "RAM: {} libres de {}",
+            human_bytes(avail),
+            human_bytes(total)
+        ));
+    }
+    if let Some(disk) = disk_summary() {
+        lines.push(disk);
+    }
+    if let Some(bat) = battery_summary() {
+        lines.push(bat);
+    }
+    if lines.is_empty() {
+        return "Sin información del sistema disponible".to_string();
+    }
+    lines.join("\n")
+}
+
+fn read_first_line(path: &str) -> Option<String> {
+    std::fs::read_to_string(path)
+        .ok()?
+        .lines()
+        .next()
+        .map(|s| s.to_string())
+}
+
+fn os_pretty_name() -> Option<String> {
+    let content = std::fs::read_to_string("/etc/os-release").ok()?;
+    for line in content.lines() {
+        if let Some(v) = line.strip_prefix("PRETTY_NAME=") {
+            return Some(v.trim_matches('"').to_string());
+        }
+    }
+    None
+}
+
+fn kernel_release() -> Option<String> {
+    // /proc/version: "Linux version 6.x..."; nos quedamos con el 3er token.
+    let v = read_first_line("/proc/version")?;
+    v.split_whitespace().nth(2).map(|s| s.to_string())
+}
+
+fn uptime_human() -> Option<String> {
+    let v = read_first_line("/proc/uptime")?;
+    let secs: u64 = v
+        .split_whitespace()
+        .next()?
+        .split('.')
+        .next()?
+        .parse()
+        .ok()?;
+    let (d, h, m) = (secs / 86400, (secs % 86400) / 3600, (secs % 3600) / 60);
+    Some(if d > 0 {
+        format!("{d}d {h}h")
+    } else if h > 0 {
+        format!("{h}h {m}m")
+    } else {
+        format!("{m}m")
+    })
+}
+
+fn cpu_summary() -> (usize, String) {
+    let content = match std::fs::read_to_string("/proc/cpuinfo") {
+        Ok(c) => c,
+        Err(_) => return (0, String::new()),
+    };
+    let mut count = 0usize;
+    let mut model = String::new();
+    for line in content.lines() {
+        if line.starts_with("processor") {
+            count += 1;
+        } else if model.is_empty() && line.starts_with("model name") {
+            model = line.split(':').nth(1).unwrap_or("").trim().to_string();
+        }
+    }
+    (count, model)
+}
+
+fn mem_kb(key: &str) -> Option<u64> {
+    let content = std::fs::read_to_string("/proc/meminfo").ok()?;
+    for line in content.lines() {
+        if line.starts_with(key) {
+            // "MemTotal:       16384000 kB"
+            let num: String = line.chars().filter(|c| c.is_ascii_digit()).collect();
+            return num.parse().ok();
+        }
+    }
+    None
+}
+
+fn mem_summary() -> Option<(u64, u64)> {
+    let total_kb = mem_kb("MemTotal:")?;
+    let avail_kb = mem_kb("MemAvailable:").or_else(|| mem_kb("MemFree:"))?;
+    Some((total_kb * 1024, avail_kb * 1024))
+}
+
+fn human_bytes(b: u64) -> String {
+    const GB: f64 = 1024.0 * 1024.0 * 1024.0;
+    const MB: f64 = 1024.0 * 1024.0;
+    let f = b as f64;
+    if f >= GB {
+        format!("{:.1} GB", f / GB)
+    } else {
+        format!("{:.0} MB", f / MB)
+    }
+}
+
+fn disk_summary() -> Option<String> {
+    // df sin shell: binario + args.
+    let out = std::process::Command::new("df")
+        .args(["-h", "--output=avail,used,target", "/"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut lines = text.lines();
+    lines.next()?; // cabecera
+    let row = lines.next()?;
+    let cols: Vec<&str> = row.split_whitespace().collect();
+    if cols.len() < 2 {
+        return None;
+    }
+    Some(format!("Disco /: {} libres (usados {})", cols[0], cols[1]))
+}
+
+fn battery_summary() -> Option<String> {
+    let base = Path::new("/sys/class/power_supply");
+    let entries = std::fs::read_dir(base).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("BAT") {
+            continue;
+        }
+        let cap_path = base.join(&name).join("capacity");
+        let cap = std::fs::read_to_string(&cap_path).ok()?.trim().to_string();
+        let status = std::fs::read_to_string(base.join(&name).join("status"))
+            .ok()
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default();
+        if cap.is_empty() {
+            continue;
+        }
+        return Some(if status.is_empty() {
+            format!("Batería {name}: {cap}%")
+        } else {
+            format!("Batería {name}: {cap}% ({status})")
+        });
+    }
+    None
+}
+
+/// Búsqueda síncrona de archivos por subcadena (case-insensitive).
+/// Límites: profundidad 6, 2000 entradas visitadas, 20 resultados.
+/// Salta `.git`, `node_modules`, `target` y directorios ocultos.
+fn find_files_sync(roots: &[PathBuf], query_lower: &str) -> Result<Vec<PathBuf>> {
+    const MAX_DEPTH: usize = 6;
+    const MAX_VISITED: usize = 2000;
+    const MAX_RESULTS: usize = 20;
+    const SKIP_DIRS: [&str; 3] = ["node_modules", "target", ".git"];
+
+    let mut results = Vec::new();
+    let mut visited = 0usize;
+    let mut stack: Vec<(PathBuf, usize)> = roots.iter().map(|r| (r.clone(), 0)).collect();
+
+    while let Some((dir, depth)) = stack.pop() {
+        if depth > MAX_DEPTH || visited >= MAX_VISITED || results.len() >= MAX_RESULTS {
+            continue;
+        }
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            visited += 1;
+            if visited > MAX_VISITED || results.len() >= MAX_RESULTS {
+                break;
+            }
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_lowercase();
+            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            if is_dir {
+                if name.starts_with('.') || SKIP_DIRS.contains(&name.as_str()) {
+                    continue;
+                }
+                stack.push((path.clone(), depth + 1));
+            }
+            if name.contains(query_lower) {
+                results.push(path);
+            }
+        }
+    }
+    results.sort();
+    Ok(results)
+}
 
 /// Expande `~`, `~/` y `$HOME`/`~user` básico al home real.
 fn expand_home(input: &str, home: &Path) -> String {
@@ -1015,6 +1429,68 @@ mod tests {
         assert!(looks_like_image(&[0x89, 0x50, 0x4E, 0x47]));
         assert!(!looks_like_image(b"hola mundo"));
         assert!(looks_like_image(b"<svg xmlns='x'></svg>"));
+    }
+
+    #[test]
+    fn find_files_sync_respects_limits_and_skips() {
+        let base = std::env::temp_dir().join(format!("kda_find_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("sub")).unwrap();
+        std::fs::create_dir_all(base.join(".git")).unwrap();
+        std::fs::create_dir_all(base.join("node_modules")).unwrap();
+        std::fs::write(base.join("notas_importantes.md"), "x").unwrap();
+        std::fs::write(base.join("sub").join("otras_notas.txt"), "x").unwrap();
+        std::fs::write(base.join(".git").join("notas_secret.md"), "x").unwrap();
+        std::fs::write(base.join("node_modules").join("notas_dep.md"), "x").unwrap();
+        let r = find_files_sync(&[base.clone()], "notas").unwrap();
+        assert_eq!(r.len(), 2);
+        assert!(r.iter().all(|p| p.starts_with(&base)));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn open_url_rejects_non_http() {
+        let ex = dummy_executor();
+        for bad in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "data:text/plain,hola",
+            "",
+        ] {
+            let mut args = HashMap::new();
+            args.insert(
+                "url".to_string(),
+                serde_json::Value::String(bad.to_string()),
+            );
+            let res = ex.execute(&tc("open_url", args)).await.unwrap();
+            assert!(!res.success, "debería rechazar {bad}");
+        }
+    }
+
+    #[tokio::test]
+    async fn find_file_empty_query_errors() {
+        let ex = dummy_executor();
+        let mut args = HashMap::new();
+        args.insert(
+            "query".to_string(),
+            serde_json::Value::String("  ".to_string()),
+        );
+        let res = ex.execute(&tc("find_file", args)).await.unwrap();
+        assert!(!res.success);
+    }
+
+    #[test]
+    fn system_info_returns_lines() {
+        let info = collect_system_info();
+        assert!(!info.is_empty());
+        // En Linux siempre hay kernel/uptime; en otros SO al menos no panica.
+        assert!(info.len() < 2000);
+    }
+
+    #[test]
+    fn human_bytes_formats() {
+        assert_eq!(human_bytes(512 * 1024 * 1024), "512 MB");
+        assert!(human_bytes(2 * 1024 * 1024 * 1024).contains("GB"));
     }
 
     #[tokio::test]

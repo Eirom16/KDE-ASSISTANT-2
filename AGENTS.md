@@ -230,6 +230,11 @@ loop {
 | `read_file(path)` | Lee archivo | `file-16.svg` |
 | `web_search(query)` | Busca en web | `search-16.svg` |
 | `show_image(source, caption?)` | Inyecta imagen en chat | `image-16.svg` |
+| `find_file(query, dir?)` | Busca archivos por nombre | `search-16.svg` |
+| `open_file(path, reveal?)` | Abre con app por defecto / revela en Dolphin | `file-16.svg` |
+| `open_url(url)` | Abre URL http(s) en navegador | `link-16.svg` |
+| `system_info()` | Info del sistema (solo lectura) | `terminal-16.svg` |
+| `notify(title, body)` | Notificación nativa KDE | `bell-16.svg` |
 
 Todas se definen en `src/backend/tool_executor.rs` con sus schemas JSON.
 

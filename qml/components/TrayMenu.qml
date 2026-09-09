@@ -9,6 +9,8 @@ Item {
 
     // === Props (reexpuestas para Main) ===
     property bool windowVisible: true
+    property bool alwaysOnTop: true
+    property string pttShortcut: "Super+Shift+V"
     property var recentSessions: []   // [{id, title}]
     property string backendUrl: "http://127.0.0.1:8765"
     property string authToken: {
@@ -26,6 +28,11 @@ Item {
     signal hideRequested()
     signal newSessionRequested()
     signal openSessionRequested(string sessionId)
+    signal dictateRequested()
+    signal quickSearchRequested()
+    signal quickOpenAppRequested()
+    signal quickOpenFolderRequested()
+    signal alwaysOnTopToggled(bool on)
     signal settingsRequested()
     signal quitRequested()
 
@@ -64,34 +71,74 @@ Item {
 
         // Menu contextual
         menu: Menu {
-        MenuItem {
+            MenuItem {
                 text: root.windowVisible ? qsTr("Ocultar") : qsTr("Mostrar")
                 onTriggered: {
                     if (root.windowVisible) root.hideRequested()
                     else root.showRequested()
                 }
             }
+            MenuItem {
+                // F2-1: abre la ventana y deja el input listo; el dictado real
+                // es el PTT global (ver atajo entre paréntesis).
+                text: qsTr("Dictar") + "  (" + root.pttShortcut + ")"
+                onTriggered: root.dictateRequested()
+            }
             MenuSeparator { }
             MenuItem {
                 text: qsTr("Nueva sesión")
                 onTriggered: root.newSessionRequested()
             }
-            MenuItem {
-                visible: root.recentSessions.length > 0
-                text: root.recentSessions.length > 0 ? "• " + root.recentSessions[0].title : ""
-                onTriggered: root.openSessionRequested(root.recentSessions[0].id)
+            Menu {
+                title: qsTr("Sesiones recientes")
+                MenuItem {
+                    visible: root.recentSessions.length > 0
+                    text: root.recentSessions.length > 0 ? "• " + root.recentSessions[0].title : ""
+                    onTriggered: root.openSessionRequested(root.recentSessions[0].id)
+                }
+                MenuItem {
+                    visible: root.recentSessions.length > 1
+                    text: root.recentSessions.length > 1 ? "• " + root.recentSessions[1].title : ""
+                    onTriggered: root.openSessionRequested(root.recentSessions[1].id)
+                }
+                MenuItem {
+                    visible: root.recentSessions.length > 2
+                    text: root.recentSessions.length > 2 ? "• " + root.recentSessions[2].title : ""
+                    onTriggered: root.openSessionRequested(root.recentSessions[2].id)
+                }
+                MenuItem {
+                    visible: root.recentSessions.length > 3
+                    text: root.recentSessions.length > 3 ? "• " + root.recentSessions[3].title : ""
+                    onTriggered: root.openSessionRequested(root.recentSessions[3].id)
+                }
+                MenuItem {
+                    visible: root.recentSessions.length > 4
+                    text: root.recentSessions.length > 4 ? "• " + root.recentSessions[4].title : ""
+                    onTriggered: root.openSessionRequested(root.recentSessions[4].id)
+                }
             }
-            MenuItem {
-                visible: root.recentSessions.length > 1
-                text: root.recentSessions.length > 1 ? "• " + root.recentSessions[1].title : ""
-                onTriggered: root.openSessionRequested(root.recentSessions[1].id)
-            }
-            MenuItem {
-                visible: root.recentSessions.length > 2
-                text: root.recentSessions.length > 2 ? "• " + root.recentSessions[2].title : ""
-                onTriggered: root.openSessionRequested(root.recentSessions[2].id)
+            Menu {
+                title: qsTr("Acciones rápidas")
+                MenuItem {
+                    text: qsTr("Buscar en la web…")
+                    onTriggered: root.quickSearchRequested()
+                }
+                MenuItem {
+                    text: qsTr("Abrir aplicación…")
+                    onTriggered: root.quickOpenAppRequested()
+                }
+                MenuItem {
+                    text: qsTr("Ver archivos de Documentos")
+                    onTriggered: root.quickOpenFolderRequested()
+                }
             }
             MenuSeparator { }
+            MenuItem {
+                text: qsTr("Siempre visible")
+                checkable: true
+                checked: root.alwaysOnTop
+                onTriggered: root.alwaysOnTopToggled(!root.alwaysOnTop)
+            }
             MenuItem {
                 text: qsTr("Configuración")
                 onTriggered: root.settingsRequested()

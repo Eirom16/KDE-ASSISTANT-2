@@ -93,9 +93,10 @@
 
 ## Fase 2 — Integración KDE (P1-P2)
 
-- [ ] Tray completo: Dictar/PTT, acciones rápidas, 5 recientes, siempre-visible
-- [ ] `find_file/open_file/reveal_in_dolphin`, `open_url`, screenshots, clipboard
-- [ ] Notificaciones reales, info sistema/batería, KWin blur (`BlurManager`), `KStatusNotifierItem`, DBus server
+- [x] Tray completo: Dictar (abre+prefill, PTT global indicado), acciones rápidas (prefill), 5 recientes en submenu, siempre-visible (persiste)
+- [x] `find_file`, `open_file` (+reveal Dolphin), `open_url` (screenshots/clipboard → Fase 4)
+- [x] Notificaciones reales (`notify`), info sistema/batería (`system_info`)
+- [ ] KWin blur-behind real, `KStatusNotifierItem`, DBus server `org.kde.assistant` (pospuesto: requiere `zbus` + rediseño IPC → Fase 3 con WebSocket)
 
 ## Fase 3 — Voz avanzada (P2)
 
@@ -134,5 +135,6 @@
 | 2026-09-09 | F0-8 | `ChatView` ListView virtualizado (follow solo si abajo, id `chatRoot` anti-shadowing, ScrollBars propios), `MessageBubble` simétrico 600/78% + `WrapAnywhere`, `ImageCard` estable + `BusyIndicator` + `clip`, `InputBar` `AlignVCenter`, `Octicon` reintento `qrc:/` + warn, `SessionDrawer` h-off | 39 passed, `valida_qml` OK | pendiente |
 | 2026-09-09 | F1-1/F1-2 | `POST /api/chat/regenerate` SSE + `delete_trailing_after_last_user`, QML `streamAgent` genérico + botón `sync-16` + retry en badge, `timestamp` DB→API→`hh:mm`, `PATCH /api/session` rename, drawer con buscar/renombrar inline/fecha | 42 passed, `valida_qml` OK | pendiente |
 | 2026-09-09 | F1-3/F1-4 | `open_app` XDG (`scan_dirs/parse/score/split_exec` + 3 tests), atajos parseados desde config (`parse_shortcut`, `new_session` en config, listener cableado), voz `wake/threshold/greeting/stt_model(tiny/base)` + descarga según elección, badge proveedor en titlebar, hint tools ON/OFF | 48 passed, QML OK | pendiente |
+| 2026-09-09 | F2 | Tray (Dictar+prefill, acciones rápidas, 5 recientes, siempre-visible persistido), tools `find/open/reveal/open_url/system_info/notify` (11 total, badges), `fs_enabled()` | 53 passed, `valida_qml` OK | pendiente |
 
 > Cómo marcar: cambia `- [ ]` a `- [x]` y agrega fila en Registro con `cargo test --lib`, `cargo clippy`, `valida_qml`.

@@ -437,6 +437,46 @@ ApplicationWindow {
     property bool showErrorBanner: false
     property string lastModel: ""
     property string lastProvider: ""
+    // F2-1: ventana siempre visible (sale de config ui.always_on_top).
+    property bool alwaysOnTop: true
+    property string pttShortcut: "Super+Shift+V"
+
+    // Prepara el input con un texto y abre la ventana (acciones rápidas del tray).
+    function prefill(text) {
+        inputBar.text = text
+        root.show()
+        root.raise()
+        root.requestActivate()
+        inputBar.focusInput()
+    }
+
+    // F2-1: alterna siempre-visible y lo persiste en config.
+    function toggleAlwaysOnTop(on) {
+        root.alwaysOnTop = on
+        root.flags = on ? (Qt.Window | Qt.WindowStaysOnTopHint) : Qt.Window
+        persistUiFlag("always_on_top", on)
+    }
+
+    function persistUiFlag(key, value) {
+        var g = new XMLHttpRequest()
+        g.open("GET", backendUrl + "/api/config")
+        setAuth(g)
+        g.onreadystatechange = function() {
+            if (g.readyState === XMLHttpRequest.DONE && g.status === 200) {
+                try {
+                    var cfg = JSON.parse(g.responseText)
+                    if (!cfg.ui) cfg.ui = {}
+                    cfg.ui[key] = value
+                    var p = new XMLHttpRequest()
+                    p.open("POST", backendUrl + "/api/config")
+                    p.setRequestHeader("Content-Type", "application/json")
+                    setAuth(p)
+                    p.send(JSON.stringify(cfg))
+                } catch (e) {}
+            }
+        }
+        g.send()
+    }
 
     // F0-7: cancela el streaming local (xhr.abort) + backend (/api/chat/cancel).
     function cancelChat() {
@@ -558,7 +598,7 @@ ApplicationWindow {
         h.send()
     }
 
-    // Aplica tema desde backend (ui.theme: system|dark|light).
+    // Aplica tema + flags de ventana desde backend (ui.theme, ui.always_on_top).
     // system → respeta el actual de Theme (por defecto dark) para no parpadear;
     // dark/light fuerzan. Se re-aplica al guardar Settings.
     function applyTheme() {
@@ -574,6 +614,13 @@ ApplicationWindow {
                     else if (t === "light") Theme.isDark = false
                     // system: no forzar; el usuario puede alternar desde Breeze
                     // (fase 2: leer portal color-scheme vía backend y exponerlo aquí).
+                    if (cfg.ui && cfg.ui.always_on_top !== undefined) {
+                        root.alwaysOnTop = cfg.ui.always_on_top !== false
+                        root.flags = root.alwaysOnTop ? (Qt.Window | Qt.WindowStaysOnTopHint) : Qt.Window
+                    }
+                    if (cfg.shortcuts && cfg.shortcuts.push_to_talk) {
+                        root.pttShortcut = String(cfg.shortcuts.push_to_talk)
+                    }
                 } catch (e) {}
             }
         }
@@ -822,13 +869,19 @@ ApplicationWindow {
         open_: false
         backendUrl: root.backendUrl
         onClosed: console.log("Settings closed")
-        onSaved: console.log("Settings saved")
+        onSaved: {
+            console.log("Settings saved")
+            root.applyTheme()
+            root.checkBackend()
+        }
     }
 
     // === System Tray (KDE Plasma) ===
     TrayMenu {
         id: tray
         windowVisible: root.visible
+        alwaysOnTop: root.alwaysOnTop
+        pttShortcut: root.pttShortcut
         backendUrl: root.backendUrl
         onShowRequested: {
             root.show()
@@ -836,6 +889,22 @@ ApplicationWindow {
             root.requestActivate()
         }
         onHideRequested: root.hide()
+        onDictateRequested: {
+            // Abre la ventana con el input listo; el dictado es el PTT global.
+            root.prefill("")
+        }
+        onQuickSearchRequested: {
+            root.prefill(qsTr("Busca en la web: "))
+        }
+        onQuickOpenAppRequested: {
+            root.prefill(qsTr("Abre "))
+        }
+        onQuickOpenFolderRequested: {
+            root.prefill(qsTr("Muéstrame los archivos de ~/Documentos"))
+        }
+        onAlwaysOnTopToggled: function(on) {
+            root.toggleAlwaysOnTop(on)
+        }
         onNewSessionRequested: {
             root.newSession()
             root.show()

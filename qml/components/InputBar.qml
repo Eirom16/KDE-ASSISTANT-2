@@ -26,6 +26,10 @@ Item {
     signal micClicked()
     signal stopClicked()
 
+    function focusInput() {
+        input.forceActiveFocus()
+    }
+
     implicitWidth: 480
     // Altura barre + hint; la barre crece con el contenido
     implicitHeight: bar.implicitHeight + hintText.implicitHeight + 8

@@ -228,8 +228,30 @@ pub struct ToolsConfig {
     pub web_search: bool,
     #[serde(default = "default_true")]
     pub show_image: bool,
+    /// F2-2: buscar archivos por nombre (solo dentro de allowed_paths).
+    #[serde(default = "default_true")]
+    pub find_file: bool,
+    /// F2-2: abrir archivos/carpetas con la app por defecto (xdg-open).
+    #[serde(default = "default_true")]
+    pub open_file: bool,
+    /// F2-2: abrir URLs https? en el navegador (xdg-open).
+    #[serde(default = "default_true")]
+    pub open_url: bool,
+    /// F2-3: información del sistema (solo lectura: OS, CPU, RAM, disco, batería).
+    #[serde(default = "default_true")]
+    pub system_info: bool,
+    /// F2-3: enviar notificaciones nativas KDE.
+    #[serde(default = "default_true")]
+    pub notify: bool,
     #[serde(default = "default_allowed_paths")]
     pub allowed_paths: Vec<String>,
+}
+
+impl ToolsConfig {
+    /// ¿Hay algún acceso al filesystem habilitado?
+    pub fn fs_enabled(&self) -> bool {
+        self.read_file || self.create_file || self.edit_file || self.find_file || self.open_file
+    }
 }
 
 fn default_allowed_paths() -> Vec<String> {
@@ -364,6 +386,11 @@ impl Config {
                 read_file: true,
                 web_search: true,
                 show_image: true,
+                find_file: true,
+                open_file: true,
+                open_url: true,
+                system_info: true,
+                notify: true,
                 allowed_paths: default_allowed_paths(),
             },
             shortcuts: ShortcutsConfig {

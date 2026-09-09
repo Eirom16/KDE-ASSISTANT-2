@@ -1,7 +1,8 @@
 //! Registro de herramientas expuestas al LLM.
 //!
-//! Define los schemas JSON (formato OpenAI function calling) para las 6 herramientas
-//! del agente: open_app, create_file, edit_file, read_file, web_search, show_image.
+//! Define los schemas JSON (formato OpenAI function calling) para las 11 herramientas
+//! del agente: open_app, create_file, edit_file, read_file, web_search, show_image,
+//! find_file, open_file, open_url, system_info, notify.
 
 use crate::models::{Config, Tool, ToolFunction, ToolParameters, ToolProperty};
 use std::collections::HashMap;
@@ -14,6 +15,11 @@ pub fn all_tools() -> Vec<Tool> {
         read_file_tool(),
         web_search_tool(),
         show_image_tool(),
+        find_file_tool(),
+        open_file_tool(),
+        open_url_tool(),
+        system_info_tool(),
+        notify_tool(),
     ]
 }
 
@@ -230,10 +236,141 @@ fn show_image_tool() -> Tool {
     }
 }
 
+fn str_prop(desc: &str) -> ToolProperty {
+    ToolProperty {
+        prop_type: "string".to_string(),
+        description: Some(desc.to_string()),
+        r#enum: None,
+        items: None,
+    }
+}
+
+fn find_file_tool() -> Tool {
+    let mut properties = HashMap::new();
+    properties.insert(
+        "query".to_string(),
+        str_prop("Subcadena del nombre a buscar (ej: 'factura', 'notas.md')"),
+    );
+    properties.insert(
+        "dir".to_string(),
+        str_prop("Directorio base opcional (dentro de allowed_paths). Sin el, busca en todos."),
+    );
+
+    Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "find_file".to_string(),
+            description: "Busca archivos por nombre dentro de las carpetas permitidas. Devuelve hasta 20 rutas."
+                .to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties,
+                required: vec!["query".to_string()],
+            },
+        },
+    }
+}
+
+fn open_file_tool() -> Tool {
+    let mut properties = HashMap::new();
+    properties.insert(
+        "path".to_string(),
+        str_prop("Ruta del archivo o carpeta a abrir (dentro de allowed_paths)"),
+    );
+    properties.insert(
+        "reveal".to_string(),
+        ToolProperty {
+            prop_type: "boolean".to_string(),
+            description: Some(
+                "Si true, lo muestra seleccionado en Dolphin en vez de abrirlo".to_string(),
+            ),
+            r#enum: None,
+            items: None,
+        },
+    );
+
+    Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "open_file".to_string(),
+            description: "Abre un archivo o carpeta con la app por defecto. Con reveal=true lo muestra en Dolphin."
+                .to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties,
+                required: vec!["path".to_string()],
+            },
+        },
+    }
+}
+
+fn open_url_tool() -> Tool {
+    let mut properties = HashMap::new();
+    properties.insert(
+        "url".to_string(),
+        str_prop("URL http(s) a abrir en el navegador"),
+    );
+
+    Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "open_url".to_string(),
+            description: "Abre una URL http(s) en el navegador por defecto.".to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties,
+                required: vec!["url".to_string()],
+            },
+        },
+    }
+}
+
+fn system_info_tool() -> Tool {
+    Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "system_info".to_string(),
+            description: "Muestra información del sistema: OS, kernel, uptime, CPU, RAM, disco y batería. Solo lectura."
+                .to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties: HashMap::new(),
+                required: vec![],
+            },
+        },
+    }
+}
+
+fn notify_tool() -> Tool {
+    let mut properties = HashMap::new();
+    properties.insert(
+        "title".to_string(),
+        str_prop("Título corto de la notificación (máx 100 chars)"),
+    );
+    properties.insert(
+        "body".to_string(),
+        str_prop("Cuerpo de la notificación (máx 500 chars)"),
+    );
+
+    Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "notify".to_string(),
+            description: "Envía una notificación nativa de KDE Plasma al usuario.".to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties,
+                required: vec!["title".to_string(), "body".to_string()],
+            },
+        },
+    }
+}
+
 /// Herramientas filtradas según la configuración del usuario.
 ///
 /// Respeta `ai.enable_tool_calling` (si es false → ninguna) y cada
-/// flag `tools.{open_app,create_file,edit_file,read_file,web_search,show_image}`.
+/// flag `tools.*` (open_app, create/edit/read_file, web_search, show_image,
+/// find_file, open_file, open_url).
 /// El executor también valida por si llega una llamada deshabilitada.
 pub fn filtered_tools(cfg: &Config) -> Vec<Tool> {
     if !cfg.ai.enable_tool_calling {
@@ -257,6 +394,21 @@ pub fn filtered_tools(cfg: &Config) -> Vec<Tool> {
     }
     if cfg.tools.show_image {
         out.push(show_image_tool());
+    }
+    if cfg.tools.find_file {
+        out.push(find_file_tool());
+    }
+    if cfg.tools.open_file {
+        out.push(open_file_tool());
+    }
+    if cfg.tools.open_url {
+        out.push(open_url_tool());
+    }
+    if cfg.tools.system_info {
+        out.push(system_info_tool());
+    }
+    if cfg.tools.notify {
+        out.push(notify_tool());
     }
     out
 }
@@ -283,6 +435,11 @@ mod tests {
         cfg.tools.read_file = false;
         cfg.tools.web_search = false;
         cfg.tools.show_image = false;
+        cfg.tools.find_file = false;
+        cfg.tools.open_file = false;
+        cfg.tools.open_url = false;
+        cfg.tools.system_info = false;
+        cfg.tools.notify = false;
         let tools = filtered_tools(&cfg);
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].function.name, "open_app");
@@ -291,6 +448,6 @@ mod tests {
     #[test]
     fn all_enabled_by_default() {
         let cfg = Config::default();
-        assert_eq!(filtered_tools(&cfg).len(), 6);
+        assert_eq!(filtered_tools(&cfg).len(), 11);
     }
 }

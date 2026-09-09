@@ -64,6 +64,11 @@ Rectangle {
                     if (root.toolName === "read_file") return "file-16"
                     if (root.toolName === "web_search") return "search-16"
                     if (root.toolName === "show_image") return "image-16"
+                    if (root.toolName === "find_file") return "search-16"
+                    if (root.toolName === "open_file") return "file-16"
+                    if (root.toolName === "open_url") return "link-16"
+                    if (root.toolName === "system_info") return "terminal-16"
+                    if (root.toolName === "notify") return "bell-16"
                     return "tools-16"
                 }
                 size: root.iconSize
