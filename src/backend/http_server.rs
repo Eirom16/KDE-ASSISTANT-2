@@ -51,6 +51,9 @@ pub struct AppState {
     pub voice: Arc<crate::backend::voice_pipeline::VoicePipeline>,
     /// Token bearer local (F0-3). Se exige en todo `/api/*` salvo `/health`.
     pub local_token: String,
+    /// Handles de agentes en curso por sesión (F0-7 cancel).
+    /// Clave: session_id o "default" si no hay.
+    pub chat_tasks: Arc<Mutex<std::collections::HashMap<String, tokio::task::AbortHandle>>>,
 }
 
 /// Middleware F0-3: auth + host + origin para `/api/*`.
@@ -110,6 +113,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/health", get(health))
         .route("/api/chat", post(chat))
         .route("/api/chat/complete", post(chat_complete))
+        .route("/api/chat/cancel", post(chat_cancel))
         .route("/api/sessions", get(list_sessions))
         .route("/api/session", post(create_session).delete(delete_session))
         .route("/api/messages", get(list_messages))
@@ -122,6 +126,43 @@ pub fn router(state: AppState) -> Router {
         .route("/api/speak/stop", post(speak_stop))
         .layer(middleware::from_fn_with_state(state.clone(), auth_layer))
         .with_state(state)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChatCancelRequest {
+    #[serde(default)]
+    pub session_id: Option<String>,
+}
+
+/// Cancela el agente en curso para una sesión (F0-7).
+/// Aborta el task del agente; el stream SSE se cierra y no se persiste nada nuevo.
+/// El QML además hace `xhr.abort()` en local.
+async fn chat_cancel(
+    State(state): State<AppState>,
+    Json(body): Json<ChatCancelRequest>,
+) -> impl IntoResponse {
+    let key = body.session_id.unwrap_or_else(|| "default".to_string());
+    let aborted = {
+        let mut map = state.chat_tasks.lock().unwrap_or_else(|e| e.into_inner());
+        map.remove(&key).map(|h| {
+            h.abort();
+            true
+        })
+    };
+    // También silenciar TTS por si el turno ya estaba hablando.
+    if aborted.unwrap_or(false) {
+        state.speech.request_stop();
+        log::info!("Chat cancelado para sesión {key}");
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({ "status": "cancelled" })),
+        )
+    } else {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({ "status": "nothing_to_cancel" })),
+        )
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -505,6 +546,25 @@ fn friendly_provider_error(raw: &str) -> String {
     format!("Error del asistente: {snippet}")
 }
 
+/// Clave para `chat_tasks`: session o "default".
+fn task_key(session_id: &Option<String>) -> String {
+    session_id.clone().unwrap_or_else(|| "default".to_string())
+}
+
+fn register_task(state: &AppState, key: &str, handle: tokio::task::AbortHandle) {
+    let mut map = state.chat_tasks.lock().unwrap_or_else(|e| e.into_inner());
+    map.insert(key.to_string(), handle);
+}
+
+fn unregister_if_finished(state: &AppState, key: &str) {
+    let mut map = state.chat_tasks.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(h) = map.get(key) {
+        if h.is_finished() {
+            map.remove(key);
+        }
+    }
+}
+
 /// Chat sin streaming: espera la respuesta completa y la devuelve como JSON.
 /// Usado por la UI QML (XMLHttpRequest no hace streaming SSE de forma fiable).
 async fn chat_complete(
@@ -529,6 +589,9 @@ async fn chat_complete(
     let tools_exec = state.tools.clone();
     let msgs = messages.clone();
     let agent_task = tokio::spawn(async move { ai.run_agent(msgs, tools, tools_exec, tx).await });
+    // F0-7: registrar para /api/chat/cancel.
+    let cancel_key = task_key(&req.session_id);
+    register_task(&state, &cancel_key, agent_task.abort_handle());
 
     // Consumir eventos (para no bloquear el canal) y capturar la respuesta
     let mut full_response = String::new();
@@ -547,8 +610,12 @@ async fn chat_complete(
     }
 
     let outcome = match agent_task.await {
-        Ok(Ok(o)) => o,
+        Ok(Ok(o)) => {
+            unregister_if_finished(&state, &cancel_key);
+            o
+        }
         Ok(Err(e)) => {
+            unregister_if_finished(&state, &cancel_key);
             log::warn!("Agente fallo: {e}");
             // Devolver el error como respuesta para que la UI lo muestre.
             // No persistir tools parciales en este caso.
@@ -561,6 +628,22 @@ async fn chat_complete(
             return (StatusCode::OK, Json(body));
         }
         Err(e) => {
+            // F0-7: cancelado vía /api/chat/cancel → persistir solo usuario.
+            if e.is_cancelled() {
+                log::info!("Chat complete cancelado para {cancel_key}");
+                if let Some(sid) = &req.session_id {
+                    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+                    let _ = sessions.add_message(sid, &Message::user(req.message.clone()));
+                }
+                let body = ChatCompleteResponse {
+                    transcript: req.message.clone(),
+                    response: "Cancelado por el usuario.".to_string(),
+                    session_id: req.session_id.clone(),
+                    tool_calls: tool_calls_out,
+                };
+                return (StatusCode::OK, Json(body));
+            }
+            unregister_if_finished(&state, &cancel_key);
             log::warn!("Task agente fallo: {e}");
             let body = ChatCompleteResponse {
                 transcript: req.message.clone(),
@@ -707,6 +790,9 @@ async fn chat(
     let tools = tool_registry::filtered_tools(&cfg_snapshot);
     let msgs = messages.clone();
     let agent_task = tokio::spawn(async move { ai.run_agent(msgs, tools, tools_exec, tx).await });
+    // F0-7: registrar para /api/chat/cancel.
+    let cancel_key = task_key(&req.session_id);
+    register_task(&state, &cancel_key, agent_task.abort_handle());
 
     // Persistir el mensaje del usuario
     if let Some(sid) = &req.session_id {
@@ -721,6 +807,7 @@ async fn chat(
     // Task que espera el resultado y persiste la respuesta
     let state2 = state.clone();
     let sid2 = req.session_id.clone();
+    let cancel_key2 = cancel_key.clone();
     let sse_stream = sse_stream.map(move |ev| {
         let (event_name, data) = sse_event(ev);
         Ok::<Event, Infallible>(Event::default().event(event_name).data(data))
@@ -730,6 +817,7 @@ async fn chat(
     tokio::spawn(async move {
         match agent_task.await {
             Ok(Ok(outcome)) => {
+                unregister_if_finished(&state2, &cancel_key2);
                 if let Some(sid) = &sid2 {
                     let sessions = state2.sessions.lock().unwrap_or_else(|e| e.into_inner());
                     for m in &outcome.new_messages {
@@ -741,10 +829,17 @@ async fn chat(
                 }
             }
             Ok(Err(e)) => {
+                unregister_if_finished(&state2, &cancel_key2);
                 log::warn!("Agente SSE fallo: {e}");
             }
             Err(e) => {
-                log::warn!("Task agente SSE fallo: {e}");
+                if e.is_cancelled() {
+                    log::info!("Chat SSE cancelado para {cancel_key2}");
+                } else {
+                    log::warn!("Task agente SSE fallo: {e}");
+                }
+                // Limpiar solo si el handle almacenado ya terminó.
+                unregister_if_finished(&state2, &cancel_key2);
             }
         }
     });

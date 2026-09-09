@@ -91,7 +91,6 @@ impl Backend {
     pub async fn process_voice(&self, audio: &[f32]) -> Result<(String, String)> {
         self.voice.process_utterance(audio, None).await
     }
-
     /// Construye el estado compartido para el servidor HTTP local.
     pub fn http_state(&self) -> http_server::AppState {
         // Token local F0-3: si falla, usar vacío (el middleware rechazará todo
@@ -108,6 +107,9 @@ impl Backend {
             speech: self.speech.clone(),
             voice: self.voice.clone(),
             local_token,
+            chat_tasks: std::sync::Arc::new(
+                std::sync::Mutex::new(std::collections::HashMap::new()),
+            ),
         }
     }
 

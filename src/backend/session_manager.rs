@@ -52,6 +52,8 @@ impl SessionManager {
 
         let conn = Connection::open(&db_path).context("abriendo SQLite")?;
 
+        // F0-7: WAL para no bloquear lectores durante escrituras + busy_timeout.
+        let _ = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
         conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS sessions (

@@ -21,6 +21,15 @@ Rectangle {
     signal newSessionClicked()
     signal settingsClicked()
 
+    // F0-7: borrado con confirmación (doble click): primer click arma, segundo borra.
+    property string confirmDeleteId: ""
+    Timer {
+        id: confirmTimer
+        interval: 3000
+        repeat: false
+        onTriggered: root.confirmDeleteId = ""
+    }
+
     color: Qt.rgba(
         isDark ? 0.11 : 0.96,
         isDark ? 0.11 : 0.96,
@@ -98,12 +107,21 @@ Rectangle {
                                 Layout.preferredWidth: 28
                                 Layout.preferredHeight: 28
                                 Layout.alignment: Qt.AlignVCenter
-                                iconName: "trash-16"
+                                iconName: root.confirmDeleteId === modelData.id ? "alert-16" : "trash-16"
                                 iconSize: 14
                                 buttonSize: 28
-                                backgroundColor: "transparent"
-                                iconColor: Theme.inkMuted
-                                onClicked: root.sessionDeleteRequested(modelData.id)
+                                backgroundColor: root.confirmDeleteId === modelData.id ? Theme.errorTint : "transparent"
+                                iconColor: root.confirmDeleteId === modelData.id ? Theme.error : Theme.inkMuted
+                                onClicked: {
+                                    if (root.confirmDeleteId === modelData.id) {
+                                        root.confirmDeleteId = ""
+                                        confirmTimer.stop()
+                                        root.sessionDeleteRequested(modelData.id)
+                                    } else {
+                                        root.confirmDeleteId = modelData.id
+                                        confirmTimer.restart()
+                                    }
+                                }
                             }
                         }
                     }

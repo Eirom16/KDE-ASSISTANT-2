@@ -92,9 +92,11 @@ fn main() -> Result<()> {
     // Iniciar servidor HTTP local (IPC con la UI QML)
     const HTTP_PORT: u16 = 8765;
     // Token local F0-3 para que el QML se autentique en /api/*.
-    let local_token = backend.http_state().local_token.clone();
+    // OJO: llamar http_state() una sola vez (contiene el mapa de tasks F0-7).
+    let http_state = backend.http_state();
+    let local_token = http_state.local_token.clone();
     {
-        let http_state = backend.http_state();
+        let http_state = http_state.clone();
         runtime.spawn(async move {
             if let Err(e) =
                 kde_assistant_lib::backend::http_server::serve(http_state, HTTP_PORT).await

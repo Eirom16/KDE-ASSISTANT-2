@@ -211,6 +211,7 @@ ApplicationWindow {
         xhr.open("POST", backendUrl + "/api/chat")
         xhr.setRequestHeader("Content-Type", "application/json")
         setAuth(xhr)
+        activeChatXhr = xhr
         xhr.onreadystatechange = function() {
             if (xhr.readyState === 3 || xhr.readyState === 4) {
                 var full = xhr.responseText || ""
@@ -231,6 +232,7 @@ ApplicationWindow {
                         lastErrorDetail = qsTr("Falta el token local. Reinicia kde-assistant (main.rs lo inyecta vía KDE_ASSISTANT_TOKEN).")
                         showErrorBanner = true
                         streaming = false
+                        activeChatXhr = null
                         refreshUI(false)
                         return
                     }
@@ -247,6 +249,7 @@ ApplicationWindow {
                     streaming = false
                     // Re-chequear salud tras error (puede ser 401/429).
                     if (sawError) checkBackend()
+                    activeChatXhr = null
                     refreshUI(false)
                 }
             }
@@ -296,6 +299,8 @@ ApplicationWindow {
     }
 
     function newSession() {
+        // F0-7: cancelar streaming en curso antes de cambiar de sesión.
+        cancelChat()
         var xhr = new XMLHttpRequest()
         xhr.open("POST", backendUrl + "/api/session")
         xhr.setRequestHeader("Content-Type", "application/json")
@@ -375,6 +380,8 @@ ApplicationWindow {
     property bool drawerOpen: false
     property bool streaming: false
     property string voiceState: "idle"  // "idle" | "listening" | "processing" | "speaking"
+    // XHR del chat en curso (F0-7: para abortar en Stop / nueva sesión).
+    property var activeChatXhr: null
     // Estado backend (F0-5): se actualiza con /api/health + /api/config.
     property bool backendOnline: false
     property string backendStatus: "offline" // offline | online | nokey
@@ -382,6 +389,39 @@ ApplicationWindow {
     property string lastErrorDetail: ""
     property bool showErrorBanner: false
     property string lastModel: ""
+
+    // F0-7: cancela el streaming local (xhr.abort) + backend (/api/chat/cancel).
+    function cancelChat() {
+        if (activeChatXhr) {
+            try { activeChatXhr.abort() } catch (e) {}
+            activeChatXhr = null
+        }
+        if (streaming) {
+            streaming = false
+            // Marcar el placeholder como cancelado si sigue en streaming.
+            var arr = messages.slice()
+            for (var i = arr.length - 1; i >= 0; i--) {
+                if (arr[i].isStreaming) {
+                    arr[i] = {
+                        role: "assistant",
+                        authorLabel: "KDE Assistant",
+                        content: qsTr("Cancelado por el usuario."),
+                        raw: "Cancelado por el usuario.",
+                        timestamp: arr[i].timestamp,
+                        isStreaming: false,
+                        toolCalls: arr[i].toolCalls || []
+                    }
+                    break
+                }
+            }
+            messages = arr
+        }
+        var c = new XMLHttpRequest()
+        c.open("POST", backendUrl + "/api/chat/cancel")
+        c.setRequestHeader("Content-Type", "application/json")
+        setAuth(c)
+        c.send(JSON.stringify({ session_id: currentSessionId ? currentSessionId : null }))
+    }
 
     Component.onCompleted: {
         loadSessions()
@@ -684,7 +724,7 @@ ApplicationWindow {
                     root.voiceState = root.voiceState === "listening" ? "idle" : "listening"
                 }
                 onStopClicked: {
-                    root.streaming = false
+                    root.cancelChat()
                     root.voiceState = "idle"
                 }
             }
