@@ -84,8 +84,8 @@
 
 ## Fase 1 — Asistente funcional (P1)
 
-- [ ] Regenerar respuesta + reintentar tool error (cablear `retryClicked`)
-- [ ] Renombrar/buscar sesiones, contador + fecha real (`timestamp` en `MessageInfo`)
+- [x] Regenerar respuesta + reintentar tool error (cablear `retryClicked`)
+- [x] Renombrar/buscar sesiones, contador + fecha real (`timestamp` en `MessageInfo`)
 - [ ] Badge modelo/proveedor visible en titlebar + test-connection con `tool_support`
 - [ ] `open_app` XDG real: buscar en `XDG_DATA_DIRS`, fuzzy, parse `Exec`
 - [ ] Atajos editables en Settings (hoy texto estático)
@@ -132,5 +132,6 @@
 | 2026-09-09 | F0-3 | `backend/auth.rs` token 0600 + `valid_bearer/host/origin`, middleware axum en `/api/*` salvo `/health`, `AppState.local_token`, `main.rs` inyecta `KDE_ASSISTANT_TOKEN` a `qml6`, 17 XHR con `setAuth`, 401 → banner | 37 passed (33+4 auth), `valida_qml` OK | pendiente |
 | 2026-09-09 | F0-4/F0-7 | `wrap_tool_output` + system hardening + 2 tests, `/api/chat/cancel` + `AbortHandle` por sesión, QML `activeChatXhr.abort()` + `cancelChat()`, WAL + `config 0600/.bak`, borrado doble-click | 39 passed, `valida_qml` OK | pendiente |
 | 2026-09-09 | F0-8 | `ChatView` ListView virtualizado (follow solo si abajo, id `chatRoot` anti-shadowing, ScrollBars propios), `MessageBubble` simétrico 600/78% + `WrapAnywhere`, `ImageCard` estable + `BusyIndicator` + `clip`, `InputBar` `AlignVCenter`, `Octicon` reintento `qrc:/` + warn, `SessionDrawer` h-off | 39 passed, `valida_qml` OK | pendiente |
+| 2026-09-09 | F1-1/F1-2 | `POST /api/chat/regenerate` SSE + `delete_trailing_after_last_user`, QML `streamAgent` genérico + botón `sync-16` + retry en badge, `timestamp` DB→API→`hh:mm`, `PATCH /api/session` rename, drawer con buscar/renombrar inline/fecha | 42 passed, `valida_qml` OK | pendiente |
 
 > Cómo marcar: cambia `- [ ]` a `- [x]` y agrega fila en Registro con `cargo test --lib`, `cargo clippy`, `valida_qml`.

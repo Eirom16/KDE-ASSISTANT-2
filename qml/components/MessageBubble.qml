@@ -31,6 +31,8 @@ Item {
     signal imageClicked(string url)
     signal copyRequested(string text)
     signal playRequested(string text)
+    // F1-1: regenerar turno (botón) o reintentar tras tool en error (badge).
+    signal regenerateRequested()
 
     implicitHeight: column.implicitHeight + 8
     implicitWidth: column.implicitWidth
@@ -140,6 +142,7 @@ Item {
                     result: modelData.result || ""
                     imageUrl: modelData.imageUrl || ""
                     onImageClicked: root.imageClicked(modelData.imageUrl)
+                    onRetryClicked: root.regenerateRequested()
                 }
             }
         }
@@ -187,6 +190,14 @@ Item {
                 backgroundColor: "transparent"
                 iconColor: Theme.inkMuted
                 onClicked: root.playRequested(root.rawContent)
+            }
+            IconButton {
+                iconName: "sync-16"
+                iconSize: 14
+                buttonSize: 28
+                backgroundColor: "transparent"
+                iconColor: Theme.inkMuted
+                onClicked: root.regenerateRequested()
             }
         }
     }

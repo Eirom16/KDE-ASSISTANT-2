@@ -18,8 +18,33 @@ Rectangle {
 
     signal sessionSelected(string id)
     signal sessionDeleteRequested(string id)
+    signal sessionRenameRequested(string id, string title)
     signal newSessionClicked()
     signal settingsClicked()
+
+    // F1-2: búsqueda + edición inline de título.
+    property string filter: ""
+    property string editingId: ""
+    property string editingText: ""
+
+    function fmtDate(iso) {
+        if (!iso) return ""
+        try {
+            var d = new Date(iso)
+            if (isNaN(d.getTime())) return ""
+            var dd = ("0" + d.getDate()).slice(-2)
+            var mm = ("0" + (d.getMonth() + 1)).slice(-2)
+            return dd + "/" + mm + " " + Qt.formatTime(d, "hh:mm")
+        } catch (e) { return "" }
+    }
+
+    function filteredSessions() {
+        var f = (root.filter || "").trim().toLowerCase()
+        if (!f) return root.sessions
+        return (root.sessions || []).filter(function(s) {
+            return String(s.title || "").toLowerCase().indexOf(f) >= 0
+        })
+    }
 
     // F0-7: borrado con confirmación (doble click): primer click arma, segundo borra.
     property string confirmDeleteId: ""
@@ -51,7 +76,7 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.margins: Theme.spacingMd
-        height: 36
+        height: 84
 
         PillButton {
             id: newBtn
@@ -59,8 +84,29 @@ Rectangle {
             iconName: "plus-16"
             active: false
             anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
+            anchors.top: parent.top
             onClicked: root.newSessionClicked()
+        }
+
+        // F1-2: buscar sesiones por título.
+        TextField {
+            id: searchField
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: 36
+            placeholderText: qsTr("Buscar…")
+            text: root.filter
+            onTextChanged: root.filter = text
+            font: Theme.font(Theme.fontSizeBodySmall, Theme.weightNormal, 0)
+            color: Theme.ink
+            placeholderTextColor: Theme.inkMuted
+            background: Rectangle {
+                radius: Theme.radiusMd
+                color: Theme.surfacePearl
+                border.width: 1
+                border.color: searchField.activeFocus ? Theme.primary : Theme.hairline
+            }
         }
     }
 
@@ -80,49 +126,123 @@ Rectangle {
             spacing: Theme.spacingXs
 
                 Repeater {
-                    model: root.sessions
+                    model: filteredSessions()
                     delegate: Item {
                         required property var modelData
                         width: root.drawerWidth - Theme.spacingMd * 2
-                        height: 36
+                        height: 56
 
-                        RowLayout {
+                        ColumnLayout {
                             anchors.fill: parent
-                            spacing: Theme.spacingXs
+                            spacing: 2
 
-                            PillButton {
+                            RowLayout {
                                 Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                text: {
-                                    var t = modelData.title || qsTr("Sin titulo")
-                                    var n = modelData.message_count || 0
-                                    return n > 0 ? t + "  ·  " + n : t
-                                }
-                                iconName: modelData.id === root.currentId ? "hubot-16" : "history-16"
-                                active: modelData.id === root.currentId
-                                textSize: Theme.fontSizeBodySmall
-                                onClicked: root.sessionSelected(modelData.id)
-                            }
+                                Layout.preferredHeight: 36
+                                spacing: Theme.spacingXs
 
-                            IconButton {
-                                Layout.preferredWidth: 28
-                                Layout.preferredHeight: 28
-                                Layout.alignment: Qt.AlignVCenter
-                                iconName: root.confirmDeleteId === modelData.id ? "alert-16" : "trash-16"
-                                iconSize: 14
-                                buttonSize: 28
-                                backgroundColor: root.confirmDeleteId === modelData.id ? Theme.errorTint : "transparent"
-                                iconColor: root.confirmDeleteId === modelData.id ? Theme.error : Theme.inkMuted
-                                onClicked: {
-                                    if (root.confirmDeleteId === modelData.id) {
-                                        root.confirmDeleteId = ""
-                                        confirmTimer.stop()
-                                        root.sessionDeleteRequested(modelData.id)
-                                    } else {
-                                        root.confirmDeleteId = modelData.id
-                                        confirmTimer.restart()
+                                // Modo edición inline (F1-2).
+                                TextField {
+                                    visible: root.editingId === modelData.id
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    text: root.editingId === modelData.id ? root.editingText : ""
+                                    onTextChanged: if (root.editingId === modelData.id) root.editingText = text
+                                    font: Theme.font(Theme.fontSizeBodySmall, Theme.weightNormal, 0)
+                                    color: Theme.ink
+                                    placeholderText: qsTr("Nombre…")
+                                    Keys.onReturnPressed: {
+                                        root.sessionRenameRequested(modelData.id, root.editingText)
+                                        root.editingId = ""
+                                    }
+                                    Keys.onEscapePressed: root.editingId = ""
+                                    Component.onCompleted: if (visible) forceActiveFocus()
+                                    background: Rectangle {
+                                        radius: Theme.radiusMd
+                                        color: Theme.surface
+                                        border.width: 1
+                                        border.color: Theme.primary
                                     }
                                 }
+                                IconButton {
+                                    visible: root.editingId === modelData.id
+                                    Layout.preferredWidth: 28
+                                    Layout.preferredHeight: 28
+                                    Layout.alignment: Qt.AlignVCenter
+                                    iconName: "check-16"
+                                    iconSize: 14
+                                    buttonSize: 28
+                                    backgroundColor: Theme.primary
+                                    iconColor: Theme.inkOnPrimary
+                                    onClicked: {
+                                        root.sessionRenameRequested(modelData.id, root.editingText)
+                                        root.editingId = ""
+                                    }
+                                }
+
+                                PillButton {
+                                    visible: root.editingId !== modelData.id
+                                    Layout.fillWidth: true
+                                    Layout.fillHeight: true
+                                    text: {
+                                        var t = modelData.title || qsTr("Sin titulo")
+                                        var n = modelData.message_count || 0
+                                        return n > 0 ? t + "  ·  " + n : t
+                                    }
+                                    iconName: modelData.id === root.currentId ? "hubot-16" : "history-16"
+                                    active: modelData.id === root.currentId
+                                    textSize: Theme.fontSizeBodySmall
+                                    onClicked: root.sessionSelected(modelData.id)
+                                }
+
+                                IconButton {
+                                    visible: root.editingId !== modelData.id
+                                    Layout.preferredWidth: 28
+                                    Layout.preferredHeight: 28
+                                    Layout.alignment: Qt.AlignVCenter
+                                    iconName: "pencil-16"
+                                    iconSize: 13
+                                    buttonSize: 28
+                                    backgroundColor: "transparent"
+                                    iconColor: Theme.inkMuted
+                                    onClicked: {
+                                        root.editingId = modelData.id
+                                        root.editingText = modelData.title || ""
+                                    }
+                                }
+
+                                IconButton {
+                                    visible: root.editingId !== modelData.id
+                                    Layout.preferredWidth: 28
+                                    Layout.preferredHeight: 28
+                                    Layout.alignment: Qt.AlignVCenter
+                                    iconName: root.confirmDeleteId === modelData.id ? "alert-16" : "trash-16"
+                                    iconSize: 14
+                                    buttonSize: 28
+                                    backgroundColor: root.confirmDeleteId === modelData.id ? Theme.errorTint : "transparent"
+                                    iconColor: root.confirmDeleteId === modelData.id ? Theme.error : Theme.inkMuted
+                                    onClicked: {
+                                        if (root.confirmDeleteId === modelData.id) {
+                                            root.confirmDeleteId = ""
+                                            confirmTimer.stop()
+                                            root.sessionDeleteRequested(modelData.id)
+                                        } else {
+                                            root.confirmDeleteId = modelData.id
+                                            confirmTimer.restart()
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Fecha real + contador (F1-1).
+                            Text {
+                                visible: root.editingId !== modelData.id
+                                text: fmtDate(modelData.updated_at) + (modelData.message_count ? "  ·  " + modelData.message_count + qsTr(" msgs") : "")
+                                font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                                color: Theme.inkMuted
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
+                                leftPadding: 34
                             }
                         }
                     }
@@ -132,7 +252,11 @@ Rectangle {
             Column {
                 width: parent.width
                 spacing: Theme.spacingXs
-                visible: root.sessions.length === 0
+                visible: {
+                    var list = filteredSessions()
+                    if ((root.filter || "").trim() !== "" && list.length === 0) return false
+                    return root.sessions.length === 0
+                }
 
                 Octicon {
                     name: "history-16"

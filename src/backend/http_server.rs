@@ -114,8 +114,14 @@ pub fn router(state: AppState) -> Router {
         .route("/api/chat", post(chat))
         .route("/api/chat/complete", post(chat_complete))
         .route("/api/chat/cancel", post(chat_cancel))
+        .route("/api/chat/regenerate", post(chat_regenerate))
         .route("/api/sessions", get(list_sessions))
-        .route("/api/session", post(create_session).delete(delete_session))
+        .route(
+            "/api/session",
+            post(create_session)
+                .delete(delete_session)
+                .patch(rename_session),
+        )
         .route("/api/messages", get(list_messages))
         .route("/api/config", get(get_config).post(update_config))
         .route("/api/ai-models", post(list_ai_models))
@@ -163,6 +169,105 @@ async fn chat_cancel(
             Json(serde_json::json!({ "status": "nothing_to_cancel" })),
         )
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChatRegenerateRequest {
+    pub session_id: String,
+}
+
+/// Regenera la última respuesta (F1-1): borra el trailing assistant/tools
+/// posterior al último `user` y re-ejecuta el agente con ese historial.
+/// SSE igual que `/api/chat` (token/tool_call/tool_result/done/error).
+/// También sirve como "reintentar" tras un tool en error.
+async fn chat_regenerate(
+    State(state): State<AppState>,
+    Json(body): Json<ChatRegenerateRequest>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let sid = body.session_id.clone();
+    log::info!("Regenerate request (session={sid})");
+
+    // Validar y preparar historial. En error, el stream llevará un evento error.
+    // (Un solo punto de retorno SSE para unificar el tipo opaque.)
+    let prepared: Result<Vec<Message>, String> = {
+        let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        if sessions.get_session(&sid).ok().flatten().is_none() {
+            Err("Sesión no encontrada".to_string())
+        } else {
+            // Limpiar el intento anterior para no duplicar contexto.
+            let _ = sessions.delete_trailing_after_last_user(&sid);
+            let history = sessions.get_messages(&sid).unwrap_or_default();
+            if !history.iter().any(|m| matches!(m, Message::User { .. })) {
+                Err("No hay mensaje de usuario para regenerar".to_string())
+            } else {
+                Ok(history)
+            }
+        }
+    };
+
+    let (tx, rx) = mpsc::channel::<StreamEvent>(256);
+    match prepared {
+        Err(msg) => {
+            let _ = tx.send(StreamEvent::Error { message: msg }).await;
+            drop(tx);
+        }
+        Ok(history) => {
+            let system_prompt = state.config.read().await.ai.system_prompt.clone();
+            let mut messages = vec![Message::system(system_prompt)];
+            // Ventana como en build_messages.
+            const MAX_HISTORY: usize = 40;
+            let start = history.len().saturating_sub(MAX_HISTORY);
+            messages.extend(history.into_iter().skip(start));
+
+            let ai = state.ai.clone();
+            let tools_exec = state.tools.clone();
+            let cfg_snapshot = state.config.read().await.clone();
+            let tools = tool_registry::filtered_tools(&cfg_snapshot);
+            let agent_task =
+                tokio::spawn(async move { ai.run_agent(messages, tools, tools_exec, tx).await });
+            let cancel_key = sid.clone();
+            register_task(&state, &cancel_key, agent_task.abort_handle());
+
+            let state2 = state.clone();
+            let sid2 = sid.clone();
+            let cancel_key2 = cancel_key.clone();
+            tokio::spawn(async move {
+                match agent_task.await {
+                    Ok(Ok(outcome)) => {
+                        unregister_if_finished(&state2, &cancel_key2);
+                        let sessions = state2.sessions.lock().unwrap_or_else(|e| e.into_inner());
+                        for m in &outcome.new_messages {
+                            let _ = sessions.add_message(&sid2, m);
+                        }
+                        if outcome.new_messages.is_empty() && !outcome.response.trim().is_empty() {
+                            let _ =
+                                sessions.add_message(&sid2, &Message::assistant(outcome.response));
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        unregister_if_finished(&state2, &cancel_key2);
+                        log::warn!("Regenerate fallo: {e}");
+                    }
+                    Err(e) => {
+                        if e.is_cancelled() {
+                            log::info!("Regenerate cancelado para {cancel_key2}");
+                        } else {
+                            log::warn!("Task regenerate fallo: {e}");
+                        }
+                        unregister_if_finished(&state2, &cancel_key2);
+                    }
+                }
+            });
+        }
+    }
+
+    let sse_stream = stream_from_receiver(rx);
+    let sse_stream = sse_stream.map(move |ev| {
+        let (event_name, data) = sse_event(ev);
+        Ok::<Event, Infallible>(Event::default().event(event_name).data(data))
+    });
+
+    Sse::new(sse_stream).keep_alive(KeepAlive::default())
 }
 
 #[derive(Debug, Deserialize)]
@@ -440,6 +545,35 @@ pub struct DeleteSessionQuery {
     pub session_id: String,
 }
 
+/// Renombra una sesion (F1-2). Body: {"id": "...", "title": "..."}.
+#[derive(Debug, Deserialize)]
+pub struct RenameSessionRequest {
+    pub id: String,
+    pub title: String,
+}
+
+async fn rename_session(
+    State(state): State<AppState>,
+    Json(body): Json<RenameSessionRequest>,
+) -> impl IntoResponse {
+    let title = body.title.trim().to_string();
+    if title.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "título vacío" })),
+        );
+    }
+    let title: String = title.chars().take(80).collect();
+    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+    match sessions.update_session_title(&body.id, title.trim()) {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "status": "ok" }))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ),
+    }
+}
+
 /// Elimina una sesion y sus mensajes.
 async fn delete_session(
     State(state): State<AppState>,
@@ -466,6 +600,9 @@ pub struct MessageInfo {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_url: Option<String>,
+    /// Timestamp RFC3339 del mensaje (para hora real en la UI).
+    #[serde(default)]
+    pub timestamp: String,
 }
 
 /// Lista los mensajes de una sesion.
@@ -474,20 +611,22 @@ async fn list_messages(
     Query(q): Query<MessagesQuery>,
 ) -> impl IntoResponse {
     let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
-    match sessions.get_messages(&q.session_id) {
+    match sessions.get_messages_with_timestamps(&q.session_id) {
         Ok(msgs) => {
             let list: Vec<MessageInfo> = msgs
                 .into_iter()
-                .filter_map(|m| match m {
+                .filter_map(|(m, ts)| match m {
                     Message::User { content } => Some(MessageInfo {
                         role: "user".to_string(),
                         content,
                         image_url: None,
+                        timestamp: ts,
                     }),
                     Message::Assistant { content, .. } => Some(MessageInfo {
                         role: "assistant".to_string(),
                         content,
                         image_url: None,
+                        timestamp: ts,
                     }),
                     // Solo los tool con imagen interesan a la UI (para reinyectarlas)
                     Message::Tool {
@@ -498,6 +637,7 @@ async fn list_messages(
                         role: "tool".to_string(),
                         content,
                         image_url: Some(u),
+                        timestamp: ts,
                     }),
                     _ => None,
                 })

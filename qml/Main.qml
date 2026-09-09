@@ -126,16 +126,40 @@ ApplicationWindow {
     }
 
     function sendMessageStream(text) {
-        // Mensaje del usuario
-        appendMessage({
-            role: "user",
-            authorLabel: "Tu",
-            content: text,
-            raw: text,
-            timestamp: nowTime(),
-            isStreaming: false,
-            toolCalls: []
-        })
+        streamAgent(backendUrl + "/api/chat", {
+            message: text,
+            session_id: currentSessionId ? currentSessionId : null
+        }, text)
+    }
+
+    // F1-1: regenera la última respuesta (también sirve de "reintentar"
+    // tras un tool en error). No duplica el mensaje del usuario: quita los
+    // assistants locales en cola y el backend borra el trailing en DB.
+    function regenerate() {
+        if (!currentSessionId || streaming) return
+        var arr = messages.slice()
+        while (arr.length > 0 && arr[arr.length - 1].role === "assistant") arr.pop()
+        messages = arr
+        streamAgent(backendUrl + "/api/chat/regenerate", {
+            session_id: currentSessionId
+        }, null)
+    }
+
+    // Motor SSE genérico: opcionalmente agrega el mensaje del usuario,
+    // siempre agrega el placeholder del asistente y streamea tokens/tools.
+    function streamAgent(url, bodyObj, userText) {
+        if (userText !== null && userText !== undefined) {
+            // Mensaje del usuario
+            appendMessage({
+                role: "user",
+                authorLabel: "Tu",
+                content: userText,
+                raw: userText,
+                timestamp: nowTime(),
+                isStreaming: false,
+                toolCalls: []
+            })
+        }
 
         // Placeholder del asistente en modo streaming
         appendMessage({
@@ -208,7 +232,7 @@ ApplicationWindow {
         }
 
         var xhr = new XMLHttpRequest()
-        xhr.open("POST", backendUrl + "/api/chat")
+        xhr.open("POST", url)
         xhr.setRequestHeader("Content-Type", "application/json")
         setAuth(xhr)
         activeChatXhr = xhr
@@ -254,10 +278,7 @@ ApplicationWindow {
                 }
             }
         }
-        var body = JSON.stringify({
-            message: text,
-            session_id: currentSessionId ? currentSessionId : null
-        })
+        var body = JSON.stringify(bodyObj)
         xhr.send(body)
     }
 
@@ -334,6 +355,16 @@ ApplicationWindow {
         xhr.send()
     }
 
+    // Hora real de un timestamp RFC3339 ("2026-09-09T12:34:56+...") → "hh:mm".
+    function fmtTime(iso) {
+        if (!iso) return ""
+        try {
+            var d = new Date(iso)
+            if (isNaN(d.getTime())) return ""
+            return Qt.formatTime(d, "hh:mm")
+        } catch (e) { return "" }
+    }
+
     // Carga los mensajes de una sesion desde el backend
     function loadMessages(sessionId) {
         var xhr = new XMLHttpRequest()
@@ -365,7 +396,7 @@ ApplicationWindow {
                         authorLabel: m.role === "user" ? "Tu" : "KDE Assistant",
                         content: m.role === "assistant" ? markdownToHtml(m.content) : m.content,
                         raw: m.content,
-                        timestamp: "",
+                        timestamp: fmtTime(m.timestamp),
                         isStreaming: false,
                         toolCalls: []
                     })
@@ -374,6 +405,22 @@ ApplicationWindow {
             }
         }
         xhr.send()
+    }
+
+    // F1-2: renombra una sesión (PATCH /api/session).
+    function renameSession(sessionId, title) {
+        var t = (title || "").trim()
+        if (!t) return
+        var xhr = new XMLHttpRequest()
+        xhr.open("PATCH", backendUrl + "/api/session")
+        xhr.setRequestHeader("Content-Type", "application/json")
+        setAuth(xhr)
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE && (xhr.status === 200 || xhr.status === 201)) {
+                loadSessions()
+            }
+        }
+        xhr.send(JSON.stringify({ id: sessionId, title: t }))
     }
 
     // === Estado UI ===
@@ -555,6 +602,9 @@ ApplicationWindow {
             onSessionDeleteRequested: function(id) {
                 root.deleteSession(id)
             }
+            onSessionRenameRequested: function(id, title) {
+                root.renameSession(id, title)
+            }
             onSettingsClicked: {
                 root.drawerOpen = false
                 settings.show()
@@ -696,6 +746,9 @@ ApplicationWindow {
                 }
                 onPlayRequested: function(text) {
                     root.speakText(text)
+                }
+                onRegenerateRequested: {
+                    root.regenerate()
                 }
             }
 

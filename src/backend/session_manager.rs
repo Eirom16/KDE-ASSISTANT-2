@@ -200,8 +200,17 @@ impl SessionManager {
     }
 
     pub fn get_messages(&self, session_id: &str) -> Result<Vec<Message>> {
+        Ok(self
+            .get_messages_with_timestamps(session_id)?
+            .into_iter()
+            .map(|(m, _)| m)
+            .collect())
+    }
+
+    /// Mensajes con su `timestamp` (RFC3339) para mostrar hora real en la UI.
+    pub fn get_messages_with_timestamps(&self, session_id: &str) -> Result<Vec<(Message, String)>> {
         let mut stmt = self.conn.prepare(
-            "SELECT role, content, tool_call_id, tool_result, image_url FROM messages
+            "SELECT role, content, tool_call_id, tool_result, image_url, timestamp FROM messages
              WHERE session_id = ?1 ORDER BY id ASC",
         )?;
 
@@ -211,12 +220,20 @@ impl SessionManager {
             let tool_call_id: Option<String> = row.get(2)?;
             let tool_result: Option<String> = row.get(3)?;
             let image_url: Option<String> = row.get(4)?;
-            Ok((role, content, tool_call_id, tool_result, image_url))
+            let timestamp: String = row.get(5)?;
+            Ok((
+                role,
+                content,
+                tool_call_id,
+                tool_result,
+                image_url,
+                timestamp,
+            ))
         })?;
 
         let mut out = Vec::new();
         for r in rows {
-            let (role, content, tool_call_id, tool_result, image_url) = r?;
+            let (role, content, tool_call_id, tool_result, image_url, timestamp) = r?;
             let msg = match role.as_str() {
                 "system" => Message::system(content),
                 "user" => Message::user(content),
@@ -234,9 +251,33 @@ impl SessionManager {
                 ),
                 _ => continue,
             };
-            out.push(msg);
+            out.push((msg, timestamp));
         }
         Ok(out)
+    }
+
+    /// Borra los mensajes posteriores al último `user` (para Regenerar).
+    /// Retorna cuántos borró. Si no hay `user`, no borra nada.
+    pub fn delete_trailing_after_last_user(&self, session_id: &str) -> Result<usize> {
+        let last_user_id: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT MAX(id) FROM messages WHERE session_id = ?1 AND role = 'user'",
+                params![session_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(None);
+        let Some(uid) = last_user_id else {
+            return Ok(0);
+        };
+        let n = self.conn.execute(
+            "DELETE FROM messages WHERE session_id = ?1 AND id > ?2",
+            params![session_id, uid],
+        )?;
+        if n > 0 {
+            self.touch_session(session_id)?;
+        }
+        Ok(n)
     }
 
     pub fn count_messages(&self, session_id: &str) -> Result<i64> {
@@ -322,5 +363,36 @@ mod tests {
         m.delete_session(&s.id).unwrap();
         assert!(m.get_session(&s.id).unwrap().is_none());
         assert_eq!(m.count_messages(&s.id).unwrap(), 0);
+    }
+
+    #[test]
+    fn messages_with_timestamps() {
+        let m = test_db().unwrap();
+        let s = m.create_session("S").unwrap();
+        m.add_message(&s.id, &Message::user("hola")).unwrap();
+        let with_ts = m.get_messages_with_timestamps(&s.id).unwrap();
+        assert_eq!(with_ts.len(), 1);
+        assert!(!with_ts[0].1.is_empty());
+    }
+
+    #[test]
+    fn delete_trailing_keeps_last_user() {
+        let m = test_db().unwrap();
+        let s = m.create_session("S").unwrap();
+        m.add_message(&s.id, &Message::user("q")).unwrap();
+        m.add_message(&s.id, &Message::assistant("a1")).unwrap();
+        m.add_message(&s.id, &Message::user("q2")).unwrap();
+        m.add_message(&s.id, &Message::assistant("a2")).unwrap();
+        let n = m.delete_trailing_after_last_user(&s.id).unwrap();
+        assert_eq!(n, 1);
+        let msgs = m.get_messages(&s.id).unwrap();
+        assert_eq!(msgs.len(), 3);
+    }
+
+    #[test]
+    fn delete_trailing_without_user_deletes_nothing() {
+        let m = test_db().unwrap();
+        let s = m.create_session("S").unwrap();
+        assert_eq!(m.delete_trailing_after_last_user(&s.id).unwrap(), 0);
     }
 }

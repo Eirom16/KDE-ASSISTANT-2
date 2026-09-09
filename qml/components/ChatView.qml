@@ -21,6 +21,7 @@ Item {
     signal toolRetryClicked(string toolCallId)
     signal copyRequested(string text)
     signal playRequested(string text)
+    signal regenerateRequested()
 
     function findCaption(url) {
         var list = chatRoot.messages || []
@@ -106,6 +107,7 @@ Item {
                     toolCalls: modelData.toolCalls || []
                     onCopyRequested: function(text) { chatRoot.copyRequested(text) }
                     onPlayRequested: function(text) { chatRoot.playRequested(text) }
+                    onRegenerateRequested: chatRoot.regenerateRequested()
                     onImageClicked: function(url) {
                         chatRoot.imageClicked(url, chatRoot.findCaption(url))
                     }
