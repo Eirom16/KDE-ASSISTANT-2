@@ -560,6 +560,7 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        console.log("auth token len:", authToken.length, "| cache:", cacheBase)
         loadSessions()
         checkBackend()
         applyTheme()
@@ -613,7 +614,17 @@ ApplicationWindow {
                     c.open("GET", backendUrl + "/api/config")
                     setAuth(c)
                     c.onreadystatechange = function() {
-                        if (c.readyState === XMLHttpRequest.DONE && c.status === 200) {
+                        if (c.readyState === XMLHttpRequest.DONE) {
+                            if (c.status === 401) {
+                                // El token del QML no coincide con el del backend
+                                // (p.ej. otra instancia vieja ocupa el puerto).
+                                backendStatus = "offline"
+                                lastError = qsTr("No autorizado")
+                                lastErrorDetail = qsTr("Token local inválido. Cierra otras instancias (`pkill -f kde-assistant`) y reinicia.")
+                                showErrorBanner = true
+                                return
+                            }
+                            if (c.status !== 200) return
                             try {
                                 var cfg = JSON.parse(c.responseText)
                                 var key = (cfg.ai && cfg.ai.api_key) ? String(cfg.ai.api_key).trim() : ""
@@ -634,6 +645,12 @@ ApplicationWindow {
                         }
                     }
                     c.send()
+                } else if (h.status === 0) {
+                    backendOnline = false
+                    backendStatus = "offline"
+                    lastError = qsTr("Sin ruta al backend")
+                    lastErrorDetail = qsTr("El QML no llega a 127.0.0.1:8765. Revisa el log del backend.")
+                    showErrorBanner = true
                 } else {
                     backendOnline = false
                     backendStatus = "offline"

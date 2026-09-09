@@ -99,6 +99,15 @@ fn main() -> Result<()> {
 
     // Iniciar servidor HTTP local (IPC con la UI QML)
     const HTTP_PORT: u16 = 8765;
+    // Falla rápido si el puerto está ocupado (otra instancia vieja con OTRO
+    // token: la UI lanzaría contra ese backend y todo daría 401 "No autorizado").
+    if std::net::TcpListener::bind(([127, 0, 0, 1], HTTP_PORT)).is_err() {
+        eprintln!(
+            "Puerto {HTTP_PORT} en uso. ¿Hay otra instancia de kde-assistant corriendo?\n\
+             Ciérrala (o `pkill -f kde-assistant`) y vuelve a intentar."
+        );
+        std::process::exit(1);
+    }
     // Token local F0-3 para que el QML se autentique en /api/*.
     // OJO: llamar http_state() una sola vez (contiene el mapa de tasks F0-7).
     let http_state = backend.http_state();
@@ -267,6 +276,8 @@ fn main() -> Result<()> {
         }
         let qml_status = qml_cmd
             .arg("qml/Main.qml")
+            // Sin caché de QML: evita arrancar con bytecode rancio tras actualizar.
+            .env("QML_DISABLE_DISK_CACHE", "1")
             .env("QML_XHR_ALLOW_FILE_READ", "1")
             .env("KDE_ASSISTANT_TOKEN", &local_token)
             .status()

@@ -266,6 +266,8 @@ Rectangle {
                     } catch (e) {
                         modelHint.text = qsTr("Respuesta invalida del servidor")
                     }
+                } else if (xhr.status === 401) {
+                    modelHint.text = qsTr("No autorizado: reinicia la app")
                 } else {
                     modelHint.text = qsTr("No se pudo contactar al backend")
                 }
@@ -533,6 +535,14 @@ Rectangle {
                             // NOTA: sin contentItem personalizado; el estilo del
                             // sistema (Breeze) espera un TextInput con
                             // positionToRectangle() y rompe con un Text plano.
+                            // Indicador propio (siempre visible con cualquier estilo).
+                            indicator: Text {
+                                x: modelCombo.width - width - 12
+                                y: (modelCombo.height - height) / 2
+                                text: "▾"
+                                color: Theme.inkMuted
+                                font.pixelSize: 14
+                            }
                             popup: Popup {
                                 y: modelCombo.height
                                 width: modelCombo.width
