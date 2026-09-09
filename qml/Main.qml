@@ -358,6 +358,7 @@ ApplicationWindow {
                 currentSessionId = s.id
                 messages = []
                 loadSessions()
+                drawerOpen = false
             }
         }
         xhr.send(JSON.stringify({ title: "Nueva conversación" }))
@@ -449,7 +450,6 @@ ApplicationWindow {
     }
 
     // === Estado UI ===
-    // Drawer oculto al arrancar (se abre con el botón del InputBar).
     property bool drawerOpen: false
     property bool streaming: false
     property string voiceState: "idle"  // "idle" | "listening" | "processing" | "speaking"
@@ -728,6 +728,7 @@ ApplicationWindow {
             onSessionSelected: function(id) {
                 root.currentSessionId = id
                 root.loadMessages(id)
+                root.drawerOpen = false
             }
             onSessionDeleteRequested: function(id) {
                 root.deleteSession(id)
@@ -739,6 +740,7 @@ ApplicationWindow {
                 auditDialog.show()
             }
             onSettingsClicked: {
+                root.drawerOpen = false
                 settings.show()
             }
         }
@@ -756,10 +758,24 @@ ApplicationWindow {
                 NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutCubic }
             }
 
-            // === Title bar (sin botón de drawer: panel siempre visible) ===
+            // === Title bar ===
             Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 40
+
+                // Toggle drawer
+                IconButton {
+                    id: toggleBtn
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.leftMargin: Theme.spacingXs
+                    iconName: root.drawerOpen ? "sidebar-collapse-16" : "sidebar-expand-16"
+                    iconSize: 18
+                    buttonSize: 32
+                    backgroundColor: "transparent"
+                    iconColor: Theme.ink
+                    onClicked: root.drawerOpen = !root.drawerOpen
+                }
 
                 // Title
                 Text {
@@ -921,9 +937,6 @@ ApplicationWindow {
                 }
                 onMicClicked: {
                     root.voiceState = root.voiceState === "listening" ? "idle" : "listening"
-                }
-                onDrawerClicked: {
-                    root.drawerOpen = !root.drawerOpen
                 }
                 onStopClicked: {
                     root.cancelChat()
