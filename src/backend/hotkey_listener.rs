@@ -178,6 +178,9 @@ pub fn start_listener(
     action_tx: mpsc::Sender<HotkeyAction>,
     config: Arc<RwLock<Config>>,
 ) -> std::thread::JoinHandle<()> {
+    // FIX-sesión-real: borrar el estado previo para que el primer poll del QML
+    // no procese un hotkey rancio (el QML además filtra por timestamp).
+    clear_hotkey_state();
     std::thread::spawn(move || {
         log::info!("Global hotkey listener iniciado");
         let tx = action_tx.clone();
@@ -291,7 +294,7 @@ fn emit_action(action: HotkeyAction, tx: &mpsc::Sender<HotkeyAction>) {
 }
 
 /// Escribe la accion de hotkey a un archivo de estado que QML puede leer.
-/// Path: ~/.cache/kde-assistant/hotkey.flag
+/// Path: ~/.cache/kde-assistant/hotkey.state
 fn write_hotkey_state(action: HotkeyAction) {
     let cache_dir = match dirs::cache_dir() {
         Some(d) => d.join("kde-assistant"),
@@ -305,6 +308,14 @@ fn write_hotkey_state(action: HotkeyAction) {
         .unwrap_or(0);
     let content = format!("{}|{}", action.as_str(), timestamp);
     let _ = std::fs::write(&path, content);
+}
+
+/// Borra el estado previo al arrancar (FIX-sesión-real).
+pub fn clear_hotkey_state() {
+    if let Some(cache_dir) = dirs::cache_dir() {
+        let path = cache_dir.join("kde-assistant").join("hotkey.state");
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 pub struct GlobalHotkeyListener;
@@ -347,5 +358,14 @@ mod tests {
         assert!(t.matches(Key::KeyA, true, true, false, false));
         assert!(!t.matches(Key::KeyA, true, false, false, false));
         assert!(!t.matches(Key::KeyB, true, true, false, false));
+    }
+
+    #[test]
+    fn clear_hotkey_state_removes_file() {
+        let dir = dirs::cache_dir().unwrap().join("kde-assistant");
+        let _ = std::fs::create_dir_all(&dir);
+        std::fs::write(dir.join("hotkey.state"), "toggle_window|1").unwrap();
+        clear_hotkey_state();
+        assert!(!dir.join("hotkey.state").exists());
     }
 }

@@ -561,6 +561,7 @@ ApplicationWindow {
 
     Component.onCompleted: {
         // El rescate va PRIMERO: si algo de abajo lanza, el diagnóstico igual corre.
+        root.startupTime = Date.now()
         rescueTimer.start()
         try { console.log("auth token len:", authToken.length, "| cache:", cacheBase) } catch (e1) {}
         try { loadSessions() } catch (e2) { console.warn("init loadSessions:", e2) }
@@ -1069,6 +1070,11 @@ ApplicationWindow {
     // aqui solo se refleja el estado visual (VoiceOrb).
     property string hotkeyStamp: ""
     property string lastHotkeyStamp: ""
+    // FIX-sesión-real: ignorar hotkeys más viejos que el arranque. El archivo
+    // hotkey.state persiste entre sesiones; sin este filtro, un toggle_window
+    // rancio ocultaba la ventana sola 300ms después de abrir (proceso sano,
+    // sin errores en el log).
+    property double startupTime: 0
     // F0-6: si no hay HOME, no leer /root ajeno: desactivar polling con aviso.
     // (Sin side-effects dentro del binding: el flag se calcula en onCompleted.)
     property bool filePollingEnabled: true
@@ -1121,28 +1127,35 @@ ApplicationWindow {
             if (req.readyState === 4) {
                 if (req.status === 200 || req.status === 0) {
                     var content = req.responseText.trim()
-                    if (content && content !== root.lastHotkeyStamp) {
-                        root.lastHotkeyStamp = content
-                        var parts = content.split("|")
-                        var action = parts[0]
-                        console.log("Hotkey recibido:", action)
-                        if (action === "toggle_window") {
-                            root.visible = !root.visible
-                        } else if (action === "push_to_talk_start") {
-                            if (root.voiceState === "speaking") bargeIn()
-                            root.voiceState = "listening"
-                        } else if (action === "push_to_talk_end") {
-                            root.voiceState = "idle"
-                        } else if (action === "push_to_talk") {
-                            if (root.voiceState === "speaking") {
-                                bargeIn()
-                                root.voiceState = "listening"
-                            } else {
-                                root.voiceState = root.voiceState === "listening" ? "idle" : "listening"
-                            }
-                        } else if (action === "new_session") {
-                            root.currentSessionId = ""
+                    if (!content || content === root.lastHotkeyStamp) return
+                    root.lastHotkeyStamp = content
+                    // Solo acciones más nuevas que el arranque (ver startupTime).
+                    var parts = content.split("|")
+                    var ts = parseInt(parts[1] || "0", 10)
+                    if (ts <= root.startupTime) return
+                    var action = parts[0]
+                    console.log("Hotkey recibido:", action)
+                    if (action === "toggle_window") {
+                        root.visible = !root.visible
+                        if (root.visible) {
+                            root.show()
+                            root.raise()
+                            root.requestActivate()
                         }
+                    } else if (action === "push_to_talk_start") {
+                        if (root.voiceState === "speaking") bargeIn()
+                        root.voiceState = "listening"
+                    } else if (action === "push_to_talk_end") {
+                        root.voiceState = "idle"
+                    } else if (action === "push_to_talk") {
+                        if (root.voiceState === "speaking") {
+                            bargeIn()
+                            root.voiceState = "listening"
+                        } else {
+                            root.voiceState = root.voiceState === "listening" ? "idle" : "listening"
+                        }
+                    } else if (action === "new_session") {
+                        root.currentSessionId = ""
                     }
                 }
             }

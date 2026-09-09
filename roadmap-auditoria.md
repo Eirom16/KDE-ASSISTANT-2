@@ -147,6 +147,7 @@
 | 2026-09-09 | F4 | Permisos 🟢🟡🔴 + `ApprovalManager` + `approval_needed` + botones badge, 5 tools sistema (16 total), auditoría SQLite + `/api/tools/audit` + diálogos | 64 passed, QML OK | pendiente |
 | 2026-09-09 | F5 | Facts (`user_facts` + `/api/memory/facts` + pestaña Memoria) y resumen auto (`summary`, trigger 60/40, `simple_completion`) | 67 passed, QML OK | pendiente |
 | 2026-09-09 | F6 | `kdeconnect` (17 tools), recordatorios persistentes + scheduler, todo habilitado por defecto | 71 passed, QML OK | pendiente |
-| 2026-09-09 | FIX-sesión-real | Auth QML sin env (módulo `qml.auth` generado + fallback; el motor prefiere el ÚLTIMO `-I`, al revés que el scanner), título sin overflow, fail-fast si puerto ocupado, `QML_DISABLE_DISK_CACHE`, diagnósticos 401/0, indicador ▾ | 72 passed, QML OK, auth live 401/200, 0 rechazos en 20s full-stack | pendiente |
+| 2026-09-09 | FIX-sesión-real | Auth QML sin env (módulo `qml.auth` generado + fallback; el motor prefiere el ÚLTIMO `-I`), título sin overflow, fail-fast si puerto ocupado, `QML_DISABLE_DISK_CACHE`, diagnósticos 401/0, indicador ▾ | 72 passed, QML OK, auth live 401/200, 0 rechazos en 20s full-stack | pendiente |
+| 2026-09-09 | FIX-autoocultado | `hotkey.state` rancio ocultaba la ventana al arrancar (probado: vieja=oculta, nueva=no) → filtro por timestamp + `clear_hotkey_state()` + toggle con show/raise; tray plano sin submenús (bloqueo Wayland) | 73 passed, QML OK | pendiente |
 
 > Cómo marcar: cambia `- [ ]` a `- [x]` y agrega fila en Registro con `cargo test --lib`, `cargo clippy`, `valida_qml`.
