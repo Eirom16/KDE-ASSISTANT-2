@@ -185,12 +185,9 @@ Rectangle {
                                     visible: root.editingId !== modelData.id
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
-                                    // Solo título y recortado en JS: el contador vive
-                                    // en la línea de fecha (antes se solapaban).
-                                    text: {
-                                        var t = modelData.title || qsTr("Sin titulo")
-                                        return t.length > 22 ? t.substring(0, 21) + "…" : t
-                                    }
+                                    // Título completo con elide (PillButton recorta).
+                                    // El contador vive solo en la línea de fecha.
+                                    text: modelData.title || qsTr("Sin titulo")
                                     iconName: modelData.id === root.currentId ? "hubot-16" : "history-16"
                                     active: modelData.id === root.currentId
                                     textSize: Theme.fontSizeBodySmall

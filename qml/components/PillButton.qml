@@ -38,9 +38,15 @@ Rectangle {
     Row {
         id: row
         anchors.centerIn: parent
+        // Acotar al ancho real: el texto centraba con su implicitWidth y
+        // desbordaba la pill por ambos lados (drawer). Con ancho explícito
+        // el Text puede hacer elide de verdad.
+        width: Math.min(implicitWidth, Math.max(0, parent.width - paddingH * 2))
+        clip: true
         spacing: Theme.spacingXs
 
         Octicon {
+            id: iconItem
             visible: root.iconName !== ""
             name: root.iconName
             size: root.iconSize
@@ -49,9 +55,13 @@ Rectangle {
         }
         Text {
             text: root.text
+            width: Math.max(0, row.width - (iconItem.visible ? root.iconSize + Theme.spacingXs : 0))
             font: Theme.font(root.textSize, Theme.weightBold, -0.12)
             color: root.active ? Theme.inkOnPrimary : Theme.ink
             anchors.verticalCenter: parent.verticalCenter
+            elide: Text.ElideRight
+            wrapMode: Text.NoWrap
+            maximumLineCount: 1
         }
     }
 
