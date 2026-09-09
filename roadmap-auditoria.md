@@ -149,5 +149,6 @@
 | 2026-09-09 | F6 | `kdeconnect` (17 tools), recordatorios persistentes + scheduler, todo habilitado por defecto | 71 passed, QML OK | pendiente |
 | 2026-09-09 | FIX-sesión-real | Auth QML sin env (módulo `qml.auth` generado + fallback; el motor prefiere el ÚLTIMO `-I`), título sin overflow, fail-fast si puerto ocupado, `QML_DISABLE_DISK_CACHE`, diagnósticos 401/0, indicador ▾ | 72 passed, QML OK, auth live 401/200, 0 rechazos en 20s full-stack | pendiente |
 | 2026-09-09 | FIX-autoocultado | `hotkey.state` rancio ocultaba la ventana al arrancar (probado: vieja=oculta, nueva=no) → filtro por timestamp + `clear_hotkey_state()` + toggle con show/raise; tray plano sin submenús (bloqueo Wayland) | 73 passed, QML OK | pendiente |
+| 2026-09-09 | FIX-wayland | Nativo no mapea ventana y GL bajo XWayland pinta negro → default `QT_QPA_PLATFORM=xcb` + `QT_QUICK_BACKEND=software` (respetan env existente) | 74 passed | pendiente |
 
 > Cómo marcar: cambia `- [ ]` a `- [x]` y agrega fila en Registro con `cargo test --lib`, `cargo clippy`, `valida_qml`.
