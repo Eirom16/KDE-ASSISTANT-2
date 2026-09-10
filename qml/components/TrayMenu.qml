@@ -159,6 +159,7 @@ Item {
         menuWindow.x = Math.round(px)
         menuWindow.y = Math.round(py)
         menuWindow.wasActive = false
+        menuWindow.openedAtMs = Date.now()
         menuWindow.visible = true
         menuWindow.requestActivate()
     }
@@ -173,16 +174,18 @@ Item {
         icon.source: Qt.resolvedUrl("../../assets/icons/kde-assistant.svg")
         icon.mask: false
 
-        // Click izquierdo: muestra/oculta. Click derecho: popup propio
-        // junto al icono (el Menu nativo se iba a la esquina superior).
+        // Click izquierdo: muestra/oculta. Cualquier otra activacion
+        // (derecho/medio/desconocida segun sesion SNI o XEmbed):
+        // popup propio junto al icono (el Menu nativo se iba arriba-izq).
         onActivated: function(reason) {
+            console.log("TrayMenu activado, reason:", reason)
             if (reason === SystemTrayIcon.Trigger) {
                 if (root.windowVisible) root.hideRequested()
                 else root.showRequested()
-            } else if (reason === SystemTrayIcon.Context) {
-                root.openMenu()
             } else if (reason === SystemTrayIcon.DoubleClick) {
                 root.showRequested()
+            } else {
+                root.openMenu()
             }
         }
     }
@@ -199,10 +202,13 @@ Item {
         visible: false
 
         // Cierre al perder foco (click fuera) o Escape.
+        // Con periodo de gracia: KWin puede negar/robar la activacion
+        // al mostrarse y no debe cerrarse solo en ese caso.
         property bool wasActive: false
+        property double openedAtMs: 0
         onActiveChanged: {
             if (active) wasActive = true
-            else if (wasActive) {
+            else if (wasActive && (Date.now() - openedAtMs > 500)) {
                 wasActive = false
                 visible = false
             }
