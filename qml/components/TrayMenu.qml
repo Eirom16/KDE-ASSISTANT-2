@@ -1,8 +1,6 @@
 // TrayMenu.qml - System Tray para KDE Plasma + popup propio posicionado.
-// Sin Menu nativo: Qt lo pintaba arriba-izquierda y la sesion no entrega
-// sus eventos a la app. El icono queda como indicador + click izquierdo,
-// y el menu (popup QML junto al icono) se abre con kebab de la ventana
-// o el atajo global de menu (open_menu via hotkey.state).
+// Menu nativo (click derecho, lo muestra la plataforma) + popup propio
+// (kebab de la ventana o atajo Super+Shift+M, colocado junto al icono).
 
 import QtQuick
 import QtQuick.Window
@@ -174,10 +172,84 @@ Item {
         icon.source: Qt.resolvedUrl("../../assets/icons/kde-assistant.svg")
         icon.mask: false
 
-        // Sin menu nativo: Qt lo abria solo y arriba-izquierda, y la sesion
-        // no entrega sus eventos a la app. El icono queda como indicador +
-        // click izquierdo; el menu es el popup propio (kebab o atajo).
+        // Menu nativo plano (como ayer): sin el registrado la sesion
+        // descarta el click derecho en silencio. Sin submenus anidados
+        // (en Qt6 Wayland pueden bloquear el popup y dejarlo inaccesible).
+        menu: Menu {
+            MenuItem {
+                text: root.windowVisible ? qsTr("Ocultar ventana") : qsTr("Mostrar ventana")
+                onTriggered: {
+                    if (root.windowVisible) root.hideRequested()
+                    else root.showRequested()
+                }
+            }
+            MenuItem {
+                text: qsTr("Dictar") + "  (" + root.pttShortcut + ")"
+                onTriggered: root.dictateRequested()
+            }
+            MenuSeparator { }
+            MenuItem {
+                text: qsTr("Nueva sesión")
+                onTriggered: root.newSessionRequested()
+            }
+            MenuItem {
+                visible: root.recentSessions.length > 0
+                text: root.recentSessions.length > 0 ? "• " + root.recentSessions[0].title : ""
+                onTriggered: root.openSessionRequested(root.recentSessions[0].id)
+            }
+            MenuItem {
+                visible: root.recentSessions.length > 1
+                text: root.recentSessions.length > 1 ? "• " + root.recentSessions[1].title : ""
+                onTriggered: root.openSessionRequested(root.recentSessions[1].id)
+            }
+            MenuItem {
+                visible: root.recentSessions.length > 2
+                text: root.recentSessions.length > 2 ? "• " + root.recentSessions[2].title : ""
+                onTriggered: root.openSessionRequested(root.recentSessions[2].id)
+            }
+            MenuItem {
+                visible: root.recentSessions.length > 3
+                text: root.recentSessions.length > 3 ? "• " + root.recentSessions[3].title : ""
+                onTriggered: root.openSessionRequested(root.recentSessions[3].id)
+            }
+            MenuItem {
+                visible: root.recentSessions.length > 4
+                text: root.recentSessions.length > 4 ? "• " + root.recentSessions[4].title : ""
+                onTriggered: root.openSessionRequested(root.recentSessions[4].id)
+            }
+            MenuSeparator { }
+            MenuItem {
+                text: qsTr("Buscar en la web…")
+                onTriggered: root.quickSearchRequested()
+            }
+            MenuItem {
+                text: qsTr("Abrir aplicación…")
+                onTriggered: root.quickOpenAppRequested()
+            }
+            MenuItem {
+                text: qsTr("Ver archivos de Documentos")
+                onTriggered: root.quickOpenFolderRequested()
+            }
+            MenuSeparator { }
+            MenuItem {
+                text: qsTr("Siempre visible")
+                checkable: true
+                checked: root.alwaysOnTop
+                onTriggered: root.alwaysOnTopToggled(!root.alwaysOnTop)
+            }
+            MenuItem {
+                text: qsTr("Configuración")
+                onTriggered: root.settingsRequested()
+            }
+            MenuSeparator { }
+            MenuItem {
+                text: qsTr("Salir")
+                onTriggered: root.quitRequested()
+            }
+        }
+
         // Click izquierdo: muestra/oculta (si la sesion lo entrega).
+        // El derecho lo muestra la plataforma con el menu nativo.
         onActivated: function(reason) {
             console.log("TrayMenu activado, reason:", reason)
             if (reason === SystemTrayIcon.Trigger) {
