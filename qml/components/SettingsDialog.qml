@@ -372,12 +372,19 @@ Rectangle {
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: Theme.spacingLg
+            anchors.leftMargin: Theme.spacingLg
+            anchors.topMargin: Theme.spacingLg
+            anchors.bottomMargin: Theme.spacingLg
+            // Margen derecho estrecho (8px): el ScrollBar del form queda
+            // pegado al borde del panel. Header, tabs y footer recuperan
+            // el aire con Layout.rightMargin: 10 para alinearse con el form.
+            anchors.rightMargin: Theme.spacingXs
             spacing: Theme.spacingMd
 
             // === Header ===
             RowLayout {
                 Layout.fillWidth: true
+                Layout.rightMargin: 10
                 spacing: Theme.spacingXs
 
                 Text {
@@ -399,6 +406,7 @@ Rectangle {
 
             Flow {
                 Layout.fillWidth: true
+                Layout.rightMargin: 10
                 spacing: Theme.spacingXs
                 PillButton {
                     text: qsTr("General")
@@ -427,10 +435,6 @@ Rectangle {
                 id: formScroll
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                // ScrollBar pegado al borde del panel (8px): se extiende
-                // 16px sobre el margen de 24px. El aire del contenido lo da
-                // el layout interior (-10px), igual que el chat.
-                Layout.rightMargin: -16
                 clip: true
                 ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
                 ScrollBar.vertical: ScrollBar {
@@ -1077,6 +1081,7 @@ Rectangle {
             // === Footer ===
             RowLayout {
                 Layout.fillWidth: true
+                Layout.rightMargin: 10
                 spacing: Theme.spacingXs
 
                 PillButton {
