@@ -427,6 +427,10 @@ Rectangle {
                 id: formScroll
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                // ScrollBar pegado al borde del panel (8px): se extiende
+                // 16px sobre el margen de 24px. El aire del contenido lo da
+                // el layout interior (-10px), igual que el chat.
+                Layout.rightMargin: -16
                 clip: true
                 ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
                 ScrollBar.vertical: ScrollBar {
@@ -446,7 +450,8 @@ Rectangle {
                 }
 
                 ColumnLayout {
-                    width: formScroll.availableWidth
+                    // 10px de aire a la derecha para el thumb overlay de 6px.
+                    width: formScroll.availableWidth - 10
                     spacing: Theme.spacingMd
 
                     // --- TAB: General ---
