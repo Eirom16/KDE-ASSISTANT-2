@@ -793,9 +793,9 @@ ApplicationWindow {
                 // Item con ancho acotado + clip: el texto largo (proveedor +
                 // modelo) nunca se sale del campo visible.
                 Item {
-                    anchors.right: parent.right
+                    anchors.right: menuBtn.left
                     anchors.verticalCenter: parent.verticalCenter
-                    anchors.rightMargin: Theme.spacingMd
+                    anchors.rightMargin: Theme.spacingXs
                     width: Math.min(statusRow.implicitWidth, parent.width * 0.5)
                     height: 20
                     clip: true
@@ -840,6 +840,21 @@ ApplicationWindow {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.checkBackend()
                     }
+                }
+
+                // Menu del tray (kebab): abre el mismo popup que el click
+                // derecho en el icono, por si la sesion no lo entrega.
+                IconButton {
+                    id: menuBtn
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.rightMargin: Theme.spacingXs
+                    iconName: "kebab-horizontal-16"
+                    iconSize: 16
+                    buttonSize: 28
+                    backgroundColor: "transparent"
+                    iconColor: Theme.inkMuted
+                    onClicked: tray.openMenu()
                 }
             }
 
