@@ -439,6 +439,13 @@ Rectangle {
                 ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
                 ScrollBar.vertical: ScrollBar {
                     policy: ScrollBar.AsNeeded
+                    // El ScrollView no dimensiona ni coloca las barras custom
+                    // (quedan en x=0,h=0): anclas explicitas a la derecha y
+                    // a altura completa del form. En ListView no hace falta.
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.right: parent.right
+                    anchors.rightMargin: 2
                     width: 6
                     padding: 0
                     // Sin pista ni linea separadora: solo el thumb flotante.
