@@ -50,6 +50,7 @@ Rectangle {
     property string shortcutToggle: "Super+Shift+A"
     property string shortcutPtt: "Super+Shift+V"
     property string shortcutNewSession: "Ctrl+Shift+K"
+    property string shortcutMenu: "Super+Shift+M"
 
     // Tabs
     property string activeTab: "general"  // general | voz | atajos | memoria
@@ -139,6 +140,7 @@ Rectangle {
                 root.shortcutToggle = cfg.shortcuts.toggle || "Super+Shift+A"
                 root.shortcutPtt = cfg.shortcuts.push_to_talk || "Super+Shift+V"
                 root.shortcutNewSession = cfg.shortcuts.new_session || "Ctrl+Shift+K"
+                root.shortcutMenu = cfg.shortcuts.menu || "Super+Shift+M"
                 root.memoryEnabled = cfg.memory.enabled !== false
                 root.autoSummarize = cfg.memory.auto_summarize !== false
                 // Volcar a los campos (rompe nada: asignacion directa)
@@ -153,6 +155,7 @@ Rectangle {
                 toggleField.value = root.shortcutToggle
                 pttField.value = root.shortcutPtt
                 newSessionField.value = root.shortcutNewSession
+                menuField.value = root.shortcutMenu
                 // Listar lo que ofrece la API (usa la key recien cargada)
                 fetchModels()
                 fetchAudioDevices()
@@ -315,6 +318,7 @@ Rectangle {
         cfg.shortcuts.toggle = toggleField.value
         cfg.shortcuts.push_to_talk = pttField.value
         cfg.shortcuts.new_session = newSessionField.value
+        cfg.shortcuts.menu = menuField.value
         cfg.memory.enabled = memoryEnabled
         cfg.memory.auto_summarize = autoSummarize
         // Refrescar props locales para que la UI quede consistente
@@ -330,6 +334,7 @@ Rectangle {
         root.shortcutToggle = toggleField.value
         root.shortcutPtt = pttField.value
         root.shortcutNewSession = newSessionField.value
+        root.shortcutMenu = menuField.value
 
         var xhr = new XMLHttpRequest()
         xhr.open("POST", backendUrl + "/api/config")
@@ -970,6 +975,12 @@ Rectangle {
                             Layout.fillWidth: true
                             label: qsTr("Nueva sesión")
                             placeholder: "Ctrl+Shift+K"
+                        }
+                        SettingsField {
+                            id: menuField
+                            Layout.fillWidth: true
+                            label: qsTr("Abrir menú")
+                            placeholder: "Super+Shift+M"
                         }
                         Text {
                             text: qsTr("Formato: Super/Shift/Ctrl/Alt + letra, dígito o F1-F12. Se aplican al guardar (sin reiniciar). En Wayland algunos atajos los reserva el compositor.")

@@ -151,6 +151,7 @@ Se usan via `rdev` (cross-platform, no requiere KGlobalAccel):
 | `Super+Shift+A` | Mostrar/ocultar ventana |
 | `Super+Shift+V` | Push-to-talk (toggle microfono) |
 | `Ctrl+Shift+K` | Nueva sesion |
+| `Super+Shift+M` | Abrir menú (popup junto a la bandeja) |
 
 El backend escribe a `~/.cache/kde-assistant/hotkey.state` con timestamp; el QML hace polling cada 300ms via `XMLHttpRequest` y reacciona.
 

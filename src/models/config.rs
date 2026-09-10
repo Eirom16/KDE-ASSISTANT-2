@@ -309,6 +309,9 @@ pub struct ShortcutsConfig {
     /// Nueva sesión (antes hardcodeado a Ctrl+Shift+K sin campo propio).
     #[serde(default = "default_shortcut_new_session")]
     pub new_session: String,
+    /// Abre el menu del tray (popup propio junto al icono).
+    #[serde(default = "default_shortcut_menu")]
+    pub menu: String,
 }
 
 fn default_shortcut_toggle() -> String {
@@ -319,6 +322,9 @@ fn default_shortcut_ptt() -> String {
 }
 fn default_shortcut_new_session() -> String {
     "Ctrl+Shift+K".to_string()
+}
+fn default_shortcut_menu() -> String {
+    "Super+Shift+M".to_string()
 }
 
 /// Memoria local y privada (F5): facts que el usuario gestiona + resumen
@@ -479,6 +485,7 @@ impl Config {
                 toggle: default_shortcut_toggle(),
                 push_to_talk: default_shortcut_ptt(),
                 new_session: default_shortcut_new_session(),
+                menu: default_shortcut_menu(),
             },
             memory: MemoryConfig::default(),
         }

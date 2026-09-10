@@ -28,6 +28,8 @@ pub enum HotkeyAction {
     PushToTalkStart,
     PushToTalkEnd,
     NewSession,
+    /// Abre el menu del tray (popup propio junto al icono).
+    OpenMenu,
 }
 
 impl HotkeyAction {
@@ -37,6 +39,7 @@ impl HotkeyAction {
             HotkeyAction::PushToTalkStart => "push_to_talk_start",
             HotkeyAction::PushToTalkEnd => "push_to_talk_end",
             HotkeyAction::NewSession => "new_session",
+            HotkeyAction::OpenMenu => "open_menu",
         }
     }
 }
@@ -164,6 +167,7 @@ fn default_shortcuts() -> ShortcutsConfig {
         toggle: "Super+Shift+A".to_string(),
         push_to_talk: "Super+Shift+V".to_string(),
         new_session: "Ctrl+Shift+K".to_string(),
+        menu: "Super+Shift+M".to_string(),
     }
 }
 
@@ -226,6 +230,13 @@ fn on_key(key: Key, pressed: bool, tx: &mpsc::Sender<HotkeyAction>, config: &Arc
         alt: false,
         key: Key::KeyK,
     });
+    let menu = parse_shortcut(&sc.menu).unwrap_or(Shortcut {
+        super_: true,
+        shift: true,
+        ctrl: false,
+        alt: false,
+        key: Key::KeyM,
+    });
 
     // Push-to-talk por release: si se suelta la tecla PTT mientras estaba activo,
     // terminar aunque los modificadores ya se hayan soltado.
@@ -266,6 +277,8 @@ fn on_key(key: Key, pressed: bool, tx: &mpsc::Sender<HotkeyAction>, config: &Arc
         emit_action(HotkeyAction::ToggleWindow, tx);
     } else if new_session.matches(key, super_, shift, ctrl, alt) {
         emit_action(HotkeyAction::NewSession, tx);
+    } else if menu.matches(key, super_, shift, ctrl, alt) {
+        emit_action(HotkeyAction::OpenMenu, tx);
     }
 }
 
@@ -340,6 +353,9 @@ mod tests {
         assert!(p.key == Key::KeyV);
         let n = parse_shortcut("Ctrl+Shift+K").unwrap();
         assert!(n.ctrl && n.shift && n.key == Key::KeyK);
+        let m = parse_shortcut("Super+Shift+M").unwrap();
+        assert!(m.super_ && m.shift && !m.ctrl && m.key == Key::KeyM);
+        assert_eq!(HotkeyAction::OpenMenu.as_str(), "open_menu");
     }
 
     #[test]

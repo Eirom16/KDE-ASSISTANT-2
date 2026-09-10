@@ -239,7 +239,7 @@ fn main() -> Result<()> {
                 }
             }
         });
-        log::info!("Global hotkey listener: Super+Shift+A (toggle), Super+Shift+V (PTT mantener), Ctrl+Shift+K (new session)");
+        log::info!("Global hotkey listener: Super+Shift+A (toggle), Super+Shift+V (PTT mantener), Ctrl+Shift+K (new session), Super+Shift+M (menu)");
     } else {
         log::info!("Global shortcuts deshabilitados (--no-shortcuts)");
     }

@@ -1151,6 +1151,11 @@ ApplicationWindow {
                         }
                     } else if (action === "new_session") {
                         root.currentSessionId = ""
+                    } else if (action === "open_menu") {
+                        root.show()
+                        root.raise()
+                        root.requestActivate()
+                        tray.openMenu()
                     }
                 }
             }
