@@ -174,9 +174,85 @@ Item {
         icon.source: Qt.resolvedUrl("../../assets/icons/kde-assistant.svg")
         icon.mask: false
 
-        // Click izquierdo: muestra/oculta. Cualquier otra activacion
-        // (derecho/medio/desconocida segun sesion SNI o XEmbed):
-        // popup propio junto al icono (el Menu nativo se iba arriba-izq).
+        // Menu nativo: debe estar registrado para que la sesion entregue
+        // el click derecho (sin menu, la plataforma lo descarta en silencio).
+        // Plano, sin submenus anidados (en Qt6 Wayland pueden bloquearlo).
+        menu: Menu {
+            MenuItem {
+                text: root.windowVisible ? qsTr("Ocultar ventana") : qsTr("Mostrar ventana")
+                onTriggered: {
+                    if (root.windowVisible) root.hideRequested()
+                    else root.showRequested()
+                }
+            }
+            MenuItem {
+                text: qsTr("Dictar") + "  (" + root.pttShortcut + ")"
+                onTriggered: root.dictateRequested()
+            }
+            MenuSeparator { }
+            MenuItem {
+                text: qsTr("Nueva sesión")
+                onTriggered: root.newSessionRequested()
+            }
+            MenuItem {
+                visible: root.recentSessions.length > 0
+                text: root.recentSessions.length > 0 ? "• " + root.recentSessions[0].title : ""
+                onTriggered: root.openSessionRequested(root.recentSessions[0].id)
+            }
+            MenuItem {
+                visible: root.recentSessions.length > 1
+                text: root.recentSessions.length > 1 ? "• " + root.recentSessions[1].title : ""
+                onTriggered: root.openSessionRequested(root.recentSessions[1].id)
+            }
+            MenuItem {
+                visible: root.recentSessions.length > 2
+                text: root.recentSessions.length > 2 ? "• " + root.recentSessions[2].title : ""
+                onTriggered: root.openSessionRequested(root.recentSessions[2].id)
+            }
+            MenuItem {
+                visible: root.recentSessions.length > 3
+                text: root.recentSessions.length > 3 ? "• " + root.recentSessions[3].title : ""
+                onTriggered: root.openSessionRequested(root.recentSessions[3].id)
+            }
+            MenuItem {
+                visible: root.recentSessions.length > 4
+                text: root.recentSessions.length > 4 ? "• " + root.recentSessions[4].title : ""
+                onTriggered: root.openSessionRequested(root.recentSessions[4].id)
+            }
+            MenuSeparator { }
+            MenuItem {
+                text: qsTr("Buscar en la web…")
+                onTriggered: root.quickSearchRequested()
+            }
+            MenuItem {
+                text: qsTr("Abrir aplicación…")
+                onTriggered: root.quickOpenAppRequested()
+            }
+            MenuItem {
+                text: qsTr("Ver archivos de Documentos")
+                onTriggered: root.quickOpenFolderRequested()
+            }
+            MenuSeparator { }
+            MenuItem {
+                text: qsTr("Siempre visible")
+                checkable: true
+                checked: root.alwaysOnTop
+                onTriggered: root.alwaysOnTopToggled(!root.alwaysOnTop)
+            }
+            MenuItem {
+                text: qsTr("Configuración")
+                onTriggered: root.settingsRequested()
+            }
+            MenuSeparator { }
+            MenuItem {
+                text: qsTr("Salir")
+                onTriggered: root.quitRequested()
+            }
+        }
+
+        // Click izquierdo: muestra/oculta. El derecho lo muestra la
+        // plataforma con el menu nativo (el popup propio solo va por kebab,
+        // para no abrir dos menus a la vez).
         onActivated: function(reason) {
             console.log("TrayMenu activado, reason:", reason)
             if (reason === SystemTrayIcon.Trigger) {
@@ -184,8 +260,6 @@ Item {
                 else root.showRequested()
             } else if (reason === SystemTrayIcon.DoubleClick) {
                 root.showRequested()
-            } else {
-                root.openMenu()
             }
         }
     }
