@@ -561,6 +561,10 @@ ApplicationWindow {
 
     Component.onCompleted: {
         root.startupTime = Date.now()
+        // Centrar al arrancar: sin x/y el WM la deja arriba-izquierda.
+        // Asignacion unica (no binding) para no pelear con el usuario.
+        root.x = Math.round((Screen.desktopAvailableWidth - root.width) / 2)
+        root.y = Math.round((Screen.desktopAvailableHeight - root.height) / 2)
         console.log("auth token len:", authToken.length, "| cache:", cacheBase)
         loadSessions()
         checkBackend()

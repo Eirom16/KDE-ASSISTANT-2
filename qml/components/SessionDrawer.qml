@@ -61,9 +61,14 @@ Rectangle {
     border.width: 1
     border.color: Theme.hairline
 
+    // Sin animacion en el binding inicial (x: 0 -> -drawerWidth): el drawer
+    // debe arrancar cerrado sin flash de apertura. Solo animar toggles.
+    property bool animateX: false
     Behavior on x {
+        enabled: root.animateX
         NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutCubic }
     }
+    Component.onCompleted: Qt.callLater(function() { root.animateX = true })
 
     // === Header ===
     Item {
