@@ -105,7 +105,7 @@ fn main() -> Result<()> {
     {
         eprintln!(
             "Puerto {HTTP_PORT} en uso. ¿Hay otra instancia de kde-assistant corriendo?\n\
-             Ciérrala (o `pkill -f kde-assistant`) y vuelve a intentar."
+             Ciérrala (o `pkill -f kde-assistant; pkill -f \"qml6.*Main.qml\"`) y vuelve a intentar."
         );
         std::process::exit(1);
     }
@@ -252,6 +252,14 @@ fn main() -> Result<()> {
     })
     .context("setting up ctrl-c handler")?;
 
+    // Autolimpieza: QMLs huespedes de ejecuciones previas. Si el backend
+    // murio (p. ej. `pkill -f kde-assistant`) su qml6 queda vivo con icono
+    // y menu propios en la bandeja, y cada arranque suma uno duplicado.
+    // Solo cuando vamos a lanzar nuestra UI (con --ui-off no tocar nada).
+    if !ui_off {
+        cull_stale_qml();
+    }
+
     // Lanzar UI QML como subproceso
     if !ui_off {
         log::info!("Lanzando UI QML (qml6)...");
@@ -283,18 +291,42 @@ fn main() -> Result<()> {
             qml_cmd.env("QT_QPA_PLATFORM", "xcb");
             log::info!("UI: forzando XWayland (QT_QPA_PLATFORM=xcb) por compatibilidad");
         }
-        let qml_status = qml_cmd
+        let mut child = qml_cmd
             .arg("qml/Main.qml")
             // Sin caché de QML: evita arrancar con bytecode rancio tras actualizar.
             .env("QML_DISABLE_DISK_CACHE", "1")
             .env("QML_XHR_ALLOW_FILE_READ", "1")
             .env("KDE_ASSISTANT_TOKEN", &local_token)
-            .status()
+            .spawn()
             .context(
                 "lanzando qml6 (asegurate de tener Qt6 instalado: pacman -S qt6-declarative)",
             )?;
+        log::info!("UI QML lanzada (pid {})", child.id());
 
-        log::info!("UI QML termino con codigo {:?}", qml_status.code());
+        // Supervisar al hijo: si el backend muere, el qml6 no debe quedar
+        // huesped (icono y menu duplicados en la bandeja). Salir cuando
+        // el hijo termine o llegue Ctrl+C (matando al hijo en ese caso).
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    log::info!("UI QML termino con codigo {:?}", status.code());
+                    break;
+                }
+                Ok(None) => {
+                    if shutdown.load(Ordering::SeqCst) {
+                        log::info!("Apagando UI QML (pid {})...", child.id());
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+                Err(e) => {
+                    log::warn!("Esperando a la UI QML: {e}");
+                    break;
+                }
+            }
+        }
     } else {
         log::info!("UI desactivada por flag --ui-off");
         log::info!("Presiona Ctrl+C para salir.");
@@ -305,6 +337,40 @@ fn main() -> Result<()> {
 
     log::info!("Apagando KDE Assistant v2...");
     Ok(())
+}
+
+/// Patron (ERE para pgrep/pkill -f) que identifica QMLs huespedes de
+/// esta app: procesos `qml6 ... qml/Main.qml` de ejecuciones previas.
+fn stale_qml_pattern() -> &'static str {
+    "qml6.*Main\\.qml"
+}
+
+/// Mata QMLs huespedes de ejecuciones previas (best-effort). Sin esto,
+/// cada arranque tras un backend muerto suma un icono y un menu
+/// duplicados en la bandeja del sistema.
+fn cull_stale_qml() {
+    let pattern = stale_qml_pattern();
+    // Listar primero para el log (pgrep se excluye solo).
+    let listed = Command::new("pgrep")
+        .args(["-af", pattern])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default();
+    let victims: Vec<&str> = listed
+        .lines()
+        .filter(|l| !l.contains("pgrep") && !l.contains("pkill"))
+        .collect();
+    if victims.is_empty() {
+        return;
+    }
+    log::warn!(
+        "QMLs huespedes de ejecuciones previas ({}): los cierro para no duplicar la bandeja",
+        victims.len()
+    );
+    for v in &victims {
+        log::warn!("  huesped: {v}");
+    }
+    let _ = Command::new("pkill").args(["-f", pattern]).status();
 }
 
 fn truncate(s: &str, max: usize) -> String {
