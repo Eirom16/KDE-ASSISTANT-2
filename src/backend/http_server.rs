@@ -389,10 +389,11 @@ async fn voice_log(
         );
     }
     let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
-    // Reusar la sesion indicada si existe; si no, crear "Conversacion por voz".
+    // Reusar la sesion indicada si existe; si no, la sesion unica de voz
+    // (evita fragmentar el historial en N sesiones homonimas).
     let sid = match body.session_id.as_deref() {
         Some(id) if sessions.get_session(id).ok().flatten().is_some() => id.to_string(),
-        _ => match sessions.create_session("Conversacion por voz") {
+        _ => match sessions.get_or_create_voice_session() {
             Ok(s) => s.id,
             Err(e) => {
                 return (

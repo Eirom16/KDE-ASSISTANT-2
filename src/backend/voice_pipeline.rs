@@ -642,12 +642,25 @@ impl VoicePipeline {
                 }
             }
         }
-        let messages = vec![
-            Message::system(cfg.ai.system_prompt.clone()),
-            Message::user(text.to_string()),
-        ];
-        // NOTA F0-1: la voz aún no inyecta historial de sesión (siguiente paso).
-        // Al menos respetar los flags de tools para no llamar tools deshabilitadas.
+        let mut messages = vec![Message::system(system_prompt)];
+        // Contexto de voz: mismo hilo canonico "Conversacion por voz"
+        // (ventana deslizante de 40 para no saturar al LLM). Sin esto, Voz
+        // olvidaba cada turno; ver roadmap "Contexto en voz".
+        let mut voice_session_id: Option<String> = None;
+        {
+            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            if let Ok(vs) = sessions.get_or_create_voice_session() {
+                if let Ok(history) = sessions.get_messages(&vs.id) {
+                    const MAX_VOICE_HISTORY: usize = 40;
+                    let start = history.len().saturating_sub(MAX_VOICE_HISTORY);
+                    messages.extend(history.into_iter().skip(start));
+                }
+                voice_session_id = Some(vs.id);
+            }
+        }
+        messages.push(Message::user(text.to_string()));
+        // NOTA F0-1: la voz ahora inyecta historial (hecho).
+        // Respetar los flags de tools para no llamar tools deshabilitadas.
         let tools = tool_registry::filtered_tools(&cfg);
 
         let (stream_tx, mut stream_rx) = tokio::sync::mpsc::channel::<StreamEvent>(256);
@@ -665,7 +678,7 @@ impl VoicePipeline {
                 exec,
                 appr,
                 crate::backend::approvals::ApprovalPolicy::voice(),
-                None,
+                voice_session_id,
                 stream_tx,
             )
             .await

@@ -205,6 +205,24 @@ impl SessionManager {
         Ok(out)
     }
 
+    /// Titulo canonico de la sesion unica de voz.
+    pub const VOICE_SESSION_TITLE: &'static str = "Conversacion por voz";
+
+    /// Reutiliza la sesion de voz existente (la mas reciente con ese
+    /// titulo) o la crea. Evita fragmentar el historial del habla en
+    /// N sesiones homonimas y da contexto al pipeline de voz.
+    pub fn get_or_create_voice_session(&self) -> Result<Session> {
+        if let Ok(list) = self.list_sessions() {
+            if let Some(s) = list
+                .into_iter()
+                .find(|s| s.title == Self::VOICE_SESSION_TITLE)
+            {
+                return Ok(s);
+            }
+        }
+        self.create_session(Self::VOICE_SESSION_TITLE)
+    }
+
     pub fn create_session(&self, title: impl Into<String>) -> Result<Session> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
@@ -678,6 +696,23 @@ mod tests {
         let m = test_db().unwrap();
         let s = m.create_session("S").unwrap();
         assert_eq!(m.delete_trailing_after_last_user(&s.id).unwrap(), 0);
+    }
+
+    /// La sesion de voz es unica: get_or_create no debe crear duplicadas
+    /// y siempre devuelve la mas reciente con el titulo canonico.
+    #[test]
+    fn voice_session_is_reused_not_duplicated() {
+        let m = test_db().unwrap();
+        let a = m.get_or_create_voice_session().unwrap();
+        let b = m.get_or_create_voice_session().unwrap();
+        assert_eq!(a.id, b.id);
+        let list = m.list_sessions().unwrap();
+        assert_eq!(
+            list.iter()
+                .filter(|s| s.title == SessionManager::VOICE_SESSION_TITLE)
+                .count(),
+            1
+        );
     }
 
     /// F0-1: tras un turno con tool calls, recargar la sesión conserva
