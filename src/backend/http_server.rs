@@ -142,6 +142,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/audio/devices", get(audio_devices))
         .route("/api/audio/device", post(set_audio_device))
         .route("/api/tools", get(list_tools))
+        .route("/api/tools/execute", post(execute_tool_manual))
         .route("/api/tools/approve", post(approve_tool))
         .route("/api/tools/audit", get(list_tool_audit))
         .route(
@@ -621,6 +622,108 @@ pub struct ApproveToolRequest {
 }
 
 /// Resuelve una petición de confirmación pendiente (F4-1).
+#[derive(Debug, Deserialize)]
+pub struct ExecuteToolRequest {
+    pub name: String,
+    /// Objeto JSON o string JSON (el QML lo manda como string).
+    #[serde(default)]
+    pub arguments: serde_json::Value,
+    #[serde(default)]
+    pub session_id: Option<String>,
+}
+
+/// POST /api/tools/execute — ejecución manual desde la UI (p. ej. adjuntar
+/// imagen desde el InputBar). El click explícito del usuario cuenta como
+/// confirmación: se permiten 🟢/🟡; 🔴 exige el flujo de aprobación del LLM.
+/// Persiste el mensaje tool en la sesión (con stub assistant cuando hay
+/// imagen, para que el historial la muestre adjunta al asistente).
+async fn execute_tool_manual(
+    State(state): State<AppState>,
+    Json(body): Json<ExecuteToolRequest>,
+) -> impl IntoResponse {
+    let name = body.name.trim();
+    if name.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "nombre de herramienta vacío" })),
+        );
+    }
+    if !tool_registry::all_tools()
+        .iter()
+        .any(|t| t.function.name == name)
+    {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": format!("herramienta desconocida: {name}") })),
+        );
+    }
+    if tool_registry::permission(name) == tool_registry::Permission::Red {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "esta herramienta exige el flujo de aprobación del agente (nivel rojo)"
+            })),
+        );
+    }
+
+    let arguments: std::collections::HashMap<String, serde_json::Value> = match &body.arguments {
+        serde_json::Value::Object(m) => m.clone().into_iter().collect(),
+        serde_json::Value::String(s) => serde_json::from_str(s).unwrap_or_default(),
+        _ => Default::default(),
+    };
+    let session_id = body
+        .session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let tool_call = crate::models::ToolCall {
+        id: format!("manual-{}", uuid::Uuid::new_v4()),
+        name: name.to_string(),
+        arguments,
+    };
+
+    match state
+        .tools
+        .execute(
+            &tool_call,
+            &crate::backend::tool_executor::ToolCtx::auto(session_id.clone()),
+        )
+        .await
+    {
+        Ok(result) => {
+            if let Some(sid) = session_id {
+                let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+                if result.image_url.is_some() {
+                    let _ = sessions
+                        .add_message(&sid, &Message::assistant("Imagen adjuntada al chat."));
+                }
+                let _ = sessions.add_message(
+                    &sid,
+                    &Message::tool_with_image(
+                        result.tool_call_id.clone(),
+                        result.content.clone(),
+                        result.image_url.clone(),
+                    ),
+                );
+            }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "ok": true,
+                    "success": result.success,
+                    "content": result.content,
+                    "image_url": result.image_url,
+                })),
+            )
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
+        ),
+    }
+}
+
 async fn approve_tool(
     State(state): State<AppState>,
     Json(body): Json<ApproveToolRequest>,
@@ -1563,5 +1666,97 @@ fn truncate(s: &str, max: usize) -> String {
         let mut t: String = s.chars().take(max).collect();
         t.push_str("...");
         t
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::ai_service::AiService;
+    use crate::backend::chime_player::ChimePlayer;
+    use crate::backend::session_manager::SessionManager;
+    use crate::backend::speech_service::SpeechService;
+    use crate::backend::tool_executor::ToolExecutor;
+    use crate::backend::voice_pipeline::VoicePipeline;
+
+    async fn test_state() -> AppState {
+        let cfg = Arc::new(RwLock::new(Config::default()));
+        let sessions = Arc::new(Mutex::new(SessionManager::new().await.unwrap()));
+        let ai = Arc::new(AiService::new(cfg.clone()).await.unwrap());
+        let tools = Arc::new(ToolExecutor::new(cfg.clone()));
+        let approvals = Arc::new(crate::backend::approvals::ApprovalManager::new());
+        let speech = Arc::new(SpeechService::new(cfg.clone()).await.unwrap());
+        let chimes = Arc::new(ChimePlayer::new().await.unwrap());
+        let voice = Arc::new(VoicePipeline::new(
+            cfg.clone(),
+            speech.clone(),
+            ai.clone(),
+            tools.clone(),
+            approvals.clone(),
+            sessions.clone(),
+            chimes,
+        ));
+        AppState {
+            ai,
+            tools,
+            approvals,
+            config: cfg,
+            sessions,
+            speech,
+            voice,
+            local_token: "test-token".into(),
+            chat_tasks: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            dictation_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
+    /// F0-3: solo el bearer exacto pasa el middleware de auth.
+    #[test]
+    fn bearer_auth_validation() {
+        let mut headers = axum::http::HeaderMap::new();
+        assert!(!crate::backend::auth::valid_bearer(&headers, "expected"));
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            "Bearer expected".parse().unwrap(),
+        );
+        assert!(crate::backend::auth::valid_bearer(&headers, "expected"));
+        assert!(!crate::backend::auth::valid_bearer(&headers, "otro"));
+    }
+
+    /// Dictado: start cuando la voz del asistente ya graba -> 409 Conflict.
+    #[tokio::test]
+    async fn dictate_start_conflicts_with_voice_pipeline() {
+        let state = test_state().await;
+        state.voice.start_recording(48000);
+        let resp = dictate_start(State(state.clone())).await.into_response();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+        state.voice.stop_recording();
+    }
+
+    /// Dictado: stop sin dictado activo -> 409 Conflict.
+    #[tokio::test]
+    async fn dictate_stop_without_start_conflicts() {
+        let state = test_state().await;
+        let resp = dictate_stop(State(state)).await.into_response();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    /// Dictado: start+stop sin audio -> transcript vacio y la bandera queda
+    /// liberada (puedes volver a dictar).
+    #[tokio::test]
+    async fn dictate_roundtrip_empty_transcript_releases_flag() {
+        let state = test_state().await;
+        let resp = dictate_start(State(state.clone())).await.into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let resp = dictate_stop(State(state.clone())).await.into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 16 * 1024)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["transcript"], "");
+        assert!(!state
+            .dictation_active
+            .load(std::sync::atomic::Ordering::SeqCst));
     }
 }

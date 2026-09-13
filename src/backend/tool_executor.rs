@@ -1976,6 +1976,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn show_image_file_uri_outside_allowed_paths_is_denied() {
+        let ex = dummy_executor();
+        let mut args = HashMap::new();
+        args.insert(
+            "source".to_string(),
+            serde_json::Value::String("file:///etc/passwd".to_string()),
+        );
+        let r = ex
+            .execute(&tc("show_image", args), &ToolCtx::auto(None))
+            .await
+            .unwrap();
+        assert!(!r.success, "esperaba rechazo: {}", r.content);
+        assert!(
+            r.content.contains("no permitido") || r.content.contains("allowed_paths"),
+            "contenido inesperado: {}",
+            r.content
+        );
+    }
+
+    /// F0-2: URL con Content-Length > 10MB se rechaza sin descargarla.
+    /// Servidor TCP local que solo manda cabeceras (cero transferencia real).
+    #[tokio::test]
+    async fn show_image_huge_url_is_rejected_before_download() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || loop {
+            if let Ok((mut stream, _)) = listener.accept() {
+                use std::io::Read;
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+                use std::io::Write;
+                let _ = stream.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 20000000\r\n\r\n",
+                );
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+            }
+        });
+
+        let ex = dummy_executor();
+        let mut args = HashMap::new();
+        args.insert(
+            "source".to_string(),
+            serde_json::Value::String(format!("http://127.0.0.1:{port}/big.png")),
+        );
+        let r = ex
+            .execute(&tc("show_image", args), &ToolCtx::auto(None))
+            .await
+            .unwrap();
+        assert!(!r.success, "esperaba rechazo: {}", r.content);
+        assert!(
+            r.content.contains("demasiado grande"),
+            "contenido inesperado: {}",
+            r.content
+        );
+    }
+
+    #[tokio::test]
     async fn open_url_rejects_non_http() {
         let ex = dummy_executor();
         for bad in [

@@ -680,6 +680,49 @@ mod tests {
         assert_eq!(m.delete_trailing_after_last_user(&s.id).unwrap(), 0);
     }
 
+    /// F0-1: tras un turno con tool calls, recargar la sesión conserva
+    /// el assistant_with_tools, el mensaje tool y su image_url.
+    #[test]
+    fn tool_turns_persist_roundtrip_with_image() {
+        let m = test_db().unwrap();
+        let s = m.create_session("S").unwrap();
+        m.add_message(&s.id, &Message::user("muéstrame una imagen"))
+            .unwrap();
+        let tc = crate::models::ToolCall {
+            id: "call_1".into(),
+            name: "show_image".into(),
+            arguments: std::collections::HashMap::new(),
+        };
+        m.add_message(&s.id, &Message::assistant_with_tools("", vec![tc]))
+            .unwrap();
+        m.add_message(
+            &s.id,
+            &Message::tool_with_image("call_1", "Imagen lista", Some("/tmp/x.png".into())),
+        )
+        .unwrap();
+
+        let msgs = m.get_messages(&s.id).unwrap();
+        assert_eq!(msgs.len(), 3);
+        match &msgs[1] {
+            Message::Assistant { tool_calls, .. } => {
+                assert_eq!(tool_calls.len(), 1);
+                assert_eq!(tool_calls[0].name, "show_image");
+            }
+            other => panic!("esperaba assistant, llegó: {other:?}"),
+        }
+        match &msgs[2] {
+            Message::Tool {
+                tool_call_id,
+                image_url,
+                ..
+            } => {
+                assert_eq!(tool_call_id, "call_1");
+                assert_eq!(image_url.as_deref(), Some("/tmp/x.png"));
+            }
+            other => panic!("esperaba tool, llegó: {other:?}"),
+        }
+    }
+
     #[test]
     fn tool_audit_roundtrip() {
         let m = test_db().unwrap();
