@@ -104,6 +104,48 @@ ApplicationWindow {
         return html
     }
 
+    // Maneja la subida de archivos (texto/imagen) desde el InputBar
+    function handleFileUpload(filePath, fileType) {
+        console.log("Archivo seleccionado:", filePath, "tipo:", fileType)
+        if (fileType === "image") {
+            // Para imagenes, usamos la tool show_image
+            var xhr = new XMLHttpRequest()
+            xhr.open("POST", backendUrl + "/api/tools/execute")
+            xhr.setRequestHeader("Content-Type", "application/json")
+            setAuth(xhr)
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === XMLHttpRequest.DONE && (xhr.status === 200 || xhr.status === 201)) {
+                    try {
+                        var result = JSON.parse(xhr.responseText)
+                        if (result.image_url) {
+                            // La tool show_image ya inyecta la imagen en el chat
+                            root.sendMessage("[Imagen subida: " + filePath + "]")
+                        }
+                    } catch (e) {
+                        console.error("Error subiendo imagen:", e)
+                    }
+                }
+            }
+            xhr.send(JSON.stringify({
+                name: "show_image",
+                arguments: JSON.stringify({ source: filePath, caption: "" }),
+                session_id: currentSessionId ? currentSessionId : null
+            }))
+        } else {
+            // Para archivos de texto, leemos el contenido y lo enviamos como mensaje
+            var file = new XMLHttpRequest()
+            file.open("GET", "file://" + filePath)
+            file.onreadystatechange = function() {
+                if (file.readyState === XMLHttpRequest.DONE && file.status === 200) {
+                    var content = file.responseText
+                    var preview = content.length > 500 ? content.substring(0, 500) + "..." : content
+                    root.sendMessage("[Archivo: " + filePath + "]\n```\n" + preview + "\n```")
+                }
+            }
+            file.send()
+        }
+    }
+
     // Envia un mensaje al backend con streaming SSE y agrega la respuesta al chat
     function sendMessage(text) {
         if (!text || text.trim().length === 0) return
@@ -1079,11 +1121,20 @@ ApplicationWindow {
         onQuitRequested: Qt.quit()
     }
 
-    // === Burbuja flotante (ventana independiente, visible aunque Main este oculta) ===
-    FloatingOrb {
-        id: floatingOrb
-        voiceState: root.voiceState
-        amplitude: root.voiceLevel
+    // === Desktop Agent (personaje): character.enabled en config.json ===
+    // Por defecto desactivado (opt-in hasta que maduren las fases de overlay).
+    // El personaje refleja el estado del asistente.
+    // Fase 2-3: AgentWindowStandalone (Window XWayland).
+    // Fase 4+: AgentMain.qml proceso nativo Wayland (layer-shell).
+    AgentWindowStandalone {
+        id: agentWindow
+        agentEnabled: root.characterEnabled
+        reducedMotion: root.characterReducedMotion
+        presenceMode: root.characterMode
+        sleepAfterSecs: root.characterSleepSecs
+        characterSize: root.characterSize
+        assistantState: root.voiceState
+        voiceLevel: root.voiceLevel
     }
 
     // === Hotkey polling: lee ~/.cache/kde-assistant/hotkey.state ===

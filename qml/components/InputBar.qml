@@ -4,6 +4,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Qt.labs.platform
 import qml 1.0
 
 Item {
@@ -25,6 +26,7 @@ Item {
     signal sendClicked(string text)
     signal micClicked()
     signal stopClicked()
+    signal fileSelected(string filePath, string fileType)  // fileType: "text" | "image"
 
     function focusInput() {
         input.forceActiveFocus()
@@ -133,6 +135,35 @@ Item {
                 }
         }
 
+            // === Boton adjuntar archivo (dropdown) ===
+            Menu {
+                id: attachMenu
+                MenuItem {
+                    text: qsTr("Subir archivo de texto")
+                    onTriggered: fileDialog.open()
+                }
+                MenuItem {
+                    text: qsTr("Subir imagen")
+                    onTriggered: fileDialog.open()
+                }
+            }
+
+            IconButton {
+                Layout.alignment: Qt.AlignVCenter
+                iconName: "upload-16"
+                iconSize: Theme.iconSizeMd
+                buttonSize: Theme.buttonIconSize
+                backgroundColor: Theme.surfaceChip
+                iconColor: Theme.ink
+                opacity: root.streaming ? 0.4 : 1.0
+                enabled: !root.streaming
+                onClicked: {
+                    if (!root.streaming) {
+                        attachMenu.popup()
+                    }
+                }
+            }
+
             // === Boton microfono (circular) ===
             // Durante streaming se deshabilita: solo el boton enviar hace stop.
             IconButton {
@@ -206,5 +237,26 @@ Item {
                 event.accepted = true
             }
         }
+    }
+
+    // === File dialog (Qt.labs.platform FileDialog, API Qt 6.11) ===
+    // Props: fileMode, file, files, currentFile(s), folder, options, nameFilters,
+    // selectedNameFilter, defaultSuffix, acceptLabel, rejectLabel.
+    FileDialog {
+        id: fileDialog
+        title: qsTr("Seleccionar archivo")
+        fileMode: FileDialog.OpenFile
+        nameFilters: ["Archivos de texto (*.txt *.md *.json *.js *.ts *.py *.rs *.html *.css)",
+                      "Imagenes (*.png *.jpg *.jpeg *.webp *.gif *.bmp)",
+                      "Todos los archivos (*)"]
+        onAccepted: {
+            if (file.toString().length > 0) {
+                var path = file.toString()
+                if (path.startsWith("file://")) path = path.substring(7)
+                var isImage = /\.(png|jpe?g|webp|gif|bmp)$/i.test(path)
+                root.fileSelected(path, isImage ? "image" : "text")
+            }
+        }
+        onRejected: console.log("File dialog cancelled")
     }
 }
