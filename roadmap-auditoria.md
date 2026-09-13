@@ -80,6 +80,10 @@
 - [x] `Octicon`: fallback warn + reintento `qrc:/` (Effects se deja para Fase 1: Qt5Compat funciona)
 - [x] 360px sin h-scroll en Main/Chat/Settings/ImagePreview (SessionDrawer `AlwaysOff`, Chat `ListView`, ImagePreview `Flickable` solo-pan)
 
+### F0-9 Cierre de ventana y personaje (2026-09-13)
+- [x] Cerrar ventana con X → ocultar a tray, no apagar (wake word sigue vivo)
+- [x] Overlay layer-shell y standalone no se duplican (`KDE_ASSISTANT_AGENT_OVERLAY`)
+
 ---
 
 ## Fase 1 — Asistente funcional (P1)
@@ -158,5 +162,9 @@
 | 2026-09-12 | FEAT-personaje | Desktop Agent fases 1-8 integrado: `qml/agent/` (27 archivos), CharacterConfig (opt-in), AgentWindowStandalone reemplaza FloatingOrb, overlay proceso separado layer-shell, tab Personaje en Settings, docs DESKTOP-AGENT-DESIGN.md + prompt v2; licencia blobatar MIT preservada | 74 passed + valida_agent OK | `0d6ee50` |
 | 2026-09-12 | FEAT-elide | PillButton elideText + marquesina hover; drawer de sesiones lo usa | — | `8b0252a` |
 | 2026-09-12 | REFACTOR-wayland | Preferir Wayland nativo si hay sesión Wayland y no hay QT_QPA_PLATFORM forzado; xcb fallback; rollback = revert de este commit | prueba en vivo Fase 2 | `e3744a1` |
+| 2026-09-13 | LIVE-verify | Ventana mapea bajo Wayland nativo (dictado usado por usuario), tray DBusMenu `/MenuBar` exportado (busctl), chat SSE Groq OK, overlay personaje visible. Hallazgos → 3 fixes abajo | — | — |
+| 2026-09-13 | FEAT-endpoint | `POST /api/tools/execute` (antes inexistente: rompía "Subir imagen" del InputBar). Permisos: solo 🟢/🟡, 🔴→403. Persiste mensaje tool (stub assistant si hay imagen). Verificado en vivo: imagen ok, `/etc/passwd` denegado, sesión roundtrip OK | 81 passed | `d15acf1` |
+| 2026-09-13 | FIX-personaje-duplicado | Overlay layer-shell + standalone corrían a la vez (solapados en la esquina). `KDE_ASSISTANT_AGENT_OVERLAY=1` del main.rs apaga la standalone. Verificado: un solo personaje en captura | 81 passed | `edfe972` |
+| 2026-09-13 | FIX-cerrar-ventana | Cerrar la ventana mataba el proceso qml6 → main.rs apagaba todo (wake word y hotkeys morían). Ahora `onClosing` → `hide()` (modo tray); salir real sigue en tray → "Salir" | 81 passed, `valida_qml` OK | `d7fbbc6` |
 
 > Cómo marcar: cambia `- [ ]` a `- [x]` y agrega fila en Registro con `cargo test --lib`, `cargo clippy`, `valida_qml`.
