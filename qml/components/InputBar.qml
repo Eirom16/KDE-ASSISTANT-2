@@ -32,6 +32,11 @@ Item {
         input.forceActiveFocus()
     }
 
+    // Hook de prueba: abre el menú adjuntar (usado por el harness visual).
+    function debugOpenAttachMenu() {
+        attachMenu.open()
+    }
+
     implicitWidth: 480
     // Altura barre + hint; la barre crece con el contenido
     implicitHeight: bar.implicitHeight + hintText.implicitHeight + 8
@@ -135,20 +140,9 @@ Item {
                 }
         }
 
-            // === Boton adjuntar archivo (dropdown) ===
-            Menu {
-                id: attachMenu
-                MenuItem {
-                    text: qsTr("Subir archivo de texto")
-                    onTriggered: fileDialog.open()
-                }
-                MenuItem {
-                    text: qsTr("Subir imagen")
-                    onTriggered: fileDialog.open()
-                }
-            }
-
+            // === Boton adjuntar archivo (popup custom estilo Apple) ===
             IconButton {
+                id: attachButton
                 Layout.alignment: Qt.AlignVCenter
                 iconName: "upload-16"
                 iconSize: Theme.iconSizeMd
@@ -159,7 +153,7 @@ Item {
                 enabled: !root.streaming
                 onClicked: {
                     if (!root.streaming) {
-                        attachMenu.popup()
+                        attachMenu.open()
                     }
                 }
             }
@@ -199,6 +193,94 @@ Item {
                     } else if (root.canSend) {
                         root.sendClicked(input.text)
                         input.text = ""
+                    }
+                }
+            }
+        }
+    }
+
+    // === Menu adjuntar (popup propio con tokens Theme, no Menu nativo) ===
+    // Parentado al boton: se posiciona relativo a el, justo encima.
+    Popup {
+        id: attachMenu
+        parent: attachButton
+        y: -implicitHeight - 8
+        x: attachButton.width / 2 - implicitWidth / 2
+        implicitWidth: 220
+        implicitHeight: attachCol.implicitHeight + topPadding + bottomPadding
+        padding: 6
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            radius: Theme.radiusMd
+            color: Theme.surface
+            border.width: 1
+            border.color: Theme.hairline
+
+            // Reusable shadow token, igual que la barra
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: -2
+                z: -1
+                radius: parent.radius + 2
+                color: Theme.shadowSoft
+                opacity: 0.5
+            }
+        }
+
+        contentItem: Column {
+            id: attachCol
+            spacing: 2
+
+            Repeater {
+                model: [
+                    { icon: "file-16", label: qsTr("Subir archivo de texto") },
+                    { icon: "image-16", label: qsTr("Subir imagen") }
+                ]
+                delegate: Rectangle {
+                    id: attachRow
+                    required property var modelData
+                    width: attachCol.width
+                    height: 36
+                    radius: Theme.radiusSm
+                    color: rowHover.containsMouse ? Theme.surfaceHover : "transparent"
+
+                    Behavior on color {
+                        ColorAnimation { duration: Theme.animFast }
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 10
+                        spacing: 10
+
+                        Octicon {
+                            name: attachRow.modelData.icon
+                            size: Theme.iconSizeSm
+                            color: Theme.ink
+                            Layout.alignment: Qt.AlignVCenter
+                        }
+                        Text {
+                            text: attachRow.modelData.label
+                            font: Theme.font(Theme.fontSizeBodySmall, Theme.weightNormal, 0)
+                            color: Theme.ink
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
+                            elide: Text.ElideRight
+                            maximumLineCount: 1
+                        }
+                    }
+
+                    MouseArea {
+                        id: rowHover
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            attachMenu.close()
+                            fileDialog.open()
+                        }
                     }
                 }
             }
@@ -247,7 +329,7 @@ Item {
     Labs.FileDialog {
         id: fileDialog
         title: qsTr("Seleccionar archivo")
-        fileMode: FileDialog.OpenFile
+        fileMode: Labs.FileDialog.OpenFile
         nameFilters: ["Archivos de texto (*.txt *.md *.json *.js *.ts *.py *.rs *.html *.css)",
                       "Imagenes (*.png *.jpg *.jpeg *.webp *.gif *.bmp)",
                       "Todos los archivos (*)"]
