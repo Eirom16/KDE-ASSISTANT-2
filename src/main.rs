@@ -279,24 +279,7 @@ fn main() -> Result<()> {
         // -apptype widget es necesario para QApplication (SystemTrayIcon lo requiere)
         // QML_XHR_ALLOW_FILE_READ=1 permite al polling de hotkeys leer el
         // archivo de estado via file:// (deshabilitado por defecto en QML)
-        // Módulo qml.auth: token + cacheDir sin depender de
-        // Qt.platform.environment (nulo en algunas sesiones qml6).
-        // KDE_ASSISTANT_TOKEN queda como respaldo.
-        let auth_inc = kde_assistant_lib::backend::auth::write_qml_auth_module(&local_token)
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|e| {
-                log::warn!("No se pudo generar el módulo QML de auth: {e}");
-                String::new()
-            });
-        let mut qml_cmd = Command::new("qml6");
-        // El módulo generado va el ÚLTIMO: ante un módulo duplicado el motor
-        // QML prefiere el último -I (verificado empíricamente; qmlimportscanner
-        // dice lo contrario). Así eclipsa al fallback vacío de qml/auth.
-        if !auth_inc.is_empty() {
-            qml_cmd.args(["-apptype", "widget", "-I", ".", "-I", &auth_inc]);
-        } else {
-            qml_cmd.args(["-apptype", "widget", "-I", "."]);
-        }
+        //
         // Plataforma: Wayland nativo si está disponible y QT_QPA_PLATFORM no está forzado a xcb.
         // FIX-wayland: en nativo la ventana a veces no mapea; XWayland es fallback seguro.
         // Respetar QT_QPA_PLATFORM si ya está seteado (wayland/xcb/offscreen).
@@ -313,6 +296,34 @@ fn main() -> Result<()> {
                     "xcb".to_string()
                 }
             });
+
+        // Si el overlay del personaje va a correr (Wayland + enabled), el
+        // AgentWindowStandalone de Main.qml se desactiva: dos personajes a la
+        // vez seria un duplicado (el flag se hornea en el módulo QML generado,
+        // porque Qt.platform.environment es null en muchas sesiones qml6).
+        let character_enabled =
+            runtime.block_on(async { backend.config.read().await.character.enabled });
+        let spawn_overlay = character_enabled && platform == "wayland";
+
+        // Módulo qml.auth: token + cacheDir + flag de overlay, sin depender de
+        // Qt.platform.environment (nulo en varias sesiones qml6).
+        // KDE_ASSISTANT_TOKEN / KDE_ASSISTANT_AGENT_OVERLAY quedan como respaldo.
+        let auth_inc =
+            kde_assistant_lib::backend::auth::write_qml_auth_module(&local_token, spawn_overlay)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|e| {
+                    log::warn!("No se pudo generar el módulo QML de auth: {e}");
+                    String::new()
+                });
+        let mut qml_cmd = Command::new("qml6");
+        // El módulo generado va el ÚLTIMO: ante un módulo duplicado el motor
+        // QML prefiere el último -I (verificado empíricamente; qmlimportscanner
+        // dice lo contrario). Así eclipsa al fallback vacío de qml/auth.
+        if !auth_inc.is_empty() {
+            qml_cmd.args(["-apptype", "widget", "-I", ".", "-I", &auth_inc]);
+        } else {
+            qml_cmd.args(["-apptype", "widget", "-I", "."]);
+        }
         match platform.as_str() {
             "wayland" => log::info!("UI: usando Wayland nativo (QT_QPA_PLATFORM=wayland)"),
             "xcb" => log::info!("UI: forzando XWayland (QT_QPA_PLATFORM=xcb) por compatibilidad"),
@@ -320,12 +331,6 @@ fn main() -> Result<()> {
         }
         qml_cmd.env("QT_QPA_PLATFORM", &platform);
 
-        // Si el overlay del personaje va a correr (Wayland + enabled), el
-        // AgentWindowStandalone de Main.qml se desactiva: dos personajes a la
-        // vez seria un duplicado invisible (misma esquina, ~30MB extra).
-        let character_enabled =
-            runtime.block_on(async { backend.config.read().await.character.enabled });
-        let spawn_overlay = character_enabled && platform == "wayland";
         let mut child = qml_cmd
             .arg("qml/Main.qml")
             // Sin caché de QML: evita arrancar con bytecode rancio tras actualizar.

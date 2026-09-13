@@ -9,4 +9,7 @@ import QtQuick
 QtObject {
     readonly property string token: ""
     readonly property string cacheDir: ""
+    // Dev default: sin overlay layer-shell → la ventana standalone puede
+    // mostrarse. En ejecución real main.rs hornea el valor correcto.
+    readonly property bool agentOverlay: false
 }

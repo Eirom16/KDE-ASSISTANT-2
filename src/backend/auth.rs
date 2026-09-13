@@ -72,25 +72,29 @@ pub fn path_requires_auth(path: &str) -> bool {
     path.starts_with("/api/")
 }
 
-/// Escribe el módulo QML `qml.auth` con el token y el cacheDir.
+/// Escribe el módulo QML `qml.auth` con el token, el cacheDir y el flag
+/// de overlay del personaje.
 ///
-/// Por qué: `Qt.platform.environment` no existe en todas las sesiones qml6
-/// (devuelve null → token vacío → 401 en todo). En vez de leer env en QML,
-/// el backend genera este módulo en `~/.cache/kde-assistant/qml/auth/` y
-/// main.rs lo añade con `qml6 -I <dir>` ANTES que `-I .`. El QML lo importa
-/// como `import qml.auth 1.0` → `AuthToken.token`, `AuthToken.cacheDir`.
+/// Por qué: `Qt.platform.environment` no existe en muchas sesiones qml6
+/// (devuelve null → cualquier env leída desde QML cae al fallback SIEMPRE).
+/// Es la misma causa del personaje duplicado: el flag `KDE_ASSISTANT_AGENT_OVERLAY`
+/// nunca llegaba al QML y la ventana standalone se mostraba pese al overlay.
+/// En vez de leer env en QML, el backend genera este módulo en
+/// `~/.cache/kde-assistant/qml/` y main.rs lo añade con `qml6 -I <dir>`
+/// ANTES que `-I .`. El QML lo importa como `import qml.auth 1.0` →
+/// `AuthToken.token`, `AuthToken.cacheDir`, `AuthToken.agentOverlay`.
 /// En repo hay un fallback vacío (`qml/auth/`) para dev/valida_qml.
 ///
 /// Retorna el directorio a pasar con `-I`.
-pub fn write_qml_auth_module(token: &str) -> Result<PathBuf> {
+pub fn write_qml_auth_module(token: &str, agent_overlay: bool) -> Result<PathBuf> {
     let dir = dirs::cache_dir()
         .ok_or_else(|| anyhow::anyhow!("sin cache_dir"))?
         .join("kde-assistant/qml-generated");
-    write_qml_auth_module_to(token, &dir)?;
+    write_qml_auth_module_to(token, agent_overlay, &dir)?;
     Ok(dir)
 }
 
-fn write_qml_auth_module_to(token: &str, dir: &Path) -> Result<()> {
+fn write_qml_auth_module_to(token: &str, agent_overlay: bool, dir: &Path) -> Result<()> {
     use std::fmt::Write as _;
     // Módulo `qml.auth`: <dir>/qml/auth/{qmldir,AuthToken.qml}.
     let mod_dir = dir.join("qml/auth");
@@ -132,6 +136,7 @@ fn write_qml_auth_module_to(token: &str, dir: &Path) -> Result<()> {
          QtObject {{\n\
          \x20   readonly property string token: {lit}\n\
          \x20   readonly property string cacheDir: {cache_lit}\n\
+         \x20   readonly property bool agentOverlay: {agent_overlay}\n\
          }}\n"
     );
     std::fs::write(mod_dir.join("AuthToken.qml"), qml).context("AuthToken.qml")?;
@@ -262,7 +267,7 @@ mod tests {
     fn qml_module_writes_token_and_cache() {
         let dir = std::env::temp_dir().join(format!("kda_qmlauth_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        write_qml_auth_module_to("abc123\"\\", &dir).unwrap();
+        write_qml_auth_module_to("abc123\"\\", true, &dir).unwrap();
         let mod_dir = dir.join("qml/auth");
         let qmldir = std::fs::read_to_string(mod_dir.join("qmldir")).unwrap();
         assert!(qmldir.contains("module qml.auth"));
@@ -273,6 +278,17 @@ mod tests {
         assert!(qml.contains("file://"));
         assert!(qml.contains("readonly property string token"));
         assert!(qml.contains("readonly property string cacheDir"));
+        assert!(qml.contains("readonly property bool agentOverlay: true"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn qml_module_bakes_overlay_off() {
+        let dir = std::env::temp_dir().join(format!("kda_qmlauth_off_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        write_qml_auth_module_to("t", false, &dir).unwrap();
+        let qml = std::fs::read_to_string(dir.join("qml/auth/AuthToken.qml")).unwrap();
+        assert!(qml.contains("readonly property bool agentOverlay: false"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

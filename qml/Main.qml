@@ -1168,30 +1168,17 @@ ApplicationWindow {
     // El personaje refleja el estado del asistente.
     // Fase 2-3: AgentWindowStandalone (Window XWayland).
     // Fase 4+: AgentMain.qml proceso nativo Wayland (layer-shell).
-    // main.rs fija KDE_ASSISTANT_AGENT_OVERLAY=1 cuando el overlay corre:
-    // en ese caso la ventana standalone queda OFF (evita personaje duplicado).
-    // Qt.platform.environment puede estar null al inicio en sesiones Wayland,
-    // así que por defecto asumimos overlay activo (conservador: ocultamos el
-    // standalone hasta que se confirme). Un Timer relee tras 200ms.
-    function envOr(name, fallback) {
+    //
+    // ¿Overlay corriendo? Lo sabe main.rs y lo hornea en el módulo
+    // generado qml.auth (AuthToken.agentOverlay). El env
+    // KDE_ASSISTANT_AGENT_OVERLAY nunca llegó a QML: Qt.platform.environment
+    // es null en esta sesión qml6 (comprobado: typeof === "undefined");
+    // ese era el origen del personaje duplicado (FIX v3).
+    readonly property bool agentOverlayRunning: readAgentOverlay()
+    function readAgentOverlay() {
         try {
-            var env = Qt.platform.environment
-            if (!env) return fallback
-            var v = env[name]
-            return v === undefined || v === null ? fallback : String(v)
-        } catch (err) { return fallback }
-    }
-    // Default true (conservador): standalone oculto hasta relectura del env.
-    property bool agentOverlayRunning: true
-    Timer {
-        id: overlayCheckTimer
-        interval: 200
-        repeat: false
-        running: true
-        onTriggered: {
-            var val = envOr("KDE_ASSISTANT_AGENT_OVERLAY", "0")
-            root.agentOverlayRunning = (val === "1")
-        }
+            return AuthToken.agentOverlay === true
+        } catch (e) { return false }
     }
     AgentWindowStandalone {
         id: agentWindow
