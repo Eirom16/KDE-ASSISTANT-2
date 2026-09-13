@@ -21,6 +21,9 @@ use crate::backend::chime_player::ChimePlayer;
 use crate::backend::speech_service::SpeechService;
 use crate::backend::tool_executor::ToolExecutor;
 use crate::backend::tool_registry;
+use crate::backend::tts_stream::SentenceChunker;
+use crate::backend::vad::{VadConfig, VadEvent, VadState};
+use crate::backend::voice_state::{VoiceErrorKind, VoiceState, VoiceStateMachine};
 use crate::models::{Config, Message, StreamEvent};
 use tokio::sync::RwLock;
 
@@ -88,7 +91,14 @@ pub struct VoicePipeline {
     speaking_since_ms: Arc<AtomicU32>,
     /// Bus push de estado/nivel para la UI (F3-1, SSE `/api/voice/stream`).
     signal_tx: broadcast::Sender<VoiceSignal>,
-    last_state: Arc<Mutex<String>>,
+    /// Máquina de estados formal (plan §3). La UI recibe solo el mapeo
+    /// legado a idle/listening/processing/speaking.
+    machine: Mutex<VoiceStateMachine>,
+    /// Dictado al input del chat en curso (lo marca http_server en
+    /// `/api/dictate/*`). Mientras está activo el pipeline NO puede
+    /// arrancar escucha: dictado y conversación comparten mic y buffer,
+    /// y si ambos corren se pisan (bug reportado: "se invocan los dos").
+    dictation: Arc<AtomicBool>,
     /// Throttle del nivel: último envío (ms epoch + valor).
     last_level_ms: Arc<AtomicU32>,
     last_level_sent: Arc<AtomicU32>, // f32 bits
@@ -135,7 +145,8 @@ impl VoicePipeline {
             barge_counter: Arc::new(AtomicU32::new(0)),
             speaking_since_ms: Arc::new(AtomicU32::new(0)),
             signal_tx: broadcast::channel(64).0,
-            last_state: Arc::new(Mutex::new("idle".to_string())),
+            machine: Mutex::new(VoiceStateMachine::new()),
+            dictation: Arc::new(AtomicBool::new(false)),
             last_level_ms: Arc::new(AtomicU32::new(0)),
             last_level_sent: Arc::new(AtomicU32::new(0.0f32.to_bits())),
         }
@@ -146,12 +157,33 @@ impl VoicePipeline {
         self.signal_tx.subscribe()
     }
 
-    /// Último estado emitido ("idle" si aún ninguno).
+    /// Último estado emitido, mapeado al formato legado de la UI
+    /// ("idle" si aún ninguno). La UI filtra estados desconocidos.
     pub fn current_state(&self) -> String {
-        self.last_state
+        self.machine
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .clone()
+            .state()
+            .ui_label()
+            .to_string()
+    }
+
+    /// Estado formal actual (para lógica interna; no para la UI).
+    pub fn state(&self) -> VoiceState {
+        self.machine
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .state()
+    }
+
+    /// Handle compartido del flag de dictado (para http_server).
+    pub fn dictation_flag(&self) -> Arc<AtomicBool> {
+        self.dictation.clone()
+    }
+
+    /// ¿Hay un dictado al input del chat en curso?
+    pub fn is_dictating(&self) -> bool {
+        self.dictation.load(Ordering::Relaxed)
     }
 
     pub fn amplitude(&self) -> f32 {
@@ -164,6 +196,7 @@ impl VoicePipeline {
 
     /// Barge-in silencioso: interrumpe TTS y reinicia escucha sin chime.
     /// Usado tanto por deteccion de voz (amplitud) como por hotkey/HTTP.
+    /// Transición formal: RESPONDING -> INTERRUPTED -> LISTENING (plan §12).
     pub fn barge_in_silent(&self) {
         if !self.speaking.load(Ordering::Relaxed) {
             return;
@@ -179,7 +212,10 @@ impl VoicePipeline {
             }
             buf.recording.store(true, Ordering::Relaxed);
         }
-        self.emit_state("listening");
+        if self.state() == VoiceState::Responding {
+            self.emit_state(VoiceState::Interrupted);
+        }
+        self.emit_state(VoiceState::Listening);
         log::info!("Barge-in: TTS interrumpido, escucha reiniciada");
     }
 
@@ -303,7 +339,12 @@ impl VoicePipeline {
     }
 
     /// Inicia la grabacion (chime + buffer + recording=true).
+    /// No hace nada si hay un dictado al chat en curso (comparten micro).
     pub fn start_listening(&self) {
+        if self.is_dictating() {
+            log::info!("[VOICE] start_listening ignorado: dictado al chat en curso");
+            return;
+        }
         self.chimes.play_activate();
         let sr = self
             .buffer
@@ -312,35 +353,35 @@ impl VoicePipeline {
             .sample_rate
             .load(Ordering::SeqCst);
         self.start_recording(sr.max(1));
-        self.emit_state("listening");
+        self.emit_state(VoiceState::Listening);
         log::info!("Escuchando... (grabacion iniciada)");
     }
 
-    /// Emite el estado de voz a la UI (SSE + archivo compat).
-    /// Estados: idle | listening | processing | speaking
-    /// El archivo se conserva para debug/fallback; la UI usa el SSE.
-    pub fn emit_state(&self, state: &str) {
-        *self.last_state.lock().unwrap_or_else(|e| e.into_inner()) = state.to_string();
-        let cache_dir = match dirs::cache_dir() {
-            Some(d) => d.join("kde-assistant"),
-            None => return,
-        };
-        let _ = std::fs::create_dir_all(&cache_dir);
-        let path = cache_dir.join("voice.state");
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0);
-        let content = format!("{state}|{timestamp}");
-        let _ = std::fs::write(&path, content);
-        let _ = self.signal_tx.send(VoiceSignal::State {
-            state: state.to_string(),
-        });
+    /// Marca el inicio de un tramo de habla (estado + flags de barge-in).
+    /// `speaking_since` arranca la gracia anti-altavoz de 500ms (F0-6).
+    fn begin_speaking(&self) {
+        self.emit_state(VoiceState::Responding);
+        self.speaking.store(true, Ordering::Relaxed);
+        self.speaking_since_ms
+            .store(now_ms() as u32, Ordering::Relaxed);
+        self.barge_counter.store(0, Ordering::Relaxed);
     }
 
-    /// Compat: emite estado sin instancia (solo archivo, sin SSE).
-    /// Preferir `emit_state` cuando haya `&self`.
-    pub fn write_state(state: &str) {
+    /// Cierra el tramo de habla (el estado de salida lo decide el llamador).
+    fn end_speaking(&self) {
+        self.speaking.store(false, Ordering::Relaxed);
+        self.barge_counter.store(0, Ordering::Relaxed);
+    }
+
+    /// Emite el estado de voz a la UI (SSE + archivo compat) a través de la
+    /// máquina de estados formal. La UI recibe el mapeo legado:
+    /// idle | listening | processing | speaking.
+    /// El archivo se conserva para debug/fallback; la UI usa el SSE.
+    pub fn emit_state(&self, state: VoiceState) {
+        let ui = {
+            let mut m = self.machine.lock().unwrap_or_else(|e| e.into_inner());
+            m.transition(state).ui_label().to_string()
+        };
         let cache_dir = match dirs::cache_dir() {
             Some(d) => d.join("kde-assistant"),
             None => return,
@@ -351,13 +392,20 @@ impl VoicePipeline {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis())
             .unwrap_or(0);
-        let content = format!("{state}|{timestamp}");
+        let content = format!("{ui}|{timestamp}");
         let _ = std::fs::write(&path, content);
+        let _ = self.signal_tx.send(VoiceSignal::State { state: ui });
     }
 
     /// Detiene la grabacion y procesa el utterance (STT -> LLM -> TTS).
     /// Retorna (transcript, response).
+    /// No interviene si hay un dictado al chat en curso: el audio del buffer
+    /// pertenece al dictado (PTT-end no debe robarlo).
     pub async fn stop_and_process(&self) -> Result<(String, String)> {
+        if self.is_dictating() {
+            log::info!("[VOICE] stop_and_process ignorado: dictado al chat en curso");
+            return Ok((String::new(), String::new()));
+        }
         self.chimes.play_deactivate();
         let audio = self.stop_recording();
         if audio.is_empty() {
@@ -376,28 +424,36 @@ impl VoicePipeline {
             .clone()
     }
 
-    /// Graba hasta ~1.2s de silencio sostenido (tras 1.5s mínimos) o `max_secs`.
+    /// Graba hasta que el VAD detecta fin de turno o se agota `max_secs`.
     /// Asume `start_listening()` ya llamado. Detiene la grabación y devuelve
-    /// el audio a 16kHz. (Antes vivía inline en main.rs; F3-2 lo reutiliza.)
+    /// el audio a 16kHz.
+    ///
+    /// VAD (plan §6): silencio sostenido configurable (`vad_silence_ms`),
+    /// mínimo grabado (`vad_min_record_ms`) y piso de ruido adaptativo
+    /// (`vad_adaptive`): ya no depende de un timeout fijo ni de un umbral
+    /// rígido, tolera pausas naturales y no se cuelga en ambientes ruidosos.
     pub async fn record_until_silence(&self, max_secs: u64) -> Vec<f32> {
-        const MIN_SECS: f32 = 1.5;
-        const SILENCE_RMS: f32 = 0.02;
-        const SILENCE_POLLS: u32 = 6;
-        const POLL_MS: u64 = 200;
-        let mut silent_polls = 0u32;
+        const POLL_MS: u64 = 100;
+        const RMS_WINDOW_SECS: f32 = 0.25;
+        let vad_cfg = VadConfig::from(&self.config.read().await.speech);
+        let mut vad = VadState::new(vad_cfg);
         let mut elapsed_ms = 0u64;
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(POLL_MS)).await;
             elapsed_ms += POLL_MS;
             let sr = self.sample_rate().max(1) as f32;
-            let recorded_secs = self.recording_len() as f32 / sr;
-            let rms = self.recent_rms((sr * 0.4) as usize);
-            if recorded_secs >= MIN_SECS && rms < SILENCE_RMS {
-                silent_polls += 1;
-            } else {
-                silent_polls = 0;
+            let recorded_ms = (self.recording_len() as f32 / sr * 1000.0) as u64;
+            let rms = self.recent_rms((sr * RMS_WINDOW_SECS) as usize);
+            if vad.push(rms, recorded_ms, POLL_MS) == VadEvent::TurnEnded {
+                log::info!(
+                    "VAD: fin de turno ({}ms grabados, umbral {:.3})",
+                    recorded_ms,
+                    vad.silence_threshold()
+                );
+                break;
             }
-            if silent_polls >= SILENCE_POLLS || elapsed_ms >= max_secs * 1000 {
+            if elapsed_ms >= max_secs * 1000 {
+                log::info!("VAD: timeout de grabación ({}s)", max_secs);
                 break;
             }
         }
@@ -407,6 +463,8 @@ impl VoicePipeline {
     /// Espera voz real hasta `window_secs` (para conversación continua F3-2).
     /// Detecta nivel alto 3 polls seguidos (~300ms) con variación (evita
     /// disparar con un nivel congelado si no hay frames del mic).
+    /// Si el usuario empieza un dictado al chat a mitad de la espera,
+    /// devuelve false de inmediato: el micro queda para el dictado.
     pub async fn wait_for_speech(&self, window_secs: u64) -> bool {
         const POLL_MS: u64 = 100;
         const NEEDED: u32 = 3;
@@ -416,6 +474,9 @@ impl VoicePipeline {
         let polls = window_secs.saturating_mul(1000) / POLL_MS;
         for _ in 0..polls {
             tokio::time::sleep(std::time::Duration::from_millis(POLL_MS)).await;
+            if self.is_dictating() {
+                return false;
+            }
             let lvl = self.amplitude();
             if (lvl - start_lvl).abs() > 0.02 {
                 varied = true;
@@ -442,6 +503,12 @@ impl VoicePipeline {
         max_extra: u32,
     ) -> Vec<(String, String)> {
         let mut turns = Vec::new();
+        // El wake word puede saltar durante un dictado al chat: el micro
+        // es del dictado; este turno de voz se descarta entero.
+        if self.is_dictating() {
+            log::info!("[VOICE] turno wake ignorado: dictado al chat en curso");
+            return turns;
+        }
         // Primer turno (el llamador ya hizo start_listening tras el saludo).
         let audio = self.record_until_silence(max_secs).await;
         if audio.is_empty() {
@@ -467,6 +534,10 @@ impl VoicePipeline {
 
     /// Encadena turnos manos-libres tras un primer turno (F3-2).
     /// Solo actúa si `auto_listen` está activo. Retorna los turnos extra.
+    ///
+    /// Barge-in (plan §12): si el usuario interrumpió el TTS, la escucha ya
+    /// está activa (reiniciada por `barge_in_silent`); ese audio se procesa
+    /// como turno nuevo en vez de descartarse.
     pub async fn continue_conversation(
         &self,
         max_secs: u64,
@@ -482,15 +553,22 @@ impl VoicePipeline {
             if !enabled {
                 break;
             }
-            // No pisar una escucha ya reiniciada por barge-in.
+            if self.is_dictating() {
+                // El dictado al chat tiene prioridad exclusiva sobre el
+                // micro: no confundir su grabación con un turno de voz.
+                break;
+            }
             if self.is_recording() {
-                break;
+                // Barge-in: la escucha ya está activa (la reinició
+                // `barge_in_silent`); su audio es el turno nuevo.
+                log::info!("[VOICE] turno por barge-in: procesando audio ya capturado");
+            } else {
+                log::info!("Escucha continua: esperando voz ({window}s)...");
+                if !self.wait_for_speech(window).await {
+                    break;
+                }
+                self.start_listening(); // no-op defensivo si ganó un dictado
             }
-            log::info!("Escucha continua: esperando voz ({window}s)...");
-            if !self.wait_for_speech(window).await {
-                break;
-            }
-            self.start_listening();
             let audio = self.record_until_silence(max_secs).await;
             if audio.is_empty() {
                 break;
@@ -520,6 +598,12 @@ impl VoicePipeline {
         audio: &[f32],
         tx: Option<tokio::sync::mpsc::Sender<StreamEvent>>,
     ) -> Result<(String, String)> {
+        let op = self
+            .machine
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .begin_operation();
+        log::info!("[VOICE] operación #{op}: procesando utterance");
         let r = self.process_utterance_inner(audio, tx).await;
         // Guardar ANTES de marcar idle: la UI lee el intercambio al ver idle.
         if let Ok((t, r)) = &r {
@@ -540,7 +624,7 @@ impl VoicePipeline {
             .recording
             .load(Ordering::Relaxed);
         if !is_listening {
-            self.emit_state("idle");
+            self.emit_state(VoiceState::Idle);
         }
         r
     }
@@ -551,7 +635,7 @@ impl VoicePipeline {
         tx: Option<tokio::sync::mpsc::Sender<StreamEvent>>,
     ) -> Result<(String, String)> {
         // 1. STT
-        self.emit_state("processing");
+        self.emit_state(VoiceState::Thinking);
         self.chimes.play_process();
         let language_override: Option<String> = {
             let cfg = self.config.read().await;
@@ -561,22 +645,26 @@ impl VoicePipeline {
                 Some(cfg.speech.stt_language.clone())
             }
         };
-        let transcript = self
+        let transcript = match self
             .speech
             .transcribe(audio, language_override.as_deref())
-            .await?;
+            .await
+        {
+            Ok(t) => t,
+            Err(e) => {
+                log::warn!("[STT] error: {e}");
+                self.emit_state(VoiceState::Error(VoiceErrorKind::Stt));
+                return Err(e);
+            }
+        };
         // F0-6 (B2): antes se retornaba ("","") en silencio y la UI no mostraba
         // nada ("¿qué pasó?"). Ahora aviso visible + hablado.
         if transcript.trim().is_empty() {
             log::info!("VoicePipeline STT vacío: aviso al usuario");
-            let aviso = "No te escuché, ¿puedes repetirlo?".to_string();
-            self.emit_state("speaking");
-            self.speaking.store(true, Ordering::Relaxed);
-            self.speaking_since_ms
-                .store(now_ms() as u32, Ordering::Relaxed);
-            self.barge_counter.store(0, Ordering::Relaxed);
-            let speak_res = self.speech.speak(&aviso).await;
-            self.speaking.store(false, Ordering::Relaxed);
+            let aviso = "No te escuché, ¿puedes repetirlo?";
+            self.begin_speaking();
+            let speak_res = self.speech.speak(aviso).await;
+            self.end_speaking();
             if let Err(e) = speak_res {
                 log::warn!("TTS aviso fallo: {e}");
             }
@@ -585,46 +673,45 @@ impl VoicePipeline {
                 "No te escuché, ¿puedes repetirlo?".to_string(),
             ));
         }
-        log::info!("VoicePipeline STT: '{}'", transcript);
+        log::info!("[STT] Final transcript: '{transcript}'");
 
-        // 2. LLM (agente con tool calling)
-        let response = self.respond(&transcript, tx).await?;
-
-        // 3. TTS: en el pipeline de voz SIEMPRE se habla la respuesta
-        // (regla: voz pregunta -> voz responde; el chat por texto nunca
-        // habla salvo que auto_speak este activo, ver chat_complete).
-        if !response.is_empty() {
-            self.emit_state("speaking");
-            self.speaking.store(true, Ordering::Relaxed);
-            self.speaking_since_ms
-                .store(now_ms() as u32, Ordering::Relaxed);
-            self.barge_counter.store(0, Ordering::Relaxed);
-            let speak_res = self.speech.speak(&response).await;
-            self.speaking.store(false, Ordering::Relaxed);
-            self.barge_counter.store(0, Ordering::Relaxed);
-            // Si hubo barge-in, no sobreescribir estado listening
-            if self
-                .buffer
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .recording
-                .load(Ordering::Relaxed)
-            {
-                log::info!("TTS interrumpido por barge-in, manteniendo listening");
-            } else if let Err(e) = speak_res {
-                log::warn!("TTS fallo: {e}");
+        // 2+3. LLM streaming + TTS por oración (plan §10/§11): las oraciones
+        // se sintetizan y suenan mientras el resto de la respuesta sigue
+        // llegando. `respond` alimenta el canal de oraciones y lo cierra al
+        // terminar; el player drena la cola y sale solo.
+        let (sentence_tx, sentence_rx) = tokio::sync::mpsc::channel::<String>(4);
+        let speech = self.speech.clone();
+        let player = tokio::spawn(async move { speech.speak_streaming(sentence_rx).await });
+        let response = match self.respond(&transcript, tx, Some(sentence_tx)).await {
+            Ok(r) => r,
+            Err(e) => {
+                // Sin respuesta del LLM no hay nada que hablar: cortar el
+                // player (una oración suelta de un turno fallido sería peor).
+                log::warn!("[LLM] error: {e}");
+                self.speech.request_stop();
+                let _ = player.await;
+                self.end_speaking();
+                self.emit_state(VoiceState::Error(VoiceErrorKind::Llm));
+                return Err(e);
             }
+        };
+        // Esperar a que termine de sonar lo que queda (o al barge-in).
+        if let Err(e) = player.await {
+            log::warn!("TTS streaming player: {e}");
         }
+        self.end_speaking();
 
         Ok((transcript, response))
     }
 
     /// Envia un texto al LLM (agente) y retorna la respuesta final.
-    /// Opcionalmente reenvia los eventos del stream al canal `tx` (para la UI).
+    /// Opcionalmente reenvia los eventos del stream al canal `tx` (para la UI)
+    /// y las oraciones completas a `tts_tx` (TTS streaming, plan §11).
     async fn respond(
         &self,
         text: &str,
         tx: Option<tokio::sync::mpsc::Sender<StreamEvent>>,
+        tts_tx: Option<tokio::sync::mpsc::Sender<String>>,
     ) -> Result<String> {
         let cfg = self.config.read().await.clone();
         // F5: facts del usuario también en voz (SQLite local).
@@ -684,20 +771,58 @@ impl VoicePipeline {
             .await
         });
 
-        // Reenviar eventos al canal externo (si hay consumidor)
-        let forward_task = tokio::spawn(async move {
-            while let Some(ev) = stream_rx.recv().await {
-                if let Some(ext) = &tx {
-                    if ext.send(ev).await.is_err() {
-                        break;
+        // Consumir eventos: reenviar a la UI y trocear en oraciones para TTS.
+        // Si la UI se desconecta, se sigue alimentando TTS (fallos aislados).
+        let mut ext = tx;
+        let mut tts_sink = tts_tx;
+        let mut chunker = SentenceChunker::new();
+        let mut speaking_announced = false;
+        while let Some(ev) = stream_rx.recv().await {
+            match &ev {
+                StreamEvent::Token { content } => {
+                    if let Some(sink) = &tts_sink {
+                        for sentence in chunker.push(content) {
+                            if !speaking_announced {
+                                self.begin_speaking();
+                                speaking_announced = true;
+                            }
+                            if sink.send(sentence).await.is_err() {
+                                // Player cortado (barge-in): dejar de
+                                // alimentarlo; el texto sigue a la UI.
+                                tts_sink = None;
+                                break;
+                            }
+                        }
                     }
                 }
+                StreamEvent::ToolCall { .. } => {
+                    self.emit_state(VoiceState::ToolExecuting);
+                }
+                StreamEvent::ToolResult { .. } => {
+                    self.emit_state(VoiceState::Thinking);
+                }
+                _ => {}
             }
-        });
+            if let Some(e) = &ext {
+                if e.send(ev).await.is_err() {
+                    ext = None;
+                }
+            }
+        }
+        // Última oración (resto sin signo de cierre).
+        if let Some(sink) = &tts_sink {
+            if let Some(rest) = chunker.flush() {
+                if !speaking_announced {
+                    self.begin_speaking();
+                }
+                let _ = sink.send(rest).await;
+            }
+        }
+        // Cerrar el canal de oraciones: el player drena la cola y termina.
+        drop(tts_sink);
 
         // Esperar a que el agente termine
         let outcome = run_task.await.context("run_agent task")??;
-        drop(forward_task);
         Ok(outcome.response)
     }
 }
@@ -730,12 +855,43 @@ mod tests {
         let vp = test_pipeline().await;
         let mut rx = vp.subscribe();
         assert_eq!(vp.current_state(), "idle");
-        vp.emit_state("listening");
+        vp.emit_state(VoiceState::Listening);
         assert_eq!(vp.current_state(), "listening");
         match rx.recv().await.unwrap() {
             VoiceSignal::State { state } => assert_eq!(state, "listening"),
             other => panic!("esperaba State, llegó {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn emit_state_mapea_a_strings_legados() {
+        // La UI solo entiende idle/listening/processing/speaking.
+        let vp = test_pipeline().await;
+        vp.emit_state(VoiceState::Listening);
+        assert_eq!(vp.current_state(), "listening");
+        vp.emit_state(VoiceState::Thinking);
+        assert_eq!(vp.current_state(), "processing");
+        vp.emit_state(VoiceState::ToolExecuting);
+        assert_eq!(vp.current_state(), "processing");
+        vp.emit_state(VoiceState::Responding);
+        assert_eq!(vp.current_state(), "speaking");
+        vp.emit_state(VoiceState::Idle);
+        assert_eq!(vp.current_state(), "idle");
+    }
+
+    #[tokio::test]
+    async fn barge_in_transita_interrupted_a_listening() {
+        // Simular un TTS en curso y un barge-in.
+        let vp = test_pipeline().await;
+        vp.emit_state(VoiceState::Listening);
+        vp.emit_state(VoiceState::Thinking);
+        vp.emit_state(VoiceState::Responding);
+        vp.speaking.store(true, Ordering::Relaxed);
+        vp.barge_in_silent();
+        assert_eq!(vp.state(), VoiceState::Listening);
+        assert_eq!(vp.current_state(), "listening");
+        assert!(!vp.is_speaking());
+        assert!(vp.is_recording());
     }
 
     #[tokio::test]
@@ -750,6 +906,28 @@ mod tests {
         // Segundo envío inmediato con delta pequeño: throttled, no llega nada.
         vp.emit_level(0.52);
         assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn dictado_activo_bloquea_start_listening() {
+        // El dictado al chat y la conversación por voz comparten micro y
+        // buffer: con dictado activo, el pipeline no puede arrancar escucha.
+        let vp = test_pipeline().await;
+        vp.dictation_flag().store(true, Ordering::Relaxed);
+        vp.start_listening();
+        assert!(!vp.is_recording());
+        assert_ne!(vp.state(), VoiceState::Listening);
+    }
+
+    #[tokio::test]
+    async fn dictado_activo_aborta_wait_for_speech_rapido() {
+        // Un dictado que empieza durante la ventana de auto_listen debe
+        // cortar la espera de inmediato (sin esperar los 10s de la ventana).
+        let vp = test_pipeline().await;
+        vp.dictation_flag().store(true, Ordering::Relaxed);
+        let t0 = std::time::Instant::now();
+        assert!(!vp.wait_for_speech(10).await);
+        assert!(t0.elapsed() < std::time::Duration::from_secs(2));
     }
 
     #[tokio::test]

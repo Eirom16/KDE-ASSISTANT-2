@@ -31,6 +31,9 @@ pub struct PiperModelInfo {
     pub language: String, // ej: "es_ES"
 }
 
+/// Wrapper del binario piper-tts. Los campos son solo paths: derivar Clone
+/// permite lanzar sintetizadores concurrentes (TTS streaming, plan §11).
+#[derive(Clone)]
 pub struct PiperEngine {
     pub models_dir: PathBuf,
     pub bin_path: PathBuf,

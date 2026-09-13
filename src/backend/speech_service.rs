@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, RwLock};
 
 use crate::backend::stt::WhisperEngine;
 use crate::backend::tts::piper::PiperEngine;
@@ -113,6 +113,81 @@ impl SpeechService {
     pub fn request_stop(&self) {
         self.stop_requested.store(true, Ordering::Relaxed);
         log::info!("TTS stop solicitado (barge-in)");
+    }
+
+    /// Reproduce un stream de oraciones (plan §11): sintetiza la siguiente
+    /// mientras suena la actual (síntesis anticipada, baja latencia).
+    ///
+    /// El canal se cierra cuando el LLM termina de emitir. `request_stop()`
+    /// (barge-in) corta la reproducción actual y descarta lo pendiente:
+    /// nunca se reproduce audio de una operación ya cancelada (plan §12/§13).
+    ///
+    /// Errores de síntesis de una oración se loguean y se sigue con la
+    /// siguiente; un fallo de reproducción (dispositivo) aborta el stream.
+    pub async fn speak_streaming(&self, mut sentences: mpsc::Receiver<String>) -> Result<()> {
+        self.stop_requested.store(false, Ordering::Relaxed);
+        let (wav_model, wav_scale) = {
+            let cfg = self.config.read().await;
+            (
+                cfg.speech.piper_model.clone(),
+                cfg.speech.piper_length_scale,
+            )
+        };
+        let (wav_tx, mut wav_rx) = mpsc::channel::<Vec<u8>>(2);
+        let producer_stop = self.stop_requested.clone();
+        let piper = self.piper.clone();
+        let producer = tokio::spawn(async move {
+            while let Some(sentence) = sentences.recv().await {
+                if producer_stop.load(Ordering::Relaxed) {
+                    break;
+                }
+                match piper
+                    .synthesize(&sentence, Some(&wav_model), Some(wav_scale))
+                    .await
+                {
+                    Ok(wav) => {
+                        if wav_tx.send(wav).await.is_err() {
+                            break; // consumidor cancelado (barge-in)
+                        }
+                    }
+                    Err(e) => {
+                        let head: String = sentence.chars().take(40).collect();
+                        log::warn!("TTS streaming: oración '{head}…' falló: {e}");
+                    }
+                }
+            }
+        });
+
+        let mut playback_error: Option<anyhow::Error> = None;
+        while let Some(wav) = wav_rx.recv().await {
+            if self.stop_requested.load(Ordering::Relaxed) {
+                log::info!("TTS streaming: cola descartada por barge-in");
+                break;
+            }
+            let flag = self.stop_requested.clone();
+            match tokio::task::spawn_blocking(move || play_wav_bytes_with_cancel(&wav, flag)).await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    log::warn!("TTS streaming: reproducción falló: {e}");
+                    playback_error = Some(e);
+                    break;
+                }
+                Err(e) => {
+                    log::warn!("TTS streaming: task de reproducción falló: {e}");
+                    playback_error = Some(e.into());
+                    break;
+                }
+            }
+        }
+        // Cierre: si el productor sigue vivo (canal de oraciones abierto),
+        // cortarlo; si ya terminó, esto es no-op.
+        producer.abort();
+        let _ = producer.await;
+        if let Some(e) = playback_error {
+            return Err(e);
+        }
+        Ok(())
     }
 
     /// Verifica si hay un stop pendiente.

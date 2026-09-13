@@ -162,7 +162,16 @@ fn main() -> Result<()> {
             while let Some(event) = rx.recv().await {
                 match event {
                     kde_assistant_lib::backend::hotword::HotwordEvent::Detected => {
-                        log::info!("Wake word detectado: '{wake_word_label}'");
+                        // El dictado al chat tiene el micro: ignorar el wake
+                        // word entero (ni saludo TTS ni escucha).
+                        if vp.is_dictating() {
+                            log::info!("[VOICE] wake word ignorado: dictado al chat en curso");
+                            continue;
+                        }
+                        log::info!("[VOICE] Wake detected: '{wake_word_label}'");
+                        vp.emit_state(
+                            kde_assistant_lib::backend::voice_state::VoiceState::WakeDetected,
+                        );
                         // Saludo hablado ANTES de grabar (si no, el micro
                         // captaria nuestra propia voz y entraria en bucle)
                         if let Err(e) = speech.speak(&wake_greeting).await {

@@ -168,6 +168,18 @@ pub struct SpeechConfig {
     /// Frase que dice el asistente al activarse por voz, antes de escuchar.
     #[serde(default = "default_wake_greeting")]
     pub wake_greeting: String,
+    /// VAD (plan §6): silencio sostenido que corta el turno (ms).
+    #[serde(default = "default_vad_silence_ms")]
+    pub vad_silence_ms: u64,
+    /// VAD: mínimo grabado antes de que el silencio pueda cortar (ms).
+    #[serde(default = "default_vad_min_record_ms")]
+    pub vad_min_record_ms: u64,
+    /// VAD: umbral base de silencio (RMS). Con adaptativo, es el piso.
+    #[serde(default = "default_vad_silence_rms")]
+    pub vad_silence_rms: f32,
+    /// VAD: piso de ruido adaptativo (sube el umbral en ambientes ruidosos).
+    #[serde(default = "default_true")]
+    pub vad_adaptive: bool,
 }
 
 fn default_stt_model() -> String {
@@ -205,6 +217,15 @@ fn default_wake_word_model_path() -> String {
 }
 fn default_wake_greeting() -> String {
     "Sí, dígame".to_string()
+}
+fn default_vad_silence_ms() -> u64 {
+    1200
+}
+fn default_vad_min_record_ms() -> u64 {
+    1500
+}
+fn default_vad_silence_rms() -> f32 {
+    0.02
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -495,6 +516,10 @@ impl Config {
                 chimes_enabled: true,
                 wake_word_model_path: default_wake_word_model_path(),
                 wake_greeting: default_wake_greeting(),
+                vad_silence_ms: default_vad_silence_ms(),
+                vad_min_record_ms: default_vad_min_record_ms(),
+                vad_silence_rms: default_vad_silence_rms(),
+                vad_adaptive: true,
             },
             ui: UiConfig {
                 theme: default_ui_theme(),

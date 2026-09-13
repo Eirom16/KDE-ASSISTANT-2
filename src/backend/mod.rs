@@ -18,7 +18,10 @@ pub mod stt;
 pub mod tool_executor;
 pub mod tool_registry;
 pub mod tts;
+pub mod tts_stream;
+pub mod vad;
 pub mod voice_pipeline;
+pub mod voice_state;
 pub mod wakeword_ml;
 
 use anyhow::Result;
@@ -129,7 +132,7 @@ impl Backend {
             chat_tasks: std::sync::Arc::new(
                 std::sync::Mutex::new(std::collections::HashMap::new()),
             ),
-            dictation_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            dictation_active: self.voice.dictation_flag(),
         }
     }
 

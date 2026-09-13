@@ -522,11 +522,15 @@ async fn voice_barge_in(State(state): State<AppState>) -> impl IntoResponse {
 /// Dictado al input del chat: empieza a grabar (solo STT, sin LLM ni TTS).
 /// Rechaza si hay una captura activa (dictado o pipeline de voz).
 async fn dictate_start(State(state): State<AppState>) -> impl IntoResponse {
+    use crate::backend::voice_state::VoiceState;
     use std::sync::atomic::Ordering;
-    if state.voice.is_recording()
+    let voice_busy = state.voice.is_recording()
         || state.voice.is_speaking()
-        || state.dictation_active.swap(true, Ordering::SeqCst)
-    {
+        || matches!(
+            state.voice.state(),
+            VoiceState::Listening | VoiceState::Thinking | VoiceState::Responding
+        );
+    if voice_busy || state.dictation_active.swap(true, Ordering::SeqCst) {
         state.dictation_active.store(false, Ordering::SeqCst);
         return (
             StatusCode::CONFLICT,
@@ -535,7 +539,9 @@ async fn dictate_start(State(state): State<AppState>) -> impl IntoResponse {
     }
     let sr = state.voice.sample_rate();
     state.voice.start_recording(if sr > 0 { sr } else { 48000 });
-    state.voice.emit_state("listening");
+    state
+        .voice
+        .emit_state(crate::backend::voice_state::VoiceState::Listening);
     log::info!("Dictado iniciado (solo STT)");
     (
         StatusCode::OK,
@@ -560,7 +566,9 @@ async fn dictate_stop(State(state): State<AppState>) -> impl IntoResponse {
         );
     }
     let _guard = DictationGuard(state.dictation_active.clone());
-    state.voice.emit_state("processing");
+    state
+        .voice
+        .emit_state(crate::backend::voice_state::VoiceState::Thinking);
     let audio = state.voice.stop_recording();
     let resp = if audio.is_empty() {
         (
@@ -591,7 +599,9 @@ async fn dictate_stop(State(state): State<AppState>) -> impl IntoResponse {
             }
         }
     };
-    state.voice.emit_state("idle");
+    state
+        .voice
+        .emit_state(crate::backend::voice_state::VoiceState::Idle);
     resp
 }
 
