@@ -1,0 +1,82 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    // KDE Plasma 6 Wayland - automatización de escritorio
+    // Herramientas: session_start, session_connect, screenshot, accessibility_tree,
+    //   mouse_click, keyboard_type, find_ui_elements, list_windows, focus_window, etc.
+    // Usar para: testing de la UI QML, automatizar interacciones con el escritorio KDE,
+    //   capturar screenshots, inspeccionar árbol de accesibilidad AT-SPI
+    "kwin-mcp": {
+      "type": "local",
+      "command": ["kwin-mcp"],
+      "enabled": true,
+      "timeout": 10000
+    },
+
+    // Rust-analyzer - análisis semántico del código Rust
+    // Herramientas: rust_analyzer_hover, rust_analyzer_definition, rust_analyzer_references,
+    //   rust_analyzer_diagnostics, rust_analyzer_code_actions, rust_analyzer_format, etc.
+    // Usar para: navegación de código, encontrar definiciones/referencias, diagnosticar errores,
+    //   obtener sugerencias de código, refactorizar, validar lifetimes
+    "rust-analyzer": {
+      "type": "local",
+      "command": ["rust-analyzer-mcp"],
+      "enabled": true,
+      "timeout": 10000
+    },
+
+    // Filesystem de alto rendimiento en Rust
+    // Herramientas: read_file, write_file, list_directory, search_files, glob_search, etc.
+    // Usar para: leer/escribir archivos, buscar en el proyecto, explorar estructura
+    "filesystem": {
+      "type": "local",
+      "command": ["rust-mcp-filesystem", "--allow-write", "/home/eirom/Documentos/KDE ASSISTANT 2"],
+      "enabled": true,
+      "timeout": 5000
+    },
+
+    // Git operations en Rust (52 herramientas con --features all)
+    // Herramientas: git_status, git_diff, git_commit, git_log, git_branch, git_push, etc.
+    // Usar para: gestionar el repositorio git, ver cambios, crear commits, branches
+    "git": {
+      "type": "local",
+      "command": ["mcp-server-git-rs", "-r", "/home/eirom/Documentos/KDE ASSISTANT 2"],
+      "enabled": true,
+      "timeout": 5000
+    },
+
+    // Memoria persistente via knowledge graph
+    // Herramientas: create_entities, create_relations, add_observations, read_graph,
+    //   search_nodes, open_nodes, delete_entities, etc.
+    // Usar para: recordar decisiones de diseño, patrones del proyecto, preferencias del usuario,
+    //   mantener contexto entre sesiones de desarrollo
+    "memory": {
+      "type": "local",
+      "command": ["npx", "-y", "@modelcontextprotocol/server-memory"],
+      "enabled": true,
+      "timeout": 10000
+    },
+
+    // SQLite para la base de datos del proyecto
+    // Herramientas: execute (SQL), backup, create_fts_index, search_fts, database_info, etc.
+    // Usar para: inspeccionar/modificar el esquema SQLite, consultar datos de sesiones,
+    //   diagnosticar problemas de BD, migraciones
+    "sqlite": {
+      "type": "local",
+      "command": ["npx", "-y", "mcp-server-sqlite", "--db", "/home/eirom/Documentos/KDE ASSISTANT 2/kde-assistant.db"],
+      "enabled": true,
+      "timeout": 10000
+    },
+
+    // Documentación de frameworks en tiempo real (remoto)
+    // Herramientas: resolve-library-id, get-library-docs
+    // Usar para: buscar documentación actualizada de Qt, QML, Tokio, reqwest, axum,
+    //   serde, whisper-rs, cpal, rodio, y cualquier otra dependencia del proyecto
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "enabled": true,
+      "timeout": 10000
+    }
+  }
+}

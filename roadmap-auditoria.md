@@ -11,12 +11,12 @@
 - [x] SQLite sesiones/mensajes funciona
 - [x] Multi-proveedor (OpenRouter/Groq/OpenAI/custom) + `/api/ai-models`
 - [x] STT whisper lazy + pre-warm, TTS piper, wake ML hey_jarvis, chimes, PTT rdev
-- [ ] Historial tools persistido (ROTO — ver F0-1)
-- [ ] Contexto en voz (ROTO — voz sin historial)
-- [ ] Cancel streaming real (ROTO)
-- [ ] Tema claro/oscuro aplicado (ROTO — siempre dark)
-- [ ] Estado Online/health real (ROTO — siempre verde)
-- [ ] Permisos por niveles (IDEA)
+- [x] Historial tools persistido (hecho — ver F0-1)
+- [ ] Contexto en voz (pendiente — `voice_pipeline.respond` no incluye historial de sesión)
+- [x] Cancel streaming real (hecho — ver F0-7)
+- [x] Tema claro/oscuro aplicado (hecho — ver F0-5)
+- [x] Estado Online/health real (hecho — ver F0-5)
+- [x] Permisos por niveles (hecho — ver F4)
 
 ---
 
@@ -150,5 +150,13 @@
 | 2026-09-09 | FIX-sesión-real | Auth QML sin env (módulo `qml.auth` generado + fallback; el motor prefiere el ÚLTIMO `-I`), título sin overflow, fail-fast si puerto ocupado, `QML_DISABLE_DISK_CACHE`, diagnósticos 401/0, indicador ▾ | 72 passed, QML OK, auth live 401/200, 0 rechazos en 20s full-stack | pendiente |
 | 2026-09-09 | FIX-autoocultado | `hotkey.state` rancio ocultaba la ventana al arrancar (probado: vieja=oculta, nueva=no) → filtro por timestamp + `clear_hotkey_state()` + toggle con show/raise; tray plano sin submenús (bloqueo Wayland) | 73 passed, QML OK | pendiente |
 | 2026-09-09 | FIX-wayland | Nativo no mapea ventana y GL bajo XWayland pinta negro → default `QT_QPA_PLATFORM=xcb` + `QT_QUICK_BACKEND=software` (respetan env existente) | 74 passed | pendiente |
+| 2026-09-10 | FIX-tray | Click derecho: menu nativo restaurado en `TrayMenu.qml` — Plasma 6.7 lo importa via DBusMenu (`/MenuBar`) y lo dibuja anclado al icono en Wayland y XWayland (verificado `busctl GetLayout` = 14 items, `Event` en Salir → quit limpio); sin menu registrado la sesion descarta el click. Fantasma al arrancar: `visible: false` en el `menu: Menu` (default `true` de labs.platform mostraba el QMenu interno en (0,0) bajo XWayland; probado gdb `QWidget::setVisible` → `KDEPlasmaPlatformTheme6.so` en finalize QML + `xwininfo` POPUP_MENU +0+0). Kebab/Super+Shift+M abren el popup propio | 74 passed, `valida_qml` OK | pendiente |
+| 2026-09-12 | LIMPIEZA | `cargo fmt` global + clippy 0 warnings (16 fixes: map_or→is_none_or, format! sin args, borrow redundante, match colapsable, is_multiple_of, Config::default duplicado eliminado, arc_non_send_sync documentado-cpal). V3 plan verificado en código: P1 combo único, P2 input 4 líneas, P3a `<pre>`→mono con `<br>`, P4 esquinas 0, P5 image_url E2E, P3b greeting/copiar/reproducir/voice-log | 74 passed + agent_smoke OK, clippy/fmt limpios, valida_qml/valida_agent OK | `0337d53` |
+| 2026-09-12 | TRAY-final | Menú nativo del tray commiteado (visible:false + fallback Context→popup); AGENTS.md documenta diagnóstico | — | `c44598e` |
+| 2026-09-12 | FEAT-dictado | `/api/dictate/start|stop` (flag atómico, 409 si voz ocupada); botón mic del chat → Whisper → texto al input; icono microphone-16 dibujado (MIT propio, upstream no tiene) | 74 passed | `88bdbeb` |
+| 2026-09-12 | FEAT-archivos | Adjuntar desde InputBar (upload-16 + FileDialog): texto preview 500c, imagen vía `/api/tools/execute` show_image con validate_path | 74 passed | `9dd8a73` |
+| 2026-09-12 | FEAT-personaje | Desktop Agent fases 1-8 integrado: `qml/agent/` (27 archivos), CharacterConfig (opt-in), AgentWindowStandalone reemplaza FloatingOrb, overlay proceso separado layer-shell, tab Personaje en Settings, docs DESKTOP-AGENT-DESIGN.md + prompt v2; licencia blobatar MIT preservada | 74 passed + valida_agent OK | `0d6ee50` |
+| 2026-09-12 | FEAT-elide | PillButton elideText + marquesina hover; drawer de sesiones lo usa | — | `8b0252a` |
+| 2026-09-12 | REFACTOR-wayland | Preferir Wayland nativo si hay sesión Wayland y no hay QT_QPA_PLATFORM forzado; xcb fallback; rollback = revert de este commit | prueba en vivo Fase 2 | `e3744a1` |
 
 > Cómo marcar: cambia `- [ ]` a `- [x]` y agrega fila en Registro con `cargo test --lib`, `cargo clippy`, `valida_qml`.
