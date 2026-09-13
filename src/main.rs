@@ -288,12 +288,27 @@ fn main() -> Result<()> {
         } else {
             qml_cmd.args(["-apptype", "widget", "-I", "."]);
         }
-        // Plataforma por defecto XWayland (FIX-wayland: en nativo la ventana
-        // a veces no mapea). El backend de render NO se fuerza: el software
-        // cuelga el hilo de render en algunas GPUs (negro + "no responde").
+        // Plataforma: Wayland nativo si está disponible y QT_QPA_PLATFORM no está forzado a xcb.
+        // FIX-wayland: en nativo la ventana a veces no mapea; XWayland es fallback seguro.
+        // Respetar QT_QPA_PLATFORM si ya está seteado (wayland/xcb/offscreen).
         if std::env::var_os("QT_QPA_PLATFORM").is_none() {
-            qml_cmd.env("QT_QPA_PLATFORM", "xcb");
-            log::info!("UI: forzando XWayland (QT_QPA_PLATFORM=xcb) por compatibilidad");
+            // Preferir Wayland nativo si hay compositor Wayland
+            if std::env::var_os("WAYLAND_DISPLAY").is_some()
+                || std::env::var_os("XDG_SESSION_TYPE")
+                    .map(|v| v == "wayland")
+                    .unwrap_or(false)
+            {
+                qml_cmd.env("QT_QPA_PLATFORM", "wayland");
+                log::info!("UI: usando Wayland nativo (QT_QPA_PLATFORM=wayland)");
+            } else {
+                qml_cmd.env("QT_QPA_PLATFORM", "xcb");
+                log::info!("UI: forzando XWayland (QT_QPA_PLATFORM=xcb) por compatibilidad");
+            }
+        } else {
+            log::info!(
+                "UI: QT_QPA_PLATFORM ya definido = {:?}",
+                std::env::var("QT_QPA_PLATFORM")
+            );
         }
         let mut child = qml_cmd
             .arg("qml/Main.qml")
