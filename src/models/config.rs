@@ -14,6 +14,9 @@ pub struct Config {
     /// F5: memoria local (facts + resumen). Todo opt-in y en SQLite local.
     #[serde(default)]
     pub memory: MemoryConfig,
+    /// Desktop Agent (personaje). Ver DESKTOP-AGENT-DESIGN.md.
+    #[serde(default)]
+    pub character: CharacterConfig,
 }
 
 impl Default for Config {
@@ -348,6 +351,50 @@ impl Default for MemoryConfig {
     }
 }
 
+/// Desktop Agent (personaje de escritorio). Ver DESKTOP-AGENT-DESIGN.md.
+/// Opt-in por defecto: `enabled=false` hasta que las fases de overlay esten
+/// maduras. La UI QML lo lee via GET /api/config (cfg.character).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacterConfig {
+    /// Personaje visible en el escritorio.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Modo de presencia: "minimal" | "reactive" | "companion" | "cinematic".
+    #[serde(default = "default_character_mode")]
+    pub mode: String,
+    /// Accesibilidad: desactiva balanceo/squash y acelera fades.
+    #[serde(default)]
+    pub reduced_motion: bool,
+    /// Inactividad sin eventos antes de que el personaje se duerma.
+    #[serde(default = "default_character_sleep_secs")]
+    pub sleep_timeout_secs: u64,
+    /// Tamano logico del personaje (lado del area de dibujo, px).
+    #[serde(default = "default_character_size")]
+    pub size: u32,
+}
+
+fn default_character_mode() -> String {
+    "companion".to_string()
+}
+fn default_character_sleep_secs() -> u64 {
+    240
+}
+fn default_character_size() -> u32 {
+    140
+}
+
+impl Default for CharacterConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mode: default_character_mode(),
+            reduced_motion: false,
+            sleep_timeout_secs: default_character_sleep_secs(),
+            size: default_character_size(),
+        }
+    }
+}
+
 impl Config {
     pub fn voice(&self) -> &SpeechConfig {
         &self.speech
@@ -485,6 +532,7 @@ impl Config {
                 menu: default_shortcut_menu(),
             },
             memory: MemoryConfig::default(),
+            character: CharacterConfig::default(),
         }
     }
 }

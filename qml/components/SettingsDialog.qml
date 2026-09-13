@@ -52,8 +52,15 @@ Rectangle {
     property string shortcutNewSession: "Ctrl+Shift+K"
     property string shortcutMenu: "Super+Shift+M"
 
+    // Personaje (F8): Desktop Agent settings
+    property bool characterEnabled: false
+    property string characterMode: "companion"
+    property bool characterReducedMotion: false
+    property int characterSleepSecs: 240
+    property int characterSize: 140
+
     // Tabs
-    property string activeTab: "general"  // general | voz | atajos | memoria
+    property string activeTab: "general"  // general | voz | atajos | memoria | personaje
 
     // Backend
     property string backendUrl: "http://127.0.0.1:8765"
@@ -120,6 +127,7 @@ Rectangle {
                 if (!cfg.ui) cfg.ui = {}
                 if (!cfg.shortcuts) cfg.shortcuts = {}
                 if (!cfg.memory) cfg.memory = {}
+                if (!cfg.character) cfg.character = {}
                 root.provider = cfg.ai.provider || "openrouter"
                 root.apiKey = cfg.ai.api_key || ""
                 root.model = cfg.ai.model || ""
@@ -143,6 +151,11 @@ Rectangle {
                 root.shortcutMenu = cfg.shortcuts.menu || "Super+Shift+M"
                 root.memoryEnabled = cfg.memory.enabled !== false
                 root.autoSummarize = cfg.memory.auto_summarize !== false
+                root.characterEnabled = cfg.character.enabled === true
+                root.characterMode = cfg.character.mode || "companion"
+                root.characterReducedMotion = cfg.character.reduced_motion === true
+                root.characterSleepSecs = parseInt(cfg.character.sleep_timeout_secs) || 240
+                root.characterSize = parseInt(cfg.character.size) || 140
                 // Volcar a los campos (rompe nada: asignacion directa)
                 baseUrlField.value = root.baseUrl
                 apiKeyField.value = root.apiKey
@@ -321,6 +334,12 @@ Rectangle {
         cfg.shortcuts.menu = menuField.value
         cfg.memory.enabled = memoryEnabled
         cfg.memory.auto_summarize = autoSummarize
+        if (!cfg.character) cfg.character = {}
+        cfg.character.enabled = characterEnabled
+        cfg.character.mode = characterMode
+        cfg.character.reduced_motion = characterReducedMotion
+        cfg.character.sleep_timeout_secs = characterSleepSecs
+        cfg.character.size = characterSize
         // Refrescar props locales para que la UI quede consistente
         root.apiKey = apiKeyField.value
         root.model = modelCombo.editText
@@ -335,6 +354,11 @@ Rectangle {
         root.shortcutPtt = pttField.value
         root.shortcutNewSession = newSessionField.value
         root.shortcutMenu = menuField.value
+        root.characterEnabled = characterEnabled
+        root.characterMode = characterMode
+        root.characterReducedMotion = characterReducedMotion
+        root.characterSleepSecs = characterSleepSecs
+        root.characterSize = characterSize
 
         var xhr = new XMLHttpRequest()
         xhr.open("POST", backendUrl + "/api/config")
@@ -432,6 +456,11 @@ Rectangle {
                     text: qsTr("Memoria")
                     active: root.activeTab === "memoria"
                     onClicked: root.activeTab = "memoria"
+                }
+                PillButton {
+                    text: qsTr("Personaje")
+                    active: root.activeTab === "personaje"
+                    onClicked: root.activeTab = "personaje"
                 }
             }
 
@@ -1093,6 +1122,158 @@ Rectangle {
                             onClicked: root.addFact()
                         }
                     } // Memoria
+
+                    // --- TAB: Personaje (F8: Desktop Agent) ---
+                    ColumnLayout {
+                        visible: root.activeTab === "personaje"
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSm
+
+                        Text {
+                            text: qsTr("Personaje de escritorio")
+                            font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0.4)
+                            color: Theme.inkMuted
+                            Layout.fillWidth: true
+                        }
+                        Text {
+                            text: qsTr("Requiere reinicio de la app para aplicar cambios.")
+                            font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                            color: Theme.warn
+                            wrapMode: Text.Wrap
+                            Layout.fillWidth: true
+                        }
+
+                        SettingsToggle {
+                            Layout.fillWidth: true
+                            label: qsTr("Activar personaje")
+                            description: qsTr("Muestra el agente visual en el escritorio")
+                            active: root.characterEnabled
+                            onToggled: root.characterEnabled = !root.characterEnabled
+                        }
+
+                        Text {
+                            text: qsTr("Modo de presencia")
+                            font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
+                            color: Theme.inkMuted
+                            Layout.topMargin: Theme.spacingSm
+                            Layout.fillWidth: true
+                        }
+
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingXs
+                            PillButton {
+                                text: qsTr("Mínimo")
+                                active: root.characterMode === "minimal"
+                                onClicked: root.characterMode = "minimal"
+                            }
+                            PillButton {
+                                text: qsTr("Reactivo")
+                                active: root.characterMode === "reactive"
+                                onClicked: root.characterMode = "reactive"
+                            }
+                            PillButton {
+                                text: qsTr("Compañero")
+                                active: root.characterMode === "companion"
+                                onClicked: root.characterMode = "companion"
+                            }
+                            PillButton {
+                                text: qsTr("Cinemático")
+                                active: root.characterMode === "cinematic"
+                                onClicked: root.characterMode = "cinematic"
+                            }
+                        }
+                        Text {
+                            text: qsTr("Mínimo: solo expresiones clave. Reactivo: mira al cursor. Compañero: se mueve e interactúa. Cinemático: escenas completas.")
+                            font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                            color: Theme.inkMuted
+                            wrapMode: Text.Wrap
+                            Layout.fillWidth: true
+                        }
+
+                        SettingsToggle {
+                            Layout.fillWidth: true
+                            label: qsTr("Reducir movimiento")
+                            description: qsTr("Desactiva animaciones complejas para accesibilidad")
+                            active: root.characterReducedMotion
+                            onToggled: root.characterReducedMotion = !root.characterReducedMotion
+                        }
+
+                        Text {
+                            text: qsTr("Tiempo de sueño (segundos)")
+                            font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
+                            color: Theme.inkMuted
+                            Layout.topMargin: Theme.spacingSm
+                            Layout.fillWidth: true
+                        }
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 36
+                            RowLayout {
+                                anchors.fill: parent
+                                spacing: Theme.spacingSm
+                                Text {
+                                    text: qsTr("Inactividad")
+                                    font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, -0.05)
+                                    color: Theme.ink
+                                    Layout.preferredWidth: 80
+                                }
+                                Slider {
+                                    id: sleepSlider
+                                    Layout.fillWidth: true
+                                    from: 30
+                                    to: 600
+                                    value: root.characterSleepSecs
+                                    stepSize: 30
+                                    onValueChanged: root.characterSleepSecs = sleepSlider.value
+                                }
+                                Text {
+                                    text: sleepSlider.value + "s"
+                                    font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
+                                    color: Theme.inkMuted
+                                    Layout.preferredWidth: 50
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: qsTr("Tamaño (píxeles)")
+                            font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
+                            color: Theme.inkMuted
+                            Layout.topMargin: Theme.spacingSm
+                            Layout.fillWidth: true
+                        }
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 36
+                            RowLayout {
+                                anchors.fill: parent
+                                spacing: Theme.spacingSm
+                                Text {
+                                    text: qsTr("Tamaño")
+                                    font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, -0.05)
+                                    color: Theme.ink
+                                    Layout.preferredWidth: 80
+                                }
+                                Slider {
+                                    id: sizeSlider
+                                    Layout.fillWidth: true
+                                    from: 80
+                                    to: 240
+                                    value: root.characterSize
+                                    stepSize: 10
+                                    onValueChanged: root.characterSize = sizeSlider.value
+                                }
+                                Text {
+                                    text: sizeSlider.value + "px"
+                                    font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
+                                    color: Theme.inkMuted
+                                    Layout.preferredWidth: 50
+                                }
+                            }
+                        }
+
+                    } // Personaje
                 }
             }
 

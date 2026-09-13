@@ -11,7 +11,7 @@
 
 use anyhow::{Context, Result};
 use kde_assistant_lib::backend::Backend;
-use std::process::Command;
+use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -307,9 +307,59 @@ fn main() -> Result<()> {
             )?;
         log::info!("UI QML lanzada (pid {})", child.id());
 
-        // Supervisar al hijo: si el backend muere, el qml6 no debe quedar
-        // huesped (icono y menu duplicados en la bandeja). Salir cuando
-        // el hijo termine o llegue Ctrl+C (matando al hijo en ese caso).
+        // === Proceso separado: Desktop Agent overlay (Fase 4) ===
+        // Proceso qml6 independiente con layer-shell (Wayland). Independiente
+        // de la ventana principal: si minimizas el chat, el personaje sigue.
+        let overlay_child: Option<Child> = {
+            let cfg_char_enabled =
+                { runtime.block_on(async { backend.config.read().await.character.enabled }) };
+            if cfg_char_enabled {
+                let p = std::env::var_os("QT_QPA_PLATFORM")
+                    .map(|v| v.to_string_lossy().to_string())
+                    .unwrap_or_else(|| {
+                        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+                            "wayland".to_string()
+                        } else {
+                            "xcb".to_string()
+                        }
+                    });
+                if p == "wayland" {
+                    let mut ocmd = Command::new("qml6");
+                    ocmd.arg("-I")
+                        .arg(".")
+                        .arg("qml/agent/AgentOverlay.qml")
+                        .env("QT_QPA_PLATFORM", "wayland")
+                        .env("QML_DISABLE_DISK_CACHE", "1")
+                        .env("QML_XHR_ALLOW_FILE_READ", "1")
+                        .env("KDE_ASSISTANT_TOKEN", &local_token);
+                    if !auth_inc.is_empty() {
+                        ocmd.arg("-I").arg(&auth_inc);
+                    }
+                    match ocmd.spawn() {
+                        Ok(c) => {
+                            log::info!("Desktop Agent overlay lanzado (pid {})", c.id());
+                            Some(c)
+                        }
+                        Err(e) => {
+                            log::warn!("No se pudo lanzar el overlay del personaje: {e}");
+                            None
+                        }
+                    }
+                } else {
+                    log::info!(
+                        "Personaje en modo {}: overlay layer-shell omitido (solo Wayland)",
+                        p
+                    );
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
+        // Supervisar al hijo principal (Main.qml). Cuando termine, si el overlay
+        // del personaje sigue vivo tambien lo matamos.
+        let mut overlay_child = overlay_child;
         loop {
             match child.try_wait() {
                 Ok(Some(status)) => {
@@ -330,6 +380,11 @@ fn main() -> Result<()> {
                     break;
                 }
             }
+        }
+        if let Some(mut oc) = overlay_child.take() {
+            log::info!("Apagando Desktop Agent overlay (pid {})...", oc.id());
+            let _ = oc.kill();
+            let _ = oc.wait();
         }
     } else {
         log::info!("UI desactivada por flag --ui-off");

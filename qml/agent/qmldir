@@ -1,0 +1,26 @@
+module qml.agent
+CharacterData 1.0 CharacterData.js
+AssistantCharacter 1.0 AssistantCharacter.qml
+ExpressionController 1.0 ExpressionController.qml
+AgentAnimationController 1.0 AgentAnimationController.qml
+MoodController 1.0 MoodController.qml
+GazeController 1.0 GazeController.qml
+IdleBehavior 1.0 IdleBehavior.qml
+CharacterController 1.0 CharacterController.qml
+MovementController 1.0 MovementController.qml
+AgentWindow 1.0 AgentWindow.qml
+AgentWindowStandalone 1.0 AgentWindowStandalone.qml
+AgentOverlay 1.0 AgentOverlay.qml
+AgentMain 1.0 AgentMain.qml
+SceneController 1.0 SceneController.qml
+SearchScene 1.0 SearchScene.qml
+OpenAppScene 1.0 OpenAppScene.qml
+FileScene 1.0 FileScene.qml
+SystemScene 1.0 SystemScene.qml
+ErrorScene 1.0 ErrorScene.qml
+SuccessScene 1.0 SuccessScene.qml
+DownloadScene 1.0 DownloadScene.qml
+ScreenshotScene 1.0 ScreenshotScene.qml
+IntentRouter 1.0 IntentRouter.qml
+VisualGuide 1.0 VisualGuide.qml
+DebugPanel 1.0 DebugPanel.qml

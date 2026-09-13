@@ -172,6 +172,25 @@ src/
     └── config.rs             # Struct Config + load/save
 ```
 
+### Desktop Agent (personaje, en curso — ver DESKTOP-AGENT-DESIGN.md)
+
+```
+qml/agent/
+├── CharacterData.js           # GENERADO (no editar): identidad blobatar MIT,
+│                              # poses numericas de 13 canales por expresion
+├── AssistantCharacter.qml     # Render nativo (cuerpo estadio + ojos Shape)
+├── ExpressionController.qml   # 14 expresiones, anti-flap, morph por canales
+├── AgentAnimationController.qml # blink/breathe/appear/disappear (nombre sin
+│                              # colision con QtQuick.AnimationController)
+├── CharacterController.qml    # Fachada: eventos/mood -> controllers
+├── AgentWindow.qml            # Ventana overlay (XWayland; layer-shell en F4)
+└── DevPreview.qml             # Harness dev (no produccion)
+```
+`assets/character/` contiene los SVG de referencia, `layout.json`, y la licencia
+MIT de blobatar (ATTRIBUTION.md + LICENSE.blobatar — obligatorio conservarlos).
+Smoke test: `cargo run --bin valida_agent` (offscreen, hermano de valida_qml).
+**No montar AgentWindow en Main.qml sin coordinar con el trabajo del tray.**
+
 ## Sistema de Diseno (Resumen Rapido)
 
 | Token | Valor Dark | Valor Light | Uso |

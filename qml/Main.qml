@@ -8,6 +8,7 @@ import QtQuick.Layouts
 import qml 1.0
 import qml.components 1.0
 import qml.auth 1.0
+import qml.agent 1.0
 
 ApplicationWindow {
     id: root
@@ -508,6 +509,13 @@ ApplicationWindow {
     // F2-1: ventana siempre visible (sale de config ui.always_on_top).
     property bool alwaysOnTop: true
     property string pttShortcut: "Super+Shift+V"
+    // Desktop Agent (personaje): cfg.character.* — opt-in (enabled=false por
+    // defecto). Ver DESKTOP-AGENT-DESIGN.md.
+    property bool characterEnabled: false
+    property string characterMode: "companion"
+    property bool characterReducedMotion: false
+    property int characterSleepSecs: 240
+    property int characterSize: 140
 
     // Prepara el input con un texto y abre la ventana (acciones rápidas del tray).
     function prefill(text) {
@@ -761,6 +769,20 @@ ApplicationWindow {
                     }
                     if (cfg.shortcuts && cfg.shortcuts.push_to_talk) {
                         root.pttShortcut = String(cfg.shortcuts.push_to_talk)
+                    }
+                    // Desktop Agent (character.*): opt-in; campos con
+                    // fallback al default si la seccion no existe.
+                    if (cfg.character) {
+                        if (cfg.character.enabled !== undefined)
+                            root.characterEnabled = cfg.character.enabled === true
+                        if (cfg.character.mode)
+                            root.characterMode = String(cfg.character.mode)
+                        if (cfg.character.reduced_motion !== undefined)
+                            root.characterReducedMotion = cfg.character.reduced_motion === true
+                        if (cfg.character.sleep_timeout_secs !== undefined)
+                            root.characterSleepSecs = parseInt(cfg.character.sleep_timeout_secs) || 240
+                        if (cfg.character.size !== undefined)
+                            root.characterSize = parseInt(cfg.character.size) || 140
                     }
                 } catch (e) {}
             }
@@ -1030,6 +1052,9 @@ ApplicationWindow {
                 onStopClicked: {
                     root.cancelChat()
                     root.voiceState = "idle"
+                }
+                onFileSelected: function(filePath, fileType) {
+                    root.handleFileUpload(filePath, fileType)
                 }
             }
         }
