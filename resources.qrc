@@ -37,5 +37,6 @@
         <file alias="assets/octicons/play-16.svg">assets/octicons/play-16.svg</file>
         <file alias="assets/octicons/trash-16.svg">assets/octicons/trash-16.svg</file>
         <file alias="assets/octicons/mic-16.svg">assets/octicons/unmute-16.svg</file>
+        <file alias="assets/octicons/microphone-16.svg">assets/octicons/microphone-16.svg</file>
     </qresource>
 </RCC>

@@ -983,7 +983,7 @@ ApplicationWindow {
                     root.sendMessage(text)
                 }
                 onMicClicked: {
-                    root.voiceState = root.voiceState === "listening" ? "idle" : "listening"
+                    root.toggleDictation()
                 }
                 onStopClicked: {
                     root.cancelChat()
@@ -1140,6 +1140,78 @@ ApplicationWindow {
         setAuth(req)
         req.send(JSON.stringify({}))
         console.log("Barge-in solicitado")
+    }
+
+    // === Dictado al input (boton mic del chat) ===
+    // Graba con el micro del sistema y, al parar, transcribe con Whisper y
+    // vuelca el texto en el InputBar (sin LLM ni TTS, a diferencia del asistente por voz).
+    property bool dictating: false
+
+    function toggleDictation() {
+        if (root.dictating) root.stopDictation()
+        else root.startDictation()
+    }
+
+    function startDictation() {
+        var req = new XMLHttpRequest()
+        req.open("POST", backendUrl + "/api/dictate/start")
+        req.setRequestHeader("Content-Type", "application/json")
+        setAuth(req)
+        req.onreadystatechange = function() {
+            if (req.readyState !== XMLHttpRequest.DONE) return
+            if (xhr_ok(req)) {
+                root.dictating = true
+                root.voiceState = "listening"
+            } else {
+                var msg = qsTr("No se pudo iniciar el dictado")
+                try {
+                    var r = JSON.parse(req.responseText)
+                    if (r.error) msg = r.error
+                } catch (e) {}
+                lastError = msg
+                lastErrorDetail = qsTr("Verifica el micrófono en Configuración.")
+                showErrorBanner = true
+            }
+        }
+        req.send(JSON.stringify({}))
+    }
+
+    function stopDictation() {
+        root.dictating = false
+        root.voiceState = "processing"
+        var req = new XMLHttpRequest()
+        req.open("POST", backendUrl + "/api/dictate/stop")
+        req.setRequestHeader("Content-Type", "application/json")
+        setAuth(req)
+        req.onreadystatechange = function() {
+            if (req.readyState !== XMLHttpRequest.DONE) return
+            root.voiceState = "idle"
+            if (xhr_ok(req)) {
+                try {
+                    var r = JSON.parse(req.responseText)
+                    var t = (r.transcript || "").trim()
+                    if (t.length > 0) {
+                        var cur = inputBar.text.trim()
+                        inputBar.text = cur.length > 0 ? cur + " " + t : t
+                        inputBar.focusInput()
+                    } else {
+                        lastError = qsTr("No se escuchó nada")
+                        lastErrorDetail = qsTr("Acércate al micrófono e inténtalo de nuevo.")
+                        showErrorBanner = true
+                    }
+                } catch (e) {}
+            } else {
+                var msg = qsTr("Falló la transcripción")
+                try {
+                    var r2 = JSON.parse(req.responseText)
+                    if (r2.error) msg = r2.error
+                } catch (e) {}
+                lastError = msg
+                lastErrorDetail = ""
+                showErrorBanner = true
+            }
+        }
+        req.send(JSON.stringify({}))
     }
 
     function pollHotkeys() {

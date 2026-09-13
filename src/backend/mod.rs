@@ -129,6 +129,7 @@ impl Backend {
             chat_tasks: std::sync::Arc::new(
                 std::sync::Mutex::new(std::collections::HashMap::new()),
             ),
+            dictation_active: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 

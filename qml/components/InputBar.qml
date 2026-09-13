@@ -137,7 +137,7 @@ Item {
             // Durante streaming se deshabilita: solo el boton enviar hace stop.
             IconButton {
                 Layout.alignment: Qt.AlignVCenter
-                iconName: root.recording ? "stop-16" : "unmute-16"
+                iconName: root.recording ? "stop-16" : "microphone-16"
                 iconSize: Theme.iconSizeMd
                 buttonSize: Theme.buttonIconSize
                 backgroundColor: Theme.surfaceChip
@@ -147,8 +147,8 @@ Item {
                 opacity: root.streaming ? 0.4 : 1.0
                 enabled: !root.streaming
                 onClicked: {
-                    if (root.recording) root.stopClicked()
-                    else root.micClicked()
+                    // Toggle: el padre (Main) decide si empezar o parar el dictado.
+                    root.micClicked()
                 }
             }
 

@@ -55,6 +55,8 @@ pub struct AppState {
     /// Handles de agentes en curso por sesión (F0-7 cancel).
     /// Clave: session_id o "default" si no hay.
     pub chat_tasks: Arc<Mutex<std::collections::HashMap<String, tokio::task::AbortHandle>>>,
+    /// Dictado al input (botón mic del chat): grabación sin pipeline de voz.
+    pub dictation_active: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Middleware F0-3: auth + host + origin para `/api/*`.
@@ -133,6 +135,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/voice/stream", get(voice_stream))
         .route("/api/voice/log", post(voice_log))
         .route("/api/voice/barge_in", post(voice_barge_in))
+        .route("/api/dictate/start", post(dictate_start))
+        .route("/api/dictate/stop", post(dictate_stop))
         .route("/api/speak", post(speak_text))
         .route("/api/speak/stop", post(speak_stop))
         .route("/api/audio/devices", get(audio_devices))
@@ -511,6 +515,82 @@ async fn voice_barge_in(State(state): State<AppState>) -> impl IntoResponse {
         StatusCode::OK,
         Json(serde_json::json!({ "status": "barge_in" })),
     )
+}
+
+/// Dictado al input del chat: empieza a grabar (solo STT, sin LLM ni TTS).
+/// Rechaza si hay una captura activa (dictado o pipeline de voz).
+async fn dictate_start(State(state): State<AppState>) -> impl IntoResponse {
+    use std::sync::atomic::Ordering;
+    if state.voice.is_recording()
+        || state.voice.is_speaking()
+        || state.dictation_active.swap(true, Ordering::SeqCst)
+    {
+        state.dictation_active.store(false, Ordering::SeqCst);
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": "ya hay una captura de voz en curso" })),
+        );
+    }
+    let sr = state.voice.sample_rate();
+    state.voice.start_recording(if sr > 0 { sr } else { 48000 });
+    state.voice.emit_state("listening");
+    log::info!("Dictado iniciado (solo STT)");
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "recording" })),
+    )
+}
+
+/// Dictado al input del chat: para la grabación y transcribe con Whisper.
+/// Retorna `{ transcript }` (puede estar vacío si no se escuchó nada).
+async fn dictate_stop(State(state): State<AppState>) -> impl IntoResponse {
+    use std::sync::atomic::Ordering;
+    struct DictationGuard(Arc<std::sync::atomic::AtomicBool>);
+    impl Drop for DictationGuard {
+        fn drop(&mut self) {
+            self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    if !state.dictation_active.load(Ordering::SeqCst) {
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": "no hay dictado en curso" })),
+        );
+    }
+    let _guard = DictationGuard(state.dictation_active.clone());
+    state.voice.emit_state("processing");
+    let audio = state.voice.stop_recording();
+    let resp = if audio.is_empty() {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({ "transcript": "" })),
+        )
+    } else {
+        log::info!("Dictado: transcribiendo {} samples", audio.len());
+        let language = {
+            let cfg = state.config.read().await;
+            if cfg.speech.stt_language == "auto" {
+                None
+            } else {
+                Some(cfg.speech.stt_language.clone())
+            }
+        };
+        match state.speech.transcribe(&audio, language.as_deref()).await {
+            Ok(t) => {
+                log::info!("Dictado STT: '{t}'");
+                (StatusCode::OK, Json(serde_json::json!({ "transcript": t })))
+            }
+            Err(e) => {
+                log::warn!("Dictado STT fallo: {e}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+            }
+        }
+    };
+    state.voice.emit_state("idle");
+    resp
 }
 
 /// Catálogo de herramientas con nivel de permiso y flag (F4-1).
