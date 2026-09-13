@@ -26,6 +26,15 @@ ApplicationWindow {
     flags: Qt.Window | Qt.WindowStaysOnTopHint
     visible: true
 
+    // Cerrar la ventana NO apaga el asistente: se oculta y sigue en la
+    // bandeja (wake word / hotkeys / recordatorios siguen vivos). La salida
+    // real es tray "Salir" (quitRequested -> Qt.quit()).
+    onClosing: function(close) {
+        close.accepted = false
+        root.hide()
+    }
+
+
     // === Modelo de datos real (conectado al backend Rust) ===
     property string backendUrl: "http://127.0.0.1:8765"
     // Token local: módulo generado por main.rs (qml.auth) y, como
