@@ -98,7 +98,7 @@ impl KdeIntegration {
 
     /// Manda una notificación nativa via DBus org.freedesktop.Notifications.
     pub fn send_notification(&self, title: &str, body: &str, app_name: &str) -> bool {
-        let icon = format!("{app_name}");
+        let icon = app_name.to_string();
         let result = Command::new("dbus-send")
             .args([
                 "--session",

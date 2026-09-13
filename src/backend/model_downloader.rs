@@ -73,9 +73,9 @@ impl ModelDownloader {
     pub fn is_downloaded(&self, spec: &ModelSpec) -> bool {
         let path = self.path_for(spec);
         path.exists()
-            && spec.sha256.map_or(true, |expected| {
-                verify_sha256(&path, expected).unwrap_or(false)
-            })
+            && spec
+                .sha256
+                .is_none_or(|expected| verify_sha256(&path, expected).unwrap_or(false))
     }
 
     /// Descarga un modelo. No hace nada si ya existe (y hash valido).

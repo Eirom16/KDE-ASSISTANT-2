@@ -67,6 +67,10 @@ fn main() -> Result<()> {
 
     // Init backend en runtime Tokio
     let runtime = tokio::runtime::Runtime::new().context("creando Tokio runtime")?;
+    // Backend contiene AudioCapture (cpal), que no es Send/Sync en todas las
+    // plataformas. El Arc no cruza threads: el servidor HTTP solo recibe el
+    // subconjunto Send+Sync via http_state().
+    #[allow(clippy::arc_with_non_send_sync)]
     let backend = runtime.block_on(async {
         let b = Backend::new().await?;
         log::info!("Backend inicializado correctamente");

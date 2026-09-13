@@ -229,7 +229,7 @@ impl PiperEngine {
 
         log::info!(
             "piper: '{}' ({} chars) -> {} bytes WAV con modelo {}",
-            &text.chars().take(50).collect::<String>(),
+            text.chars().take(50).collect::<String>(),
             text.chars().count(),
             bytes.len(),
             model.id
@@ -252,16 +252,15 @@ impl PiperEngine {
 
     /// Devuelve un mensaje de ayuda si piper no esta disponible.
     pub fn help_message() -> String {
-        format!(
-            "piper-tts no esta configurado. Para habilitarlo:\n\
-             1. Instala el binario:  sudo pacman -S piper-tts  (Arch)\n\
-             2. Descarga un modelo de voz desde:\n\
-                https://huggingface.co/rhasspy/piper-voices/tree/main\n\
-             3. Coloca el archivo .onnx y .onnx.json en:\n\
-                ~/.local/share/kde-assistant/models/piper/\n\
-             \n\
-             Recomendado: es_ES-sharvard-medium (~60MB)"
-        )
+        "piper-tts no esta configurado. Para habilitarlo:\n\
+         1. Instala el binario:  sudo pacman -S piper-tts  (Arch)\n\
+         2. Descarga un modelo de voz desde:\n\
+            https://huggingface.co/rhasspy/piper-voices/tree/main\n\
+         3. Coloca el archivo .onnx y .onnx.json en:\n\
+            ~/.local/share/kde-assistant/models/piper/\n\
+         \n\
+         Recomendado: es_ES-sharvard-medium (~60MB)"
+            .to_string()
     }
 }
 

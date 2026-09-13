@@ -416,9 +416,6 @@ impl Config {
         Ok(config_dir.join("config.json"))
     }
 
-    pub fn default() -> Self {
-        Self::default_internal()
-    }
     fn default_internal() -> Self {
         Self {
             ai: AiConfig {

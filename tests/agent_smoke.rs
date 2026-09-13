@@ -97,7 +97,7 @@ async fn chat_with_openrouter() {
             }
         }
     }
-    println!();
+    println!("([resumen] tokens={tokens} tool_calls={tool_calls})");
 
     let outcome = timeout(Duration::from_secs(60), task)
         .await

@@ -36,6 +36,10 @@ pub struct Backend {
     pub tools: Arc<tool_executor::ToolExecutor>,
     pub approvals: Arc<approvals::ApprovalManager>,
     pub speech: Arc<speech_service::SpeechService>,
+    /// AudioCapture (cpal) no es Send/Sync en todas las plataformas. Este Arc
+    /// nunca abandona el hilo del controlador: el servidor HTTP reenvia solo
+    /// campos Send+Sync via `http_state()`.
+    #[allow(clippy::arc_with_non_send_sync)]
     pub audio: Arc<RwLock<Option<audio_capture::AudioCapture>>>,
     pub chimes: Arc<chime_player::ChimePlayer>,
     pub hotword: Arc<hotword::HotwordDetector>,
@@ -44,6 +48,9 @@ pub struct Backend {
 }
 
 impl Backend {
+    // El campo `audio` (cpal) no es Send/Sync en todas las plataformas; ver el
+    // comentario del campo. Solo el hilo controlador lo toca.
+    #[allow(clippy::arc_with_non_send_sync)]
     pub async fn new() -> Result<Self> {
         log::info!("Inicializando Backend...");
 

@@ -1453,7 +1453,7 @@ fn try_desktop(app_id: &str) -> Option<(String, Vec<String>)> {
     let mut best: Option<(&DesktopEntry, u32)> = None;
     for e in &entries {
         if let Some(score) = score_entry(&query, e) {
-            if best.map_or(true, |(_, b)| score > b) {
+            if best.is_none_or(|(_, b)| score > b) {
                 best = Some((e, score));
             }
         }
@@ -1566,10 +1566,8 @@ fn parse_desktop_file(path: &Path, id: &str) -> Option<DesktopEntry> {
                     return None;
                 }
             }
-            "Hidden" => {
-                if v.trim().eq_ignore_ascii_case("true") {
-                    hidden = true;
-                }
+            "Hidden" if v.trim().eq_ignore_ascii_case("true") => {
+                hidden = true;
             }
             _ => {}
         }
@@ -1971,7 +1969,7 @@ mod tests {
         std::fs::write(base.join("sub").join("otras_notas.txt"), "x").unwrap();
         std::fs::write(base.join(".git").join("notas_secret.md"), "x").unwrap();
         std::fs::write(base.join("node_modules").join("notas_dep.md"), "x").unwrap();
-        let r = find_files_sync(&[base.clone()], "notas").unwrap();
+        let r = find_files_sync(std::slice::from_ref(&base), "notas").unwrap();
         assert_eq!(r.len(), 2);
         assert!(r.iter().all(|p| p.starts_with(&base)));
         let _ = std::fs::remove_dir_all(&base);

@@ -142,7 +142,7 @@ impl OwwDetector {
         self.remainder.extend_from_slice(rest);
 
         // Solo calcular cuando el acumulado es multiplo exacto de 1280
-        if self.accumulated % CHUNK_SAMPLES != 0 {
+        if !self.accumulated.is_multiple_of(CHUNK_SAMPLES) {
             return Ok(None);
         }
 
@@ -359,7 +359,7 @@ pub async fn ensure_onnx_runtime_lib() -> Result<PathBuf> {
         return Ok(p);
     }
     // 2. Hay alguna usable en el sistema (no hace falta descargar)
-    if system_lib_path().is_some() || python_lib_paths().first().is_some() {
+    if system_lib_path().is_some() || !python_lib_paths().is_empty() {
         log::info!("ONNX Runtime del sistema disponible, omitiendo descarga");
         return ensure_onnx_lib();
     }

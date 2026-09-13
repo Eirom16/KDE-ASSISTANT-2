@@ -119,7 +119,7 @@ fn transcribe_with_lang(
 
     let mut text = String::new();
     for seg in state.as_iter() {
-        text.push_str(&seg.to_str().unwrap_or(""));
+        text.push_str(seg.to_str().unwrap_or(""));
     }
     Ok(text.trim().to_string())
 }

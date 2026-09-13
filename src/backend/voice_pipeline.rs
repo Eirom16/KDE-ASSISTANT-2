@@ -38,6 +38,12 @@ pub struct RecordingBuffer {
     pub recording: Arc<AtomicBool>,
 }
 
+impl Default for RecordingBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RecordingBuffer {
     pub fn new() -> Self {
         Self {
@@ -678,7 +684,7 @@ impl VoicePipeline {
 
         // Esperar a que el agente termine
         let outcome = run_task.await.context("run_agent task")??;
-        let _ = forward_task;
+        drop(forward_task);
         Ok(outcome.response)
     }
 }

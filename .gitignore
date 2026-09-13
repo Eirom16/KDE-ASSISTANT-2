@@ -1,4 +1,7 @@
 /target
+tests/hive/
+tests/roster.json
+tests/roster-backups/
 *.swp
 *.swo
 *~
