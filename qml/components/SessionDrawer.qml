@@ -193,6 +193,7 @@ Rectangle {
                                     iconName: modelData.id === root.currentId ? "hubot-16" : "history-16"
                                     active: modelData.id === root.currentId
                                     textSize: Theme.fontSizeBodySmall
+                                    elideText: true
                                     onClicked: root.sessionSelected(modelData.id)
                                 }
 
