@@ -27,7 +27,7 @@
 - [x] `tool_registry::filtered_tools(cfg)`: respetar `enable_tool_calling` y `tools.{open_app,create_file,...}`
 - [x] `chat_complete`: devolver `toolCalls[]` al QML, no solo texto
 - [x] `build_messages`: limitar a últimos 40 mensajes (ventana)
-- [ ] Test: 2 turnos con tool → recargar → historial contiene tool
+- [x] Test: 2 turnos con tool → recargar → historial contiene tool (`tool_turns_persist_roundtrip_with_image`)
 
 ### F0-2 Seguridad paths + show_image [CRÍTICO]
 - [x] `validate_path`: canonicalizar tras `create_dir_all`, denegar symlinks fuera, expandir `$HOME`, manejar `..`
@@ -35,7 +35,7 @@
 - [x] `show_image http`: timeout 15s, cap 10MB, solo `image/*`, ext validada
 - [x] `read_file`: truncar por `chars()` no bytes, límite configurable
 - [x] `edit_file overwrite`: backup `.bak` + confirmación futura
-- [ ] Test: `file:///etc/passwd` bloqueado, URL 100MB bloqueada
+- [x] Test: `file:///etc/passwd` bloqueado, URL 100MB bloqueada (`show_image_file_uri_outside_allowed_paths_is_denied` + `show_image_huge_url_is_rejected_before_download` con mock TCP)
 
 ### F0-3 Localhost sin auth [CRÍTICO]
 - [x] Token bearer aleatorio en `~/.config/kde-assistant/server.token` (`0600`)
