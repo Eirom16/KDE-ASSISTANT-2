@@ -338,16 +338,18 @@ fn main() -> Result<()> {
         // de la ventana principal: si minimizas el chat, el personaje sigue.
         let overlay_child: Option<Child> = if spawn_overlay {
             let mut ocmd = Command::new("qml6");
-            ocmd.arg("-I")
-                .arg(".")
-                .arg("qml/agent/AgentOverlay.qml")
+            // Las flags -I van ANTES del archivo QML: qml6 deja de parsear
+            // opciones al encontrar el primer argumento posicional y se
+            // tragaría "-I"/auth_inc como archivos (errores QQmlEngine).
+            ocmd.arg("-I").arg(".");
+            if !auth_inc.is_empty() {
+                ocmd.arg("-I").arg(&auth_inc);
+            }
+            ocmd.arg("qml/agent/AgentOverlay.qml")
                 .env("QT_QPA_PLATFORM", "wayland")
                 .env("QML_DISABLE_DISK_CACHE", "1")
                 .env("QML_XHR_ALLOW_FILE_READ", "1")
                 .env("KDE_ASSISTANT_TOKEN", &local_token);
-            if !auth_inc.is_empty() {
-                ocmd.arg("-I").arg(&auth_inc);
-            }
             match ocmd.spawn() {
                 Ok(c) => {
                     log::info!("Desktop Agent overlay lanzado (pid {})", c.id());

@@ -4,7 +4,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import Qt.labs.platform
+import Qt.labs.platform as Labs
 import qml 1.0
 
 Item {
@@ -240,9 +240,11 @@ Item {
     }
 
     // === File dialog (Qt.labs.platform FileDialog, API Qt 6.11) ===
+    // Alias `Labs`: el import sin alias hacía que `Menu` resolviera a
+    // labs.platform (sin popup()) y rompía el menú de adjuntar (QML TypeError).
     // Props: fileMode, file, files, currentFile(s), folder, options, nameFilters,
     // selectedNameFilter, defaultSuffix, acceptLabel, rejectLabel.
-    FileDialog {
+    Labs.FileDialog {
         id: fileDialog
         title: qsTr("Seleccionar archivo")
         fileMode: FileDialog.OpenFile

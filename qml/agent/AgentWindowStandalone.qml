@@ -52,7 +52,7 @@ Window {
     // Reenviar señal clickedByUser
     Connections {
         target: agentWindow
-        onClickedByUser: root.clickedByUser()
+        function onClickedByUser() { root.clickedByUser() }
     }
 
     signal clickedByUser()
