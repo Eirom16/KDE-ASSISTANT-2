@@ -978,10 +978,15 @@ ApplicationWindow {
             }
 
             // === Voice Orb (centrado, visible cuando no es idle) ===
+            // El orb del chat solo cubre el dictado al input y la voz SIN
+            // avatar: cuando el personaje está activo, él es quien escucha
+            // y habla (duplicar el orb aquí era la "interferencia" visual).
             Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: root.voiceState === "idle" ? 0 : 180
-                visible: root.voiceState !== "idle"
+                Layout.preferredHeight: orbVisible ? 180 : 0
+                visible: orbVisible
+                property bool orbVisible: root.dictating
+                    || (root.voiceState !== "idle" && !root.characterEnabled)
 
                 Behavior on Layout.preferredHeight {
                     NumberAnimation { duration: Theme.animNormal; easing.type: Easing.OutCubic }
@@ -1051,7 +1056,10 @@ ApplicationWindow {
                 Layout.margins: Theme.spacingSm
                 Layout.preferredHeight: implicitHeight
                 streaming: root.streaming
-                recording: root.voiceState === "listening"
+                // El mic del chat refleja SOLO el dictado al input; la
+                // conversación por voz (wake word / PTT) es del avatar y
+                // no debe pintar este botón como si estuviera dictando.
+                recording: root.dictating
                 onSendClicked: function(text) {
                     root.sendMessage(text)
                 }
@@ -1446,8 +1454,10 @@ ApplicationWindow {
         var was = root.voiceState
         if (was === state) return
         root.voiceState = state
-        // Al invocar por voz la app se abre aunque este minimizada
-        if (state === "listening" && was !== "listening") {
+        // Solo abrir la ventana al invocar por voz si NO hay avatar:
+        // con el personaje activo, la conversación ocurre en el overlay
+        // y no debe saltar la ventana del chat.
+        if (state === "listening" && was !== "listening" && !root.characterEnabled) {
             root.show()
             root.raise()
             root.requestActivate()
