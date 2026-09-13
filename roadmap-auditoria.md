@@ -12,7 +12,7 @@
 - [x] Multi-proveedor (OpenRouter/Groq/OpenAI/custom) + `/api/ai-models`
 - [x] STT whisper lazy + pre-warm, TTS piper, wake ML hey_jarvis, chimes, PTT rdev
 - [x] Historial tools persistido (hecho — ver F0-1)
-- [ ] Contexto en voz (pendiente — `voice_pipeline.respond` no incluye historial de sesión)
+- [x] Contexto en voz (hecho — `respond()` inyecta historial de la sesión canónica de voz; también se corrigió que los facts de memoria estaban construidos pero nunca enviados)
 - [x] Cancel streaming real (hecho — ver F0-7)
 - [x] Tema claro/oscuro aplicado (hecho — ver F0-5)
 - [x] Estado Online/health real (hecho — ver F0-5)
@@ -166,5 +166,7 @@
 | 2026-09-13 | FEAT-endpoint | `POST /api/tools/execute` (antes inexistente: rompía "Subir imagen" del InputBar). Permisos: solo 🟢/🟡, 🔴→403. Persiste mensaje tool (stub assistant si hay imagen). Verificado en vivo: imagen ok, `/etc/passwd` denegado, sesión roundtrip OK | 81 passed | `d15acf1` |
 | 2026-09-13 | FIX-personaje-duplicado | Overlay layer-shell + standalone corrían a la vez (solapados en la esquina). `KDE_ASSISTANT_AGENT_OVERLAY=1` del main.rs apaga la standalone. Verificado: un solo personaje en captura | 81 passed | `edfe972` |
 | 2026-09-13 | FIX-cerrar-ventana | Cerrar la ventana mataba el proceso qml6 → main.rs apagaba todo (wake word y hotkeys morían). Ahora `onClosing` → `hide()` (modo tray); salir real sigue en tray → "Salir" | 81 passed, `valida_qml` OK | `d7fbbc6` |
+| 2026-09-13 | FIX-4-errores | `Qt.platform.environment` sin guardia reactivaba el personaje duplicado (Main.qml → envOr); args del overlay mal ordenados (qml6 trataba `-I`/auth_dir como archivos); `import Qt.labs.platform` sin alias rompía el menú adjuntar (popup() ausente) → `as Labs` + `Labs.FileDialog`; Connections con sintaxis deprecada | 81 passed, valida_qml/valida_agent OK | `a4a2693` |
+| 2026-09-13 | FIX-voz-contexto | `respond()` enviaba el system_prompt base descartando los facts construidos (memoria nunca llegaba a voz). Voz ahora inyecta historial (ventana 40) de la sesión canónica; `voice_log` la reusa (era 1 sesión nueva por turno) | 82 passed | `8d33a1c` |
 
 > Cómo marcar: cambia `- [ ]` a `- [x]` y agrega fila en Registro con `cargo test --lib`, `cargo clippy`, `valida_qml`.
