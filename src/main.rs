@@ -291,31 +291,42 @@ fn main() -> Result<()> {
         // Plataforma: Wayland nativo si está disponible y QT_QPA_PLATFORM no está forzado a xcb.
         // FIX-wayland: en nativo la ventana a veces no mapea; XWayland es fallback seguro.
         // Respetar QT_QPA_PLATFORM si ya está seteado (wayland/xcb/offscreen).
-        if std::env::var_os("QT_QPA_PLATFORM").is_none() {
-            // Preferir Wayland nativo si hay compositor Wayland
-            if std::env::var_os("WAYLAND_DISPLAY").is_some()
-                || std::env::var_os("XDG_SESSION_TYPE")
-                    .map(|v| v == "wayland")
-                    .unwrap_or(false)
-            {
-                qml_cmd.env("QT_QPA_PLATFORM", "wayland");
-                log::info!("UI: usando Wayland nativo (QT_QPA_PLATFORM=wayland)");
-            } else {
-                qml_cmd.env("QT_QPA_PLATFORM", "xcb");
-                log::info!("UI: forzando XWayland (QT_QPA_PLATFORM=xcb) por compatibilidad");
-            }
-        } else {
-            log::info!(
-                "UI: QT_QPA_PLATFORM ya definido = {:?}",
-                std::env::var("QT_QPA_PLATFORM")
-            );
+        let platform = std::env::var_os("QT_QPA_PLATFORM")
+            .map(|v| v.to_string_lossy().to_string())
+            .unwrap_or_else(|| {
+                if std::env::var_os("WAYLAND_DISPLAY").is_some()
+                    || std::env::var_os("XDG_SESSION_TYPE")
+                        .map(|v| v == "wayland")
+                        .unwrap_or(false)
+                {
+                    "wayland".to_string()
+                } else {
+                    "xcb".to_string()
+                }
+            });
+        match platform.as_str() {
+            "wayland" => log::info!("UI: usando Wayland nativo (QT_QPA_PLATFORM=wayland)"),
+            "xcb" => log::info!("UI: forzando XWayland (QT_QPA_PLATFORM=xcb) por compatibilidad"),
+            p => log::info!("UI: QT_QPA_PLATFORM ya definido = {p}"),
         }
+        qml_cmd.env("QT_QPA_PLATFORM", &platform);
+
+        // Si el overlay del personaje va a correr (Wayland + enabled), el
+        // AgentWindowStandalone de Main.qml se desactiva: dos personajes a la
+        // vez seria un duplicado invisible (misma esquina, ~30MB extra).
+        let character_enabled =
+            runtime.block_on(async { backend.config.read().await.character.enabled });
+        let spawn_overlay = character_enabled && platform == "wayland";
         let mut child = qml_cmd
             .arg("qml/Main.qml")
             // Sin caché de QML: evita arrancar con bytecode rancio tras actualizar.
             .env("QML_DISABLE_DISK_CACHE", "1")
             .env("QML_XHR_ALLOW_FILE_READ", "1")
             .env("KDE_ASSISTANT_TOKEN", &local_token)
+            .env(
+                "KDE_ASSISTANT_AGENT_OVERLAY",
+                if spawn_overlay { "1" } else { "0" },
+            )
             .spawn()
             .context(
                 "lanzando qml6 (asegurate de tener Qt6 instalado: pacman -S qt6-declarative)",
@@ -325,51 +336,35 @@ fn main() -> Result<()> {
         // === Proceso separado: Desktop Agent overlay (Fase 4) ===
         // Proceso qml6 independiente con layer-shell (Wayland). Independiente
         // de la ventana principal: si minimizas el chat, el personaje sigue.
-        let overlay_child: Option<Child> = {
-            let cfg_char_enabled =
-                { runtime.block_on(async { backend.config.read().await.character.enabled }) };
-            if cfg_char_enabled {
-                let p = std::env::var_os("QT_QPA_PLATFORM")
-                    .map(|v| v.to_string_lossy().to_string())
-                    .unwrap_or_else(|| {
-                        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-                            "wayland".to_string()
-                        } else {
-                            "xcb".to_string()
-                        }
-                    });
-                if p == "wayland" {
-                    let mut ocmd = Command::new("qml6");
-                    ocmd.arg("-I")
-                        .arg(".")
-                        .arg("qml/agent/AgentOverlay.qml")
-                        .env("QT_QPA_PLATFORM", "wayland")
-                        .env("QML_DISABLE_DISK_CACHE", "1")
-                        .env("QML_XHR_ALLOW_FILE_READ", "1")
-                        .env("KDE_ASSISTANT_TOKEN", &local_token);
-                    if !auth_inc.is_empty() {
-                        ocmd.arg("-I").arg(&auth_inc);
-                    }
-                    match ocmd.spawn() {
-                        Ok(c) => {
-                            log::info!("Desktop Agent overlay lanzado (pid {})", c.id());
-                            Some(c)
-                        }
-                        Err(e) => {
-                            log::warn!("No se pudo lanzar el overlay del personaje: {e}");
-                            None
-                        }
-                    }
-                } else {
-                    log::info!(
-                        "Personaje en modo {}: overlay layer-shell omitido (solo Wayland)",
-                        p
-                    );
+        let overlay_child: Option<Child> = if spawn_overlay {
+            let mut ocmd = Command::new("qml6");
+            ocmd.arg("-I")
+                .arg(".")
+                .arg("qml/agent/AgentOverlay.qml")
+                .env("QT_QPA_PLATFORM", "wayland")
+                .env("QML_DISABLE_DISK_CACHE", "1")
+                .env("QML_XHR_ALLOW_FILE_READ", "1")
+                .env("KDE_ASSISTANT_TOKEN", &local_token);
+            if !auth_inc.is_empty() {
+                ocmd.arg("-I").arg(&auth_inc);
+            }
+            match ocmd.spawn() {
+                Ok(c) => {
+                    log::info!("Desktop Agent overlay lanzado (pid {})", c.id());
+                    Some(c)
+                }
+                Err(e) => {
+                    log::warn!("No se pudo lanzar el overlay del personaje: {e}");
                     None
                 }
-            } else {
-                None
             }
+        } else {
+            if character_enabled {
+                log::info!(
+                    "Personaje: overlay omitido (solo Wayland); lo cubre la ventana standalone"
+                );
+            }
+            None
         };
 
         // Supervisar al hijo principal (Main.qml). Cuando termine, si el overlay

@@ -1147,13 +1147,16 @@ ApplicationWindow {
     }
 
     // === Desktop Agent (personaje): character.enabled en config.json ===
-    // Por defecto desactivado (opt-in hasta que maduren las fases de overlay).
+    // Por defecto desactivado (opt-in). Ver DESKTOP-AGENT-DESIGN.md.
     // El personaje refleja el estado del asistente.
     // Fase 2-3: AgentWindowStandalone (Window XWayland).
     // Fase 4+: AgentMain.qml proceso nativo Wayland (layer-shell).
+    // main.rs fija KDE_ASSISTANT_AGENT_OVERLAY=1 cuando el overlay corre:
+    // en ese caso la ventana standalone queda OFF (evita personaje duplicado).
+    readonly property bool agentOverlayRunning: Qt.platform.environment["KDE_ASSISTANT_AGENT_OVERLAY"] === "1"
     AgentWindowStandalone {
         id: agentWindow
-        agentEnabled: root.characterEnabled
+        agentEnabled: root.characterEnabled && !root.agentOverlayRunning
         reducedMotion: root.characterReducedMotion
         presenceMode: root.characterMode
         sleepAfterSecs: root.characterSleepSecs
