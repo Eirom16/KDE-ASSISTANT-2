@@ -1,6 +1,9 @@
-// TrayMenu.qml - System Tray para KDE Plasma + popup propio posicionado.
-// Menu nativo (click derecho, lo muestra la plataforma) + popup propio
-// (kebab de la ventana o atajo Super+Shift+M, colocado junto al icono).
+// TrayMenu.qml - System Tray para KDE Plasma.
+// Click derecho en el icono: menu nativo (lo renderiza Plasma via
+// DBusMenu, anclado al icono en Wayland y XWayland). Ademas hay un
+// popup propio (kebab de la ventana o atajo Super+Shift+M, colocado
+// junto al icono cuando la sesion entrega tray.geometry) y un fallback
+// Context -> popup si la sesion no importa el menu nativo.
 
 import QtQuick
 import QtQuick.Window
@@ -172,10 +175,101 @@ Item {
         icon.source: Qt.resolvedUrl("../../assets/icons/kde-assistant.svg")
         icon.mask: false
 
-        // Sin menu nativo: la plataforma lo abria sola y arriba-izquierda.
-        // El menu es el popup propio (kebab de la ventana o Super+Shift+M).
-        // Click izquierdo: muestra/oculta (si la sesion lo entrega).
-        // El derecho lo muestra la plataforma con el menu nativo.
+        // Menu nativo (DBusMenu): click derecho hace que PLASMA lo
+        // importe y lo renderice anclado al icono (showSystemTrayMenu-
+        // Wayland en applets/systemtray). Funciona igual con la app en
+        // Wayland o XWayland (Qt no pinta nada, solo exporta /MenuBar).
+        // Es el comportamiento que ya funcionaba el 8-sep. SIN el menu
+        // registrado (Menu=/NO_DBUSMENU) el click derecho no siempre
+        // llega a la app: la sesion puede descartarlo en silencio.
+        // Plano, sin submenus anidados (en Qt6 Wayland pueden bloquear
+        // el popup). NUNCA llamar a menu.popup() desde QML: Qt lo
+        // renderizaria en la esquina superior izquierda de la ventana
+        // (ese fue el "menu arriba-izquierda" del 9-sep).
+        // visible: false es OBLIGATORIO: Qt.labs.platform Menu tiene
+        // m_visible=true por defecto (qquicklabsplatformmenu.cpp) y al
+        // completar el componente hace setVisible(true) sobre el QMenu
+        // interno -> aparece solo en (0,0) bajo XWayland al arrancar.
+        // La visibilidad del menu al click derecho NO depende de esto:
+        // Plasma lo importa por DBusMenu y muestra su propia copia.
+        menu: Menu {
+            visible: false
+
+            MenuItem {
+                text: root.windowVisible ? qsTr("Ocultar ventana") : qsTr("Mostrar ventana")
+                onTriggered: {
+                    if (root.windowVisible) root.hideRequested()
+                    else root.showRequested()
+                }
+            }
+            MenuItem {
+                text: qsTr("Dictar") + "  (" + root.pttShortcut + ")"
+                onTriggered: root.dictateRequested()
+            }
+            MenuSeparator { }
+            MenuItem {
+                text: qsTr("Nueva sesión")
+                onTriggered: root.newSessionRequested()
+            }
+            MenuItem {
+                visible: root.recentSessions.length > 0
+                text: root.recentSessions.length > 0 ? "• " + root.recentSessions[0].title : ""
+                onTriggered: root.openSessionRequested(root.recentSessions[0].id)
+            }
+            MenuItem {
+                visible: root.recentSessions.length > 1
+                text: root.recentSessions.length > 1 ? "• " + root.recentSessions[1].title : ""
+                onTriggered: root.openSessionRequested(root.recentSessions[1].id)
+            }
+            MenuItem {
+                visible: root.recentSessions.length > 2
+                text: root.recentSessions.length > 2 ? "• " + root.recentSessions[2].title : ""
+                onTriggered: root.openSessionRequested(root.recentSessions[2].id)
+            }
+            MenuItem {
+                visible: root.recentSessions.length > 3
+                text: root.recentSessions.length > 3 ? "• " + root.recentSessions[3].title : ""
+                onTriggered: root.openSessionRequested(root.recentSessions[3].id)
+            }
+            MenuItem {
+                visible: root.recentSessions.length > 4
+                text: root.recentSessions.length > 4 ? "• " + root.recentSessions[4].title : ""
+                onTriggered: root.openSessionRequested(root.recentSessions[4].id)
+            }
+            MenuSeparator { }
+            MenuItem {
+                text: qsTr("Buscar en la web…")
+                onTriggered: root.quickSearchRequested()
+            }
+            MenuItem {
+                text: qsTr("Abrir aplicación…")
+                onTriggered: root.quickOpenAppRequested()
+            }
+            MenuItem {
+                text: qsTr("Ver archivos de Documentos")
+                onTriggered: root.quickOpenFolderRequested()
+            }
+            MenuSeparator { }
+            MenuItem {
+                text: qsTr("Siempre visible")
+                checkable: true
+                checked: root.alwaysOnTop
+                onTriggered: root.alwaysOnTopToggled(!root.alwaysOnTop)
+            }
+            MenuItem {
+                text: qsTr("Configuración")
+                onTriggered: root.settingsRequested()
+            }
+            MenuSeparator { }
+            MenuItem {
+                text: qsTr("Salir")
+                onTriggered: root.quitRequested()
+            }
+        }
+
+        // Con menu registrado, click derecho lo muestra Plasma (no llega
+        // onActivated). El Context queda como respaldo si alguna sesion
+        // cae a ContextMenu(): abre el popup propio junto al icono.
         onActivated: function(reason) {
             console.log("TrayMenu activado, reason:", reason)
             if (reason === SystemTrayIcon.Trigger) {
@@ -183,6 +277,9 @@ Item {
                 else root.showRequested()
             } else if (reason === SystemTrayIcon.DoubleClick) {
                 root.showRequested()
+            } else if (reason === SystemTrayIcon.Context
+                    || reason === SystemTrayIcon.Unknown) {
+                root.openMenu()
             }
         }
     }
