@@ -156,7 +156,11 @@ src/
 │   ├── session_manager.rs    # SQLite CRUD (sessions, messages)
 │   ├── speech_service.rs     # STT (whisper-rs) + TTS (piper-tts)
 │   ├── stt.rs                # WhisperEngine (lazy load ggml-base.bin)
-│   ├── voice_pipeline.rs     # Orquesta STT -> LLM -> TTS + buffer grabacion
+│   ├── voice_pipeline.rs     # Orquesta STT -> LLM -> TTS (maquina de estados formal,
+│   │                         #   TTS streaming por oracion, barge-in)
+│   ├── voice_state.rs        # VoiceState enum + transiciones validadas + op-id por turno
+│   ├── tts_stream.rs         # SentenceChunker: corta el stream LLM en oraciones para TTS
+│   ├── vad.rs                # VadState: endpointing configurable + piso de ruido adaptativo
 │   ├── model_downloader.rs   # Descarga automatica de modelos (whisper/piper/oww)
 │   ├── wakeword_ml.rs        # openWakeWord ONNX (hey jarvis) via ort load-dynamic
 │   ├── audio_capture.rs      # cpal input + VAD + nivel de amplitud
