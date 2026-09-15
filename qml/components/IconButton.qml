@@ -14,7 +14,16 @@ Rectangle {
     property color backgroundColor: Theme.surfaceChip
     property bool active: false       // Para estado "grabando" (rojo)
     property color activeColor: Theme.error
+    /// Etiqueta que anuncia el control al lector de pantalla. Los llamadores
+    /// deben dar una frase humana; el icono queda como respaldo.
+    property string accessibleName: iconName
     signal clicked()
+
+    focus: true
+    activeFocusOnTab: true
+    Accessible.role: Accessible.Button
+    Accessible.name: root.accessibleName
+    Accessible.description: root.active ? qsTr("Activo") : ""
 
     width: buttonSize
     height: buttonSize
@@ -45,6 +54,15 @@ Rectangle {
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         onClicked: root.clicked()
+    }
+
+    Keys.onReturnPressed: function(event) {
+        if (root.enabled !== false) root.clicked()
+        event.accepted = true
+    }
+    Keys.onSpacePressed: function(event) {
+        if (root.enabled !== false) root.clicked()
+        event.accepted = true
     }
 
     // Pulsing ring cuando esta active

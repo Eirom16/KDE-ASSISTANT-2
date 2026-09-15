@@ -40,6 +40,9 @@ Rectangle {
     property real wakeThreshold: 0.5
     property string wakeGreeting: "Sí, dígame"
     property string sttModel: "base"
+    // Motor STT: "auto" (API si hay Groq), "api" (forzar nube), "local".
+    property string sttBackend: "auto"
+    property string sttApiModel: "whisper-large-v3-turbo"
 
     // Memoria (F5): todo local, nada sale del equipo salvo el prompt actual.
     property bool memoryEnabled: true
@@ -145,6 +148,8 @@ Rectangle {
                 root.wakeThreshold = cfg.speech.wake_word_threshold || 0.5
                 root.wakeGreeting = cfg.speech.wake_greeting || "Sí, dígame"
                 root.sttModel = cfg.speech.stt_model || "base"
+                root.sttBackend = cfg.speech.stt_backend || "auto"
+                root.sttApiModel = cfg.speech.stt_api_model || "whisper-large-v3-turbo"
                 root.shortcutToggle = cfg.shortcuts.toggle || "Super+Shift+A"
                 root.shortcutPtt = cfg.shortcuts.push_to_talk || "Super+Shift+V"
                 root.shortcutNewSession = cfg.shortcuts.new_session || "Ctrl+Shift+K"
@@ -328,6 +333,8 @@ Rectangle {
         cfg.speech.wake_word_threshold = thresholdSlider.value
         cfg.speech.wake_greeting = greetingField.value
         cfg.speech.stt_model = sttModel
+        cfg.speech.stt_backend = sttBackend
+        cfg.speech.stt_api_model = sttApiModel
         cfg.shortcuts.toggle = toggleField.value
         cfg.shortcuts.push_to_talk = pttField.value
         cfg.shortcuts.new_session = newSessionField.value
@@ -744,7 +751,76 @@ Rectangle {
                     }
 
                     Text {
-                        text: qsTr("Modelo STT (requiere reiniciar)")
+                        text: qsTr("Motor STT (transcripción de voz)")
+                        font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
+                        color: Theme.inkMuted
+                        Layout.topMargin: Theme.spacingSm
+                        Layout.fillWidth: true
+                    }
+
+                    // Motor STT: Groq API (rápido, ~1s) o whisper local.
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingXs
+                        PillButton {
+                            text: qsTr("Auto")
+                            active: root.sttBackend === "auto"
+                            onClicked: root.sttBackend = "auto"
+                        }
+                        PillButton {
+                            text: qsTr("API Groq (rápido)")
+                            active: root.sttBackend === "api"
+                            onClicked: root.sttBackend = "api"
+                        }
+                        PillButton {
+                            text: qsTr("Local (sin nube)")
+                            active: root.sttBackend === "local"
+                            onClicked: root.sttBackend = "local"
+                        }
+                    }
+                    Text {
+                        text: qsTr("Auto usa la API de Groq si hay key; si no, whisper local. El audio de tus turnos de voz sale a Groq en modo API.")
+                        font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                        color: Theme.inkMuted
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
+
+                    // Modelo del API (solo cuando el backend no es local)
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingXs
+                        visible: root.sttBackend !== "local"
+
+                        ComboBox {
+                            id: sttApiModelCombo
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 36
+                            model: ["whisper-large-v3-turbo", "whisper-large-v3"]
+                            Component.onCompleted: {
+                                currentIndex = root.sttApiModel === "whisper-large-v3" ? 1 : 0
+                            }
+                            onActivated: root.sttApiModel = currentText
+                            font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
+                            background: Rectangle {
+                                radius: Theme.radiusMd
+                                color: sttApiModelCombo.hovered || sttApiModelCombo.activeFocus ? Theme.surface : Theme.surfacePearl
+                                border.width: 1
+                                border.color: sttApiModelCombo.activeFocus ? Theme.primary : Theme.hairline
+                            }
+                        }
+                    }
+                    Text {
+                        visible: root.sttBackend !== "local"
+                        text: qsTr("turbo: ~0.2x tiempo real, $0.04/h. large-v3: un poco más preciso, $0.111/h.")
+                        font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                        color: Theme.inkMuted
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
+                    }
+
+                    Text {
+                        text: qsTr("Modelo STT local (sin nube, requiere reiniciar)")
                         font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
                         color: Theme.inkMuted
                         Layout.topMargin: Theme.spacingSm
@@ -767,7 +843,7 @@ Rectangle {
                         }
                     }
                     Text {
-                        text: qsTr("tiny ≈ 75MB, base ≈ 140MB. Se descarga solo al reiniciar.")
+                        text: qsTr("tiny ≈ 75MB, base ≈ 140MB. Solo se usa con motor Local o como respaldo si la API falla.")
                         font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
                         color: Theme.inkMuted
                         wrapMode: Text.Wrap

@@ -180,6 +180,14 @@ pub struct SpeechConfig {
     /// VAD: piso de ruido adaptativo (sube el umbral en ambientes ruidosos).
     #[serde(default = "default_true")]
     pub vad_adaptive: bool,
+    /// Backend de STT: "auto" (API si el proveedor es Groq y hay key),
+    /// "api" (forzar API; cae a local si falla) o "local" (whisper-rs).
+    #[serde(default = "default_stt_backend")]
+    pub stt_backend: String,
+    /// Modelo STT para la API (Groq): "whisper-large-v3-turbo" (rápido)
+    /// o "whisper-large-v3" (más preciso).
+    #[serde(default = "default_stt_api_model")]
+    pub stt_api_model: String,
 }
 
 fn default_stt_model() -> String {
@@ -219,13 +227,19 @@ fn default_wake_greeting() -> String {
     "Sí, dígame".to_string()
 }
 fn default_vad_silence_ms() -> u64 {
-    1200
+    1800
 }
 fn default_vad_min_record_ms() -> u64 {
     1500
 }
 fn default_vad_silence_rms() -> f32 {
     0.02
+}
+fn default_stt_backend() -> String {
+    "auto".to_string()
+}
+fn default_stt_api_model() -> String {
+    "whisper-large-v3-turbo".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -520,6 +534,8 @@ impl Config {
                 vad_min_record_ms: default_vad_min_record_ms(),
                 vad_silence_rms: default_vad_silence_rms(),
                 vad_adaptive: true,
+                stt_backend: default_stt_backend(),
+                stt_api_model: default_stt_api_model(),
             },
             ui: UiConfig {
                 theme: default_ui_theme(),

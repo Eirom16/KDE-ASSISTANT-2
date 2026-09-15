@@ -93,6 +93,20 @@ fn main() -> Result<()> {
         });
     }
 
+    // Pre-warm de piper (la PRIMERA síntesis carga el modelo ONNX en el
+    // proceso: ~4-5s. El saludo tras el wake word debe salir enseguida).
+    {
+        let speech = backend.speech.clone();
+        runtime.spawn(async move {
+            if speech.is_available().await {
+                match speech.synthesize("Listo").await {
+                    Ok(_) => log::info!("Piper pre-cargado en background"),
+                    Err(e) => log::warn!("Pre-warm de piper fallo: {e}"),
+                }
+            }
+        });
+    }
+
     // F6: disparar recordatorios pendientes de sesiones anteriores.
     {
         let sessions = backend.sessions.clone();
@@ -132,6 +146,10 @@ fn main() -> Result<()> {
     // Iniciar pipeline de voz (captura de audio + deteccion de wake word)
     // Solo si esta habilitado en config (por defecto desactivado por falsos positivos)
     let cfg = runtime.block_on(async { backend.config.read().await.clone() });
+    // Rust es la única autoridad de conversación: conserva una sola sesión,
+    // permisos, streaming y TTS. El sidecar experimental tenía otro LLM y
+    // rompía la conversación bidireccional al no compartir contexto.
+    let mut sidecar_child: Option<Child> = None;
     let voice_events = if cfg.speech.wake_word_enabled {
         runtime.block_on(async {
             match backend.start_voice_pipeline().await {
@@ -166,6 +184,15 @@ fn main() -> Result<()> {
                         // word entero (ni saludo TTS ni escucha).
                         if vp.is_dictating() {
                             log::info!("[VOICE] wake word ignorado: dictado al chat en curso");
+                            continue;
+                        }
+                        // Si el pipeline esta ocupado (escuchando, pensando o
+                        // hablando), NO re-abrir: un "hey jarvis" repetido
+                        // pisaba el turno en curso y perdia el comando del
+                        // usuario. El barge-in durante TTS es aparte
+                        // (por amplitud, en push_audio).
+                        if !vp.wake_gate_open() {
+                            log::info!("[VOICE] wake word ignorado: pipeline ocupado");
                             continue;
                         }
                         log::info!("[VOICE] Wake detected: '{wake_word_label}'");
@@ -411,6 +438,11 @@ fn main() -> Result<()> {
             log::info!("Apagando Desktop Agent overlay (pid {})...", oc.id());
             let _ = oc.kill();
             let _ = oc.wait();
+        }
+        if let Some(mut sc) = sidecar_child.take() {
+            log::info!("Apagando sidecar de voz (pid {})...", sc.id());
+            let _ = sc.kill();
+            let _ = sc.wait();
         }
     } else {
         log::info!("UI desactivada por flag --ui-off");

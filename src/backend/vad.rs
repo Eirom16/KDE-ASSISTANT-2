@@ -4,6 +4,11 @@
 //! no cortar demasiado rápido ni esperar de más, y no depender de un timeout
 //! fijo. La decisión de corte vive en `VadState` (lógica pura, testeable);
 //! `record_until_silence` solo le alimenta RMS por ventanas.
+//!
+//! Piso adaptativo: percentil 25 de una ventana móvil de los últimos ~5s de
+//! RMS. Aprende también en ambientes ruidosos (ventilador, TV): la primera
+//! versión solo aprendía de frames < 0.06 y con ruido ambiente alto nunca
+//! aprendía → el umbral quedaba en el base → el turno nunca cortaba.
 
 use crate::models::SpeechConfig;
 
@@ -42,14 +47,14 @@ impl From<&SpeechConfig> for VadConfig {
     }
 }
 
-/// Por encima de este RMS no aprendemos piso (sería voz, no ruido).
-const LOUD_MIN: f32 = 0.06;
 /// Umbral = piso * factor (colchón sobre el ruido de fondo).
 const FLOOR_FACTOR: f32 = 2.5;
-/// Techo del umbral adaptativo (un televisor de fondo no debe impedir hablar).
-const MAX_THRESHOLD: f32 = 0.08;
-/// Frames mínimos observados antes de confiar en el piso.
-const MIN_FLOOR_SAMPLES: u32 = 3;
+/// Techo del umbral adaptativo (suficiente para ambientes con TV/música).
+const MAX_THRESHOLD: f32 = 0.12;
+/// Ventana móvil del estimador de piso (50 polls ≈ 5s a poll de 100ms).
+const FLOOR_WINDOW: usize = 50;
+/// Mínimo de muestras antes de confiar en el piso estimado.
+const MIN_FLOOR_SAMPLES: usize = 5;
 
 /// Resultado de alimentar una ventana al VAD.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,8 +67,7 @@ pub enum VadEvent {
 #[derive(Debug)]
 pub struct VadState {
     cfg: VadConfig,
-    floor: f32,
-    floor_samples: u32,
+    floor_hist: std::collections::VecDeque<f32>,
     silent_ms: u64,
 }
 
@@ -71,19 +75,28 @@ impl VadState {
     pub fn new(cfg: VadConfig) -> Self {
         Self {
             cfg,
-            floor: 0.0,
-            floor_samples: 0,
+            floor_hist: std::collections::VecDeque::with_capacity(FLOOR_WINDOW),
             silent_ms: 0,
         }
     }
 
     /// Umbral de silencio vigente (adaptativo si hay piso estimado).
     pub fn silence_threshold(&self) -> f32 {
-        if self.cfg.adaptive && self.floor_samples >= MIN_FLOOR_SAMPLES {
-            (self.floor * FLOOR_FACTOR).clamp(self.cfg.base_rms, MAX_THRESHOLD)
-        } else {
-            self.cfg.base_rms
+        match self.estimate_floor() {
+            Some(floor) => (floor * FLOOR_FACTOR).clamp(self.cfg.base_rms, MAX_THRESHOLD),
+            None => self.cfg.base_rms,
         }
+    }
+
+    /// Piso de ruido = percentil 25 de la ventana móvil. El percentil bajo
+    /// aísla el fondo incluso con voz frecuente en la ventana.
+    fn estimate_floor(&self) -> Option<f32> {
+        if !self.cfg.adaptive || self.floor_hist.len() < MIN_FLOOR_SAMPLES {
+            return None;
+        }
+        let mut v: Vec<f32> = self.floor_hist.iter().copied().collect();
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        Some(v[v.len() / 4])
     }
 
     /// Milisegundos de silencio acumulados actualmente.
@@ -107,15 +120,13 @@ impl VadState {
             }
         }
 
-        // Aprender el piso solo de frames que no son voz (en cualquier momento:
-        // el piso es útil aunque todavía no se cuente silencio).
-        if self.cfg.adaptive && rms < LOUD_MIN {
-            self.floor = if self.floor_samples == 0 {
-                rms
-            } else {
-                self.floor * 0.9 + rms * 0.1
-            };
-            self.floor_samples += 1;
+        // El piso se aprende de TODOS los frames (la ventana móvil con p25
+        // ya filtra la voz); no se descarta nada por ser "demasiado alto".
+        if self.cfg.adaptive {
+            self.floor_hist.push_back(rms);
+            if self.floor_hist.len() > FLOOR_WINDOW {
+                self.floor_hist.pop_front();
+            }
         }
 
         if past_min && self.silent_ms >= self.cfg.silence_ms {
@@ -207,7 +218,7 @@ mod tests {
             thr > 0.02,
             "el umbral debió subir por encima del base (0.02), es {thr}"
         );
-        assert!(thr <= 0.08, "el umbral no debe pasar el techo, es {thr}");
+        assert!(thr <= 0.12, "el umbral no debe pasar el techo, es {thr}");
         // Con el umbral adaptado, el ruido de fondo (0.04 < thr) cuenta como
         // silencio y el turno puede cerrarse.
         let mut ended = false;
@@ -220,6 +231,40 @@ mod tests {
         assert!(
             ended,
             "con umbral adaptado el ruido de fondo no colgó el turno"
+        );
+    }
+
+    #[test]
+    fn ambiente_ruidoso_aptaumbra_y_corta() {
+        // Regresión real (2026-09-13): ambiente ruidoso con p50=0.15 hacía
+        // que el piso nunca se aprendiera (la regla vieja exigía rms<0.06) y
+        // el turno siempre terminaba por timeout de 8s.
+        let mut vad = VadState::new(VadConfig::default());
+        // 3s de ambiente ruidoso, luego discurso claro, luego solo ambiente.
+        for i in 1..=30u64 {
+            vad.push(0.10, i * 100, 100);
+        }
+        // El umbral sube por encima del ambiente.
+        let thr = vad.silence_threshold();
+        assert!(
+            thr > 0.10,
+            "umbral {thr} debe superar el ambiente (0.10) o el turno nunca corta"
+        );
+        // Discurso alto → no cuenta como silencio.
+        for i in 31..=45u64 {
+            assert_eq!(vad.push(0.30, i * 100, 100), VadEvent::Continue);
+        }
+        // El usuario para de hablar: queda el ambiente (0.10 < thr) y debe cortar.
+        let mut ended = false;
+        for i in 46..=80u64 {
+            if vad.push(0.10, i * 100, 100) == VadEvent::TurnEnded {
+                ended = true;
+                break;
+            }
+        }
+        assert!(
+            ended,
+            "el turno debió cortar en ambiente ruidoso tras el discurso"
         );
     }
 

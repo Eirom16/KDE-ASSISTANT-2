@@ -144,6 +144,7 @@ impl PiperEngine {
         model_id: Option<&str>,
         length_scale: Option<f32>,
     ) -> Result<Vec<u8>> {
+        let t0 = std::time::Instant::now();
         if text.trim().is_empty() {
             bail!("texto vacio");
         }
@@ -231,11 +232,12 @@ impl PiperEngine {
         let _ = tokio::fs::remove_file(&out_path).await;
 
         log::info!(
-            "piper: '{}' ({} chars) -> {} bytes WAV con modelo {}",
+            "piper: '{}' ({} chars) -> {} bytes WAV con modelo {} ({}ms)",
             text.chars().take(50).collect::<String>(),
             text.chars().count(),
             bytes.len(),
-            model.id
+            model.id,
+            t0.elapsed().as_millis()
         );
 
         Ok(bytes)

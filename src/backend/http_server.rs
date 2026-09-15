@@ -50,6 +50,10 @@ pub struct AppState {
     pub sessions: Arc<Mutex<SessionManager>>,
     pub speech: Arc<crate::backend::speech_service::SpeechService>,
     pub voice: Arc<crate::backend::voice_pipeline::VoicePipeline>,
+    /// Estados visuales del chat escrito para el avatar. No se mezclan con
+    /// el stream de voz porque "thinking" no significa que el micrófono esté
+    /// activo.
+    pub agent_events: tokio::sync::broadcast::Sender<String>,
     /// Token bearer local (F0-3). Se exige en todo `/api/*` salvo `/health`.
     pub local_token: String,
     /// Handles de agentes en curso por sesión (F0-7 cancel).
@@ -57,6 +61,9 @@ pub struct AppState {
     pub chat_tasks: Arc<Mutex<std::collections::HashMap<String, tokio::task::AbortHandle>>>,
     /// Dictado al input (botón mic del chat): grabación sin pipeline de voz.
     pub dictation_active: Arc<std::sync::atomic::AtomicBool>,
+    /// El sidecar de voz (Python/Pipecat) es dueño del mic. Los endpoints de
+    /// dictado/voz/comando se reenvian al puerto 8766 cuando está activo.
+    pub sidecar_active: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Middleware F0-3: auth + host + origin para `/api/*`.
@@ -133,8 +140,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/ai-models", post(list_ai_models))
         .route("/api/voice/last", get(voice_last))
         .route("/api/voice/stream", get(voice_stream))
+        .route("/api/agent/stream", get(agent_stream))
+        .route("/api/voice/session", post(set_voice_session))
         .route("/api/voice/log", post(voice_log))
         .route("/api/voice/barge_in", post(voice_barge_in))
+        .route("/api/voice/sidecar-event", post(voice_sidecar_event))
         .route("/api/dictate/start", post(dictate_start))
         .route("/api/dictate/stop", post(dictate_stop))
         .route("/api/speak", post(speak_text))
@@ -142,6 +152,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/audio/devices", get(audio_devices))
         .route("/api/audio/device", post(set_audio_device))
         .route("/api/tools", get(list_tools))
+        .route("/api/tools/schemas", get(list_tool_schemas))
         .route("/api/tools/execute", post(execute_tool_manual))
         .route("/api/tools/approve", post(approve_tool))
         .route("/api/tools/audit", get(list_tool_audit))
@@ -376,6 +387,121 @@ async fn voice_stream(
     Sse::new(init.chain(live)).keep_alive(KeepAlive::default())
 }
 
+/// Stream de actividad del chat escrito para el personaje. Mantenerlo
+/// separado del stream de voz evita que una respuesta tecleada encienda el
+/// orbe o el micrófono en la UI principal.
+async fn agent_stream(
+    State(state): State<AppState>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    use futures_util::stream;
+
+    let rx = state.agent_events.subscribe();
+    let live = stream::unfold(rx, |mut rx| async move {
+        loop {
+            match rx.recv().await {
+                Ok(state) => {
+                    let data = serde_json::json!({ "state": state }).to_string();
+                    break Some((
+                        Ok::<Event, Infallible>(Event::default().event("state").data(data)),
+                        rx,
+                    ));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break None,
+            }
+        }
+    });
+    Sse::new(live).keep_alive(KeepAlive::default())
+}
+
+#[derive(Debug, Deserialize)]
+struct VoiceSessionRequest {
+    #[serde(default)]
+    session_id: Option<String>,
+}
+
+/// La conversación hablada usa la misma sesión que el chat visible. QML lo
+/// actualiza al seleccionar/crear una sesión, antes del próximo turno de voz.
+async fn set_voice_session(
+    State(state): State<AppState>,
+    Json(body): Json<VoiceSessionRequest>,
+) -> impl IntoResponse {
+    let valid = body.session_id.filter(|id| {
+        state
+            .sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_session(id)
+            .ok()
+            .flatten()
+            .is_some()
+    });
+    state.voice.set_active_session(valid.clone());
+    Json(serde_json::json!({ "session_id": valid }))
+}
+
+/// Payload empujado por el sidecar de voz (Python/Pipecat).
+/// Eventos: {"type":"state","state":...} | {"type":"level","level":f32} |
+///          {"type":"exchange","transcript":..,"response":..} .
+/// Todos se reenvian al SSE /api/voice/stream (UI/personaje) sin cambios.
+#[derive(Debug, serde::Deserialize)]
+pub struct SidecarEvent {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub level: Option<f32>,
+    #[serde(default)]
+    pub transcript: Option<String>,
+    #[serde(default)]
+    pub response: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+async fn voice_sidecar_event(
+    State(state): State<AppState>,
+    Json(ev): Json<SidecarEvent>,
+) -> impl IntoResponse {
+    match ev.kind.as_str() {
+        "state" => {
+            if let Some(s) = ev.state.as_deref() {
+                // El sidecar manda estados ricos; la UI consume los 4 legacy.
+                // bridge: los estados del sidecar van a emit_state y cambian
+                // la VoiceState via emit_state. Mapeo directo:
+                let sv = match s {
+                    "wake_detected" => crate::backend::voice_state::VoiceState::WakeDetected,
+                    "listening" => crate::backend::voice_state::VoiceState::Listening,
+                    "thinking" => crate::backend::voice_state::VoiceState::Thinking,
+                    "speaking" => crate::backend::voice_state::VoiceState::Responding,
+                    "interrupted" => crate::backend::voice_state::VoiceState::Interrupted,
+                    "tool_call" => crate::backend::voice_state::VoiceState::ToolExecuting,
+                    "idle" => crate::backend::voice_state::VoiceState::Idle,
+                    _ => crate::backend::voice_state::VoiceState::Idle,
+                };
+                state.voice.emit_state(sv);
+            }
+        }
+        "level" => {
+            if let Some(l) = ev.level {
+                state.voice.emit_level_from_sidecar(l);
+            }
+        }
+        "exchange" => {
+            let transcript = ev.transcript.unwrap_or_default();
+            let response = ev.response.unwrap_or_default();
+            if !transcript.trim().is_empty() {
+                state
+                    .voice
+                    .set_last_exchange_from_sidecar(transcript, response);
+            }
+        }
+        _ => {}
+    }
+    (StatusCode::OK, Json(serde_json::json!({ "ok": true })))
+}
+
 /// Persiste un intercambio por voz en una sesion (la crea si no hay).
 /// Retorna el session_id para que la UI lo seleccione.
 async fn voice_log(
@@ -499,6 +625,17 @@ async fn speak_text(
     )
 }
 
+/// POST simple al sidecar de voz (127.0.0.1:8766), devolviendo su JSON.
+async fn sidecar_post(path: &str) -> anyhow::Result<serde_json::Value> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("http://127.0.0.1:8766{path}"))
+        .json(&serde_json::json!({}))
+        .send()
+        .await?;
+    Ok(resp.json().await?)
+}
+
 /// Detiene la reproduccion TTS en curso (barge-in via hotkey/UI).
 async fn speak_stop(State(state): State<AppState>) -> impl IntoResponse {
     state.speech.request_stop();
@@ -520,10 +657,21 @@ async fn voice_barge_in(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 /// Dictado al input del chat: empieza a grabar (solo STT, sin LLM ni TTS).
+/// Cuando el sidecar Python posee el microfono (option por defecto), este
+/// handler solo reenvia la peticion; el pipeline local queda como respaldo.
 /// Rechaza si hay una captura activa (dictado o pipeline de voz).
 async fn dictate_start(State(state): State<AppState>) -> impl IntoResponse {
-    use crate::backend::voice_state::VoiceState;
     use std::sync::atomic::Ordering;
+    if state.sidecar_active.load(Ordering::SeqCst) {
+        return match sidecar_post("/dictate/start").await {
+            Ok(v) => (StatusCode::OK, Json(v)),
+            Err(e) => (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": format!("sidecar: {e}") })),
+            ),
+        };
+    }
+    use crate::backend::voice_state::VoiceState;
     let voice_busy = state.voice.is_recording()
         || state.voice.is_speaking()
         || matches!(
@@ -553,6 +701,15 @@ async fn dictate_start(State(state): State<AppState>) -> impl IntoResponse {
 /// Retorna `{ transcript }` (puede estar vacío si no se escuchó nada).
 async fn dictate_stop(State(state): State<AppState>) -> impl IntoResponse {
     use std::sync::atomic::Ordering;
+    if state.sidecar_active.load(Ordering::SeqCst) {
+        return match sidecar_post("/dictate/stop").await {
+            Ok(v) => (StatusCode::OK, Json(v)),
+            Err(e) => (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": format!("sidecar: {e}") })),
+            ),
+        };
+    }
     struct DictationGuard(Arc<std::sync::atomic::AtomicBool>);
     impl Drop for DictationGuard {
         fn drop(&mut self) {
@@ -624,6 +781,14 @@ async fn list_tools(State(state): State<AppState>) -> impl IntoResponse {
         })
         .collect();
     Json(list).into_response()
+}
+
+/// Catálogo completo de herramientas CON schemas JSON (para el LLM del
+/// sidecar Python, voz). Solo las habilitadas en config.
+async fn list_tool_schemas(State(state): State<AppState>) -> impl IntoResponse {
+    let cfg = state.config.read().await.clone();
+    let tools = tool_registry::filtered_tools(&cfg);
+    Json(serde_json::to_value(tools).unwrap_or_default()).into_response()
 }
 
 #[derive(Debug, Deserialize)]
@@ -1376,6 +1541,7 @@ async fn chat(
 
     // Construir historial de mensajes
     let messages = build_messages(&state, &req).await;
+    let _ = state.agent_events.send("processing".to_string());
 
     // Canal de stream events
     let (tx, rx) = mpsc::channel::<StreamEvent>(256);
@@ -1448,6 +1614,7 @@ async fn chat(
                 unregister_if_finished(&state2, &cancel_key2);
             }
         }
+        let _ = state2.agent_events.send("idle".to_string());
     });
 
     Sse::new(sse_stream).keep_alive(KeepAlive::default())
@@ -1715,9 +1882,11 @@ mod tests {
             sessions,
             speech,
             voice,
+            agent_events: tokio::sync::broadcast::channel(8).0,
             local_token: "test-token".into(),
             chat_tasks: Arc::new(Mutex::new(std::collections::HashMap::new())),
             dictation_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            sidecar_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 

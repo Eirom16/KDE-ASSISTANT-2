@@ -22,6 +22,18 @@ use crate::models::{Config, Message, StreamEvent, Tool, ToolCall};
 
 const MAX_ITERATIONS_DEFAULT: u32 = 8;
 
+/// "Please try again in 6.8475s" → 6848ms. Groq lo manda en el cuerpo del 429.
+/// Sin regex: busca " try again in ", lee el float hasta la "s".
+fn parse_retry_after_ms(body: &str) -> Option<u64> {
+    let idx = body.find("try again in ")?;
+    let rest = &body[idx + "try again in ".len()..];
+    let secs: f64 = rest.trim_start().split('s').next()?.trim().parse().ok()?;
+    if secs.is_sign_negative() || secs > 600.0 {
+        return None;
+    }
+    Some((secs * 1000.0) as u64)
+}
+
 /// Resultado del agente: respuesta final + mensajes nuevos (assistant+tools)
 /// para persistir el historial completo del turno.
 #[derive(Debug, Clone)]
@@ -259,11 +271,29 @@ impl AiService {
                 .header("HTTP-Referer", "https://kde-assistant.local")
                 .header("X-Title", "KDE Assistant");
         }
-        let response = req_builder
-            .json(&req)
-            .send()
-            .await
-            .with_context(|| format!("enviando request a {provider_name}"))?;
+        // 429 (rate limit): un solo reintento, con la espera que el
+        // proveedor sugiere ("Please try again in Xs") o 2s por defecto.
+        req_builder = req_builder.json(&req);
+        let mut response = None;
+        for attempt in 0..=1u8 {
+            let attempt_req = req_builder
+                .try_clone()
+                .context("clonando request para reintento")?;
+            let resp = attempt_req
+                .send()
+                .await
+                .with_context(|| format!("enviando request a {provider_name}"))?;
+            if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS && attempt == 0 {
+                let body = resp.text().await.unwrap_or_default();
+                let wait_ms = parse_retry_after_ms(&body).unwrap_or(2000).min(10_000);
+                log::warn!("[LLM] 429 rate limit: reintentando en {}ms", wait_ms);
+                tokio::time::sleep(std::time::Duration::from_millis(wait_ms)).await;
+                continue;
+            }
+            response = Some(resp);
+            break;
+        }
+        let response = response.context("sin respuesta del proveedor")?;
 
         let status = response.status();
         if !status.is_success() {
@@ -599,6 +629,17 @@ fn collect_tool_calls(acc: &mut HashMap<usize, (String, String, String)>) -> Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_retry_after_extrae_el_delay_de_groq() {
+        let body = r#"{"error":{"message":"Rate limit reached for model `x` ... Please try again in 6.8475s. Need more tokens?"}}"#;
+        assert_eq!(parse_retry_after_ms(body), Some(6847));
+        // Sin patrón → None
+        assert_eq!(parse_retry_after_ms("{\"error\":\"bad\"}"), None);
+        // Valores absurdos (negativos, enormes) → None
+        assert_eq!(parse_retry_after_ms("try again in -5s"), None);
+        assert_eq!(parse_retry_after_ms("try again in 9999s"), None);
+    }
 
     #[test]
     fn collect_tool_calls_parses_json_args() {

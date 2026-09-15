@@ -14,6 +14,28 @@
 /// Longitud mínima (bytes) de la oración para permitir corte blando.
 const MIN_SOFT_LEN: usize = 24;
 
+/// Convierte Markdown ligero a texto que Piper puede pronunciar. El LLM usa
+/// Markdown para el chat, pero los símbolos de formato no son conversación.
+pub fn plain_text_for_tts(input: &str) -> String {
+    input
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("```"))
+        .map(|line| {
+            line.trim_start()
+                .trim_start_matches('#')
+                .trim_start()
+                .trim_start_matches("- ")
+                .trim_start_matches("* ")
+        })
+        .collect::<Vec<_>>()
+        .join(". ")
+        .replace("**", "")
+        .replace("__", "")
+        .replace(['`', '*'], "")
+        .trim()
+        .to_string()
+}
+
 #[derive(Debug, Default)]
 pub struct SentenceChunker {
     buf: String,
@@ -149,6 +171,14 @@ mod tests {
         let out = c.push("Pasos:\nPrimero esto\nSegundo esto otro");
         assert_eq!(out, vec!["Pasos:".to_string(), "Primero esto".to_string()]);
         assert_eq!(c.flush(), Some("Segundo esto otro".to_string()));
+    }
+
+    #[test]
+    fn limpia_marcado_antes_de_tts() {
+        assert_eq!(
+            plain_text_for_tts("## **Biología**\n- estudia la `vida`."),
+            "Biología. estudia la vida."
+        );
     }
 
     #[test]

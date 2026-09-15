@@ -172,6 +172,7 @@ ApplicationWindow {
                     try {
                         var s = JSON.parse(cxhr.responseText)
                         currentSessionId = s.id
+                        syncVoiceSession()
                         loadSessions()
                     } catch (e) {}
                     sendMessageStream(text)
@@ -483,6 +484,15 @@ ApplicationWindow {
             }
         }
         xhr.send()
+        syncVoiceSession()
+    }
+
+    function syncVoiceSession() {
+        var req = new XMLHttpRequest()
+        req.open("POST", backendUrl + "/api/voice/session")
+        req.setRequestHeader("Content-Type", "application/json")
+        setAuth(req)
+        req.send(JSON.stringify({ session_id: currentSessionId ? currentSessionId : null }))
     }
 
     // F1-2: renombra una sesión (PATCH /api/session).
@@ -505,6 +515,8 @@ ApplicationWindow {
     property bool drawerOpen: false
     property bool streaming: false
     property string voiceState: "idle"  // "idle" | "listening" | "processing" | "speaking"
+    property string agentState: "idle"
+    readonly property string avatarState: voiceState !== "idle" ? voiceState : agentState
     // XHR del chat en curso (F0-7: para abortar en Stop / nueva sesión).
     property var activeChatXhr: null
     // Estado backend (F0-5): se actualiza con /api/health + /api/config.
@@ -629,6 +641,7 @@ ApplicationWindow {
         checkBackend()
         applyTheme()
         startVoiceStream()
+        startAgentStream()
         // F0-6: si cacheBase quedó vacío (sin HOME), desactivar polling.
         if (!cacheBase) {
             console.warn("HOME no disponible: polling de hotkey/voz desactivado")
@@ -1187,7 +1200,8 @@ ApplicationWindow {
         presenceMode: root.characterMode
         sleepAfterSecs: root.characterSleepSecs
         characterSize: root.characterSize
-        assistantState: root.voiceState
+        assistantState: root.avatarState
+        invoked: root.voiceState !== "idle"
         voiceLevel: root.voiceLevel
     }
 
@@ -1414,6 +1428,52 @@ ApplicationWindow {
         xhr.send()
     }
 
+    // Actividad del chat escrito para el avatar. Es un stream distinto al de
+    // voz para que escribir no active el orbe ni el micrófono.
+    property var agentStreamXhr: null
+    function startAgentStream() {
+        if (agentStreamXhr) { try { agentStreamXhr.abort() } catch (e) {} }
+        var xhr = new XMLHttpRequest()
+        agentStreamXhr = xhr
+        var processedLen = 0
+        var pending = ""
+        xhr.open("GET", backendUrl + "/api/agent/stream")
+        setAuth(xhr)
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== 3 && xhr.readyState !== 4) return
+            var full = xhr.responseText || ""
+            pending += full.substring(processedLen)
+            processedLen = full.length
+            var parts = pending.split("\n\n")
+            pending = parts.pop()
+            for (var i = 0; i < parts.length; ++i) {
+                var lines = parts[i].split("\n")
+                var data = ""
+                for (var j = 0; j < lines.length; ++j) {
+                    if (lines[j].trim().indexOf("data:") === 0)
+                        data += lines[j].trim().substring(5).trim()
+                }
+                try {
+                    var event = JSON.parse(data)
+                    if (event.state === "processing" || event.state === "idle")
+                        root.agentState = event.state
+                } catch (e) {}
+            }
+            if (xhr.readyState === 4) {
+                agentStreamXhr = null
+                agentRetryTimer.restart()
+            }
+        }
+        xhr.send()
+    }
+
+    Timer {
+        id: agentRetryTimer
+        interval: 2000
+        repeat: false
+        onTriggered: startAgentStream()
+    }
+
     function processVoiceBlock(block) {
         var lines = block.split("\n")
         var ev = ""
@@ -1491,7 +1551,8 @@ ApplicationWindow {
                             toolCalls: []
                         })
                     }
-                    logVoiceExchange(ex.transcript, ex.response || "")
+                    // Rust ya persistió el turno antes de emitir idle. No
+                    // duplicarlo desde QML: repetiría el contexto del turno.
                 } catch (e) {}
             }
         }

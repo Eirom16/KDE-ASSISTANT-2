@@ -64,7 +64,7 @@ Item {
     function refresh() {
         if (!open_) return
         exprText.text   = "Expression: " + (_prop(expressionCtrl, "currentExpression") || _prop(expressionCtrl, "_expression") || "?")
-        moodText.text   = "Mood: " + (_prop(moodCtrl, "mood") || "?") + " (int: " + _num(_prop(moodCtrl, "intensity"), 2) + ")"
+        moodText.text   = "Mood: " + (_prop(moodCtrl, "currentMood") || "?") + " (int: " + _num(_prop(moodCtrl, "intensity"), 2) + ")"
         gazeText.text   = "Gaze: " + _num(_prop(gazeCtrl, "curX"), 2) + ", " + _num(_prop(gazeCtrl, "curY"), 2) + " (zone: " + (_prop(gazeCtrl, "_zone") || "none") + ")"
         animText.text   = "Anim: " + (_prop(animationCtrl, "_currentAnimation") || "none")
         moveText.text   = "Move: x=" + _num(_prop(movementCtrl, "x"), 1) + " y=" + _num(_prop(movementCtrl, "y"), 1) + " vx=" + _num(_prop(movementCtrl, "vx"), 1) + " vy=" + _num(_prop(movementCtrl, "vy"), 1) + " ground=" + (_prop(movementCtrl, "onGround") ? "Y" : "N")

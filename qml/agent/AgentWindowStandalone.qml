@@ -16,6 +16,9 @@ Window {
     property int sleepAfterSecs: 240
 
     property string assistantState: "idle"
+    // Solo wake word/PTT despiertan el personaje; escribir en el chat no
+    // deja una mascota permanente sobre el escritorio.
+    property bool invoked: false
     property real voiceLevel: 0.0
 
     title: "KDE Assistant Character"
@@ -23,12 +26,12 @@ Window {
     flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
     width: characterSize + 16
     height: characterSize + 16
-    minimumWidth: width
-    minimumHeight: height
-    maximumWidth: width
-    maximumHeight: height
+    minimumWidth: characterSize + 16
+    minimumHeight: characterSize + 16
+    maximumWidth: characterSize + 16
+    maximumHeight: characterSize + 16
 
-    visible: agentEnabled
+    visible: agentEnabled && invoked
 
     // === AgentWindow (Item) centrado en la Window ===
     AgentWindow {

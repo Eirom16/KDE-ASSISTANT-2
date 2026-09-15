@@ -16,7 +16,7 @@ QtObject {
     // Subsistemas a los que aplica el perfil
     property var expressionCtrl: null
 
-    property string mood: "neutral"
+    property string currentMood: "neutral"
     property real intensity: 0.7          // 0..1
     property int minDwellMs: 2600
 
@@ -60,7 +60,7 @@ QtObject {
         }
         var now = Date.now()
         var elapsed = now - _lastChange
-        if (elapsed < minDwellMs && name !== mood) {
+        if (elapsed < minDwellMs && name !== currentMood) {
             if (_pending !== "" && _pending !== name) moodDropped(_pending)
             _pending = name
             _pendingIntensity = intensityValue > 0 ? intensityValue : 0.7
@@ -76,7 +76,7 @@ QtObject {
     function _apply(name, intensityValue, ttlSecs) {
         _profile = profiles[name]
         _pending = ""
-        mood = name
+        currentMood = name
         intensity = Math.max(0.1, Math.min(1.0, intensityValue))
         _ttl = ttlSecs
         _lastChange = Date.now()

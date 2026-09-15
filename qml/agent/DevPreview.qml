@@ -79,7 +79,7 @@ Window {
             color: "#ffffff"
             font.pixelSize: 12
             text: "expr: " + exprCtrl.expression
-                + "  |  mood: " + moodCtrl.mood + " (" + moodCtrl.intensity.toFixed(2) + ")"
+                + "  |  mood: " + moodCtrl.currentMood + " (" + moodCtrl.intensity.toFixed(2) + ")"
                 + "  |  sleep: " + idle.sleeping
                 + "  |  gaze: " + character.gazeOffset.x.toFixed(1) + "," + character.gazeOffset.y.toFixed(1)
                 + "  |  posture: " + character.postureRot.toFixed(1)

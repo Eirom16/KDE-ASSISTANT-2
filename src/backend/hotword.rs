@@ -10,7 +10,7 @@
 //! remuestrea a 16kHz mono (requerido por openWakeWord).
 
 use anyhow::Result;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, RwLock};
 
@@ -32,6 +32,8 @@ pub struct HotwordDetector {
     ml: Arc<Mutex<Option<OwwDetector>>>,
     src_rate: Arc<AtomicU32>,
     pending_16k: Arc<Mutex<Vec<f32>>>,
+    /// Frames descartados por canal lleno (productor cpal → este detector).
+    pub dropped_frames: Arc<AtomicU64>,
 }
 
 impl HotwordDetector {
@@ -46,6 +48,7 @@ impl HotwordDetector {
             ml: Arc::new(Mutex::new(None)),
             src_rate: Arc::new(AtomicU32::new(0)),
             pending_16k: Arc::new(Mutex::new(Vec::new())),
+            dropped_frames: Arc::new(AtomicU64::new(0)),
         };
         // Intentar cargar el modelo ML (no bloquea el arranque si falla)
         det.try_load_ml();
@@ -136,6 +139,7 @@ impl HotwordDetector {
         let cooldown = self.cooldown_ms;
         let last_detected = self.last_detected_ms.clone();
         let running = self.running.clone();
+        let dropped = self.dropped_frames.clone();
         // Umbral de confianza (0.0-1.0). Mayor valor => mayor exigencia.
         let confidence = self.threshold.clamp(0.1, 0.95);
         let ml = self.ml.clone();
@@ -151,6 +155,10 @@ impl HotwordDetector {
 
         tokio::spawn(async move {
             let mut consecutive_speech_frames = 0u32;
+            // Telemetria ML: ventana de scores para diagnóstico del wake word.
+            let mut score_win_max: f32 = 0.0;
+            let mut score_win_frames: u32 = 0;
+            let mut score_win_start = std::time::Instant::now();
             // Frames de voz requeridos: escala con la confianza configurada.
             // A mayor confianza, mas frames consecutivos para evitar falsos positivos.
             let required_frames = (confidence * 30.0).round() as u32 + 10;
@@ -165,11 +173,19 @@ impl HotwordDetector {
                 // --- Ruta ML (si disponible) ---
                 if ml.lock().unwrap().is_some() {
                     let rate = src_rate.load(Ordering::Relaxed).max(1);
-                    let chunk_16k = resample_to_16k(&frame, rate);
+                    // Drenar TODOS los frames pendientes del canal. El
+                    // productor (cpal) entrega ~86 fps de 512 samples y este
+                    // loop tarda más por la inferencia ONNX: sin drenar, el
+                    // canal (cap 64) se llena y `try_send` descarta audio →
+                    // huecos en la ventana mel → scores artificialmente bajos.
+                    let mut frames_16k: Vec<f32> = resample_to_16k(&frame, rate);
+                    while let Ok(f) = audio_rx.try_recv() {
+                        frames_16k.extend_from_slice(&resample_to_16k(&f, rate));
+                    }
                     // Extraer bloques completos de 1280 samples (sin mantener el lock)
                     let blocks: Vec<Vec<f32>> = {
                         let mut pend = pending_16k.lock().unwrap();
-                        pend.extend_from_slice(&chunk_16k);
+                        pend.extend_from_slice(&frames_16k);
                         let mut blocks = Vec::new();
                         while pend.len() >= 1280 {
                             blocks.push(pend.drain(..1280).collect());
@@ -192,6 +208,33 @@ impl HotwordDetector {
                     }
                     // Decidir con cooldown (aqui si hay awaits, sin locks activos)
                     if let Some(s) = best {
+                        // Telemetria: max score por ventana de ~2s. El wake
+                        // word fallaba en silencio sin dejar rastro; con esto
+                        // se ve si el modelo "oye" (scores suben con voz) y
+                        // cuanto falta para el umbral.
+                        score_win_max = score_win_max.max(s);
+                        score_win_frames += 1;
+                        if score_win_start.elapsed() >= std::time::Duration::from_secs(2) {
+                            let drops = dropped.swap(0, Ordering::Relaxed);
+                            if score_win_max > 0.02 || drops > 0 {
+                                log::info!(
+                                    "Wakeword ML: max score {:.3} en {} frames (umbral {:.2}, drops {})",
+                                    score_win_max,
+                                    score_win_frames,
+                                    confidence,
+                                    drops
+                                );
+                            } else {
+                                log::debug!(
+                                    "Wakeword ML: ventana plana (max {:.3}, {} frames)",
+                                    score_win_max,
+                                    score_win_frames
+                                );
+                            }
+                            score_win_max = 0.0;
+                            score_win_frames = 0;
+                            score_win_start = std::time::Instant::now();
+                        }
                         let now_ms = chrono::Utc::now().timestamp_millis() as u32;
                         let last = last_detected.load(Ordering::Relaxed);
                         if s >= confidence && now_ms.saturating_sub(last) >= cooldown {
@@ -202,8 +245,9 @@ impl HotwordDetector {
                             }
                         }
                     }
-                    // Limitar CPU: 10ms entre frames
-                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    // Sin sleep artificial: recv() al inicio del loop ya es
+                    // el pacer natural y la inferencia tarda lo suyo; cada ms
+                    // extra aquí aumenta el riesgo de canal lleno y drops.
                     continue;
                 }
 
@@ -307,6 +351,7 @@ mod tests {
             ml: Arc::new(Mutex::new(None)),
             src_rate: Arc::new(AtomicU32::new(16000)),
             pending_16k: Arc::new(Mutex::new(Vec::new())),
+            dropped_frames: Arc::new(AtomicU64::new(0)),
         };
         // Frame con onda senoidal realista
         let frame: Vec<f32> = (0..512).map(|i| (i as f32 * 0.05).sin() * 0.2).collect();

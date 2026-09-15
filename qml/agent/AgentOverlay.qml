@@ -24,6 +24,8 @@ Window {
 
     // === Estado asíncrono del asistente (SSE /api/voice/stream) ===
     property string assistantState: "idle"
+    property string voiceState: "idle"
+    property string chatState: "idle"
     property real voiceLevel: 0.0
     property string backendUrl: "http://127.0.0.1:8765"
 
@@ -32,7 +34,7 @@ Window {
     flags: Qt.Tool | Qt.FramelessWindowHint
     width: characterSize + 16
     height: characterSize * 2   // espacio vertical para saltos
-    visible: true
+    visible: voiceState !== "idle"
 
     // Wayland: convertir esta ventana en layer-shell surface
     LayerShell.Window.anchors: LayerShell.Window.AnchorBottom | LayerShell.Window.AnchorRight
@@ -115,7 +117,10 @@ Window {
                     }
                     if (!ev || !data) continue
                     if (ev === "state") {
-                        try { assistantState = JSON.parse(data) } catch(e) {}
+                        try {
+                            voiceState = JSON.parse(data)
+                            assistantState = voiceState !== "idle" ? voiceState : chatState
+                        } catch(e) {}
                     } else if (ev === "level") {
                         try { voiceLevel = parseFloat(data) || 0 } catch(e) {}
                     }
@@ -137,9 +142,58 @@ Window {
         onTriggered: startVoiceStream()
     }
 
+    // El avatar también reacciona a respuestas escritas. La voz tiene
+    // prioridad visual cuando ambos flujos coinciden.
+    property var _agentXhr: null
+    function startAgentStream() {
+        if (_agentXhr) { try { _agentXhr.abort() } catch(e) {} }
+        var xhr = new XMLHttpRequest()
+        _agentXhr = xhr
+        var processed = 0
+        var pending = ""
+        xhr.open("GET", backendUrl + "/api/agent/stream")
+        setAuth(xhr)
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== 3 && xhr.readyState !== 4) return
+            var full = xhr.responseText || ""
+            pending += full.substring(processed)
+            processed = full.length
+            var parts = pending.split("\n\n")
+            pending = parts.pop()
+            for (var i = 0; i < parts.length; ++i) {
+                var lines = parts[i].split("\n")
+                var data = ""
+                for (var j = 0; j < lines.length; ++j) {
+                    if (lines[j].trim().indexOf("data:") === 0)
+                        data += lines[j].trim().substring(5).trim()
+                }
+                try {
+                    var event = JSON.parse(data)
+                    if (event.state === "processing" || event.state === "idle") {
+                        chatState = event.state
+                        assistantState = voiceState !== "idle" ? voiceState : chatState
+                    }
+                } catch(e) {}
+            }
+            if (xhr.readyState === 4) {
+                _agentXhr = null
+                agentReconnect.running = true
+            }
+        }
+        xhr.send()
+    }
+
+    Timer {
+        id: agentReconnect
+        interval: 2000
+        repeat: false
+        onTriggered: startAgentStream()
+    }
+
     Component.onCompleted: {
         loadConfig()
         startVoiceStream()
+        startAgentStream()
         console.log("AgentOverlay: layer-shell iniciado")
     }
 }

@@ -21,7 +21,7 @@ use crate::backend::chime_player::ChimePlayer;
 use crate::backend::speech_service::SpeechService;
 use crate::backend::tool_executor::ToolExecutor;
 use crate::backend::tool_registry;
-use crate::backend::tts_stream::SentenceChunker;
+use crate::backend::tts_stream::{plain_text_for_tts, SentenceChunker};
 use crate::backend::vad::{VadConfig, VadEvent, VadState};
 use crate::backend::voice_state::{VoiceErrorKind, VoiceState, VoiceStateMachine};
 use crate::models::{Config, Message, StreamEvent};
@@ -83,11 +83,15 @@ pub struct VoicePipeline {
     pub chimes: Arc<ChimePlayer>,
     pub buffer: Arc<Mutex<RecordingBuffer>>,
     last_exchange: Arc<Mutex<Option<VoiceExchange>>>,
+    /// Sesión seleccionada en el chat. Es la fuente de contexto para voz y
+    /// texto; si no hay una, se usa la sesión de voz histórica.
+    active_session: Arc<Mutex<Option<String>>>,
     amplitude: Arc<AtomicU32>, // f32 bits 0..1
     speaking: Arc<AtomicBool>,
     barge_counter: Arc<AtomicU32>,
-    /// Momento (ms epoch) en que empezó el TTS actual. Sirve para gracia
-    /// anti-auto-corte: ignorar barge los primeros 500ms (el mic capta el altavoz).
+    /// Momento (ms epoch) en que empezó el TTS actual. La gracia de 300ms
+    /// cubre el inicio (rodio abre el sink y el rodio de nivel tarda un
+    /// tick en publicarse como referencia de eco en tts_now).
     speaking_since_ms: Arc<AtomicU32>,
     /// Bus push de estado/nivel para la UI (F3-1, SSE `/api/voice/stream`).
     signal_tx: broadcast::Sender<VoiceSignal>,
@@ -120,6 +124,29 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Ventana de historial para voz (turnos que van al LLM). Más chica que la
+/// del chat de texto: la voz es ráfaga, y cada turno refactura el historial
+/// completo (con 40 mensajes se agotaba el TPM de Groq → 429).
+const MAX_VOICE_HISTORY: usize = 12;
+
+/// Recorta el historial a los últimos `max` mensajes, sin dejar pares
+/// tool rotos: nada de `tool` huérfano al inicio ni `assistant` con
+/// tool_calls sin sus respuestas al final (Groq los rechaza con 400).
+fn trim_voice_history(history: Vec<Message>, max: usize) -> Vec<Message> {
+    let start = history.len().saturating_sub(max);
+    let mut slice: Vec<Message> = history.into_iter().skip(start).collect();
+    while matches!(slice.first(), Some(Message::Tool { .. })) {
+        slice.remove(0);
+    }
+    while matches!(
+        slice.last(),
+        Some(Message::Assistant { tool_calls, .. }) if !tool_calls.is_empty()
+    ) {
+        slice.pop();
+    }
+    slice
+}
+
 impl VoicePipeline {
     pub fn new(
         config: Arc<RwLock<Config>>,
@@ -140,6 +167,7 @@ impl VoicePipeline {
             chimes,
             buffer: Arc::new(Mutex::new(RecordingBuffer::new())),
             last_exchange: Arc::new(Mutex::new(None)),
+            active_session: Arc::new(Mutex::new(None)),
             amplitude: Arc::new(AtomicU32::new(0.0f32.to_bits())),
             speaking: Arc::new(AtomicBool::new(false)),
             barge_counter: Arc::new(AtomicU32::new(0)),
@@ -150,6 +178,30 @@ impl VoicePipeline {
             last_level_ms: Arc::new(AtomicU32::new(0)),
             last_level_sent: Arc::new(AtomicU32::new(0.0f32.to_bits())),
         }
+    }
+
+    /// Nivel para la UI cuando el mic lo posee el sidecar Python.
+    pub fn emit_level_from_sidecar(&self, level: f32) {
+        let _ = self.signal_tx.send(VoiceSignal::Level {
+            level: level.clamp(0.0, 1.0),
+        });
+    }
+
+    /// Guarda el intercambio (transcript/response) que viene del sidecar,
+    /// disponible vía /api/voice/last.
+    pub fn set_last_exchange_from_sidecar(&self, transcript: String, response: String) {
+        *self.last_exchange.lock().unwrap_or_else(|e| e.into_inner()) = Some(VoiceExchange {
+            transcript,
+            response,
+            timestamp_ms: now_ms(),
+        });
+    }
+
+    pub fn set_active_session(&self, session_id: Option<String>) {
+        *self
+            .active_session
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = session_id;
     }
 
     /// Suscribe un receptor de señales de voz (para `/api/voice/stream`).
@@ -184,6 +236,14 @@ impl VoicePipeline {
     /// ¿Hay un dictado al input del chat en curso?
     pub fn is_dictating(&self) -> bool {
         self.dictation.load(Ordering::Relaxed)
+    }
+
+    /// ¿Está el pipeline en reposo (apto para que el wake word abra turno)?
+    /// El detector ML llama a esto por frame: mientras escuchamos, pensamos
+    /// o hablamos, el wake word se ignora (si no, un "hey jarvis" repetido
+    /// pisa el turno en curso — el audio que seguía se perdía).
+    pub fn wake_gate_open(&self) -> bool {
+        self.state() == VoiceState::Idle
     }
 
     pub fn amplitude(&self) -> f32 {
@@ -240,30 +300,12 @@ impl VoicePipeline {
             lvl_opt = Some(lvl);
         }
 
-        // Barge-in: si esta hablando y hay voz fuerte, interrumpir.
-        // Umbral 0.28 + 3 frames consecutivos (~60-90 ms) para evitar falsos.
-        // Gracia 500ms tras iniciar TTS: el mic capta el altavoz y si no,
-        // toda respuesta larga se auto-corta.
-        if self.speaking.load(Ordering::Relaxed) {
-            let since = self.speaking_since_ms.load(Ordering::Relaxed);
-            let now = now_ms() as u32;
-            let in_grace = now.saturating_sub(since) < 500;
-            if !in_grace {
-                if let Some(lvl) = lvl_opt {
-                    if lvl > 0.28 {
-                        let cnt = self.barge_counter.fetch_add(1, Ordering::Relaxed) + 1;
-                        if cnt >= 3 {
-                            self.barge_in_silent();
-                        }
-                    } else if lvl < 0.18 {
-                        // Silencio sostenido resetea contador
-                        self.barge_counter.store(0, Ordering::Relaxed);
-                    }
-                }
-            }
-            // No guardar en buffer mientras habla (salvo que barge-in ya reinicio escucha)
-            // Si barge_in_silent se activo, recording ya es true, asi que el push de abajo lo captura.
-        }
+        // No hay cancelación acústica de eco en esta captura. Inferir un
+        // barge-in solo con RMS hacía que Piper se oyera a sí mismo y abriese
+        // falsos turnos (por ejemplo, transcritos como "Gracias"). La
+        // interrupción explícita por Escape/botón Stop se conserva en
+        // `barge_in_silent`; el automático volverá cuando haya AEC/VAD real.
+        let _ = lvl_opt;
 
         let mut buf = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
         if buf.recording.load(Ordering::Relaxed) {
@@ -338,14 +380,13 @@ impl VoicePipeline {
         (slice.iter().map(|s| s * s).sum::<f32>() / slice.len() as f32).sqrt()
     }
 
-    /// Inicia la grabacion (chime + buffer + recording=true).
+    /// Inicia la grabacion y marca el buffer como dueño del turno.
     /// No hace nada si hay un dictado al chat en curso (comparten micro).
     pub fn start_listening(&self) {
         if self.is_dictating() {
             log::info!("[VOICE] start_listening ignorado: dictado al chat en curso");
             return;
         }
-        self.chimes.play_activate();
         let sr = self
             .buffer
             .lock()
@@ -358,7 +399,8 @@ impl VoicePipeline {
     }
 
     /// Marca el inicio de un tramo de habla (estado + flags de barge-in).
-    /// `speaking_since` arranca la gracia anti-altavoz de 500ms (F0-6).
+    /// `speaking_since` arranca la gracia de 300ms del barge-in; el nivel
+    /// de eco real se lee luego de `speech.tts_playback_level()`.
     fn begin_speaking(&self) {
         self.emit_state(VoiceState::Responding);
         self.speaking.store(true, Ordering::Relaxed);
@@ -406,7 +448,6 @@ impl VoicePipeline {
             log::info!("[VOICE] stop_and_process ignorado: dictado al chat en curso");
             return Ok((String::new(), String::new()));
         }
-        self.chimes.play_deactivate();
         let audio = self.stop_recording();
         if audio.is_empty() {
             log::info!("Grabacion vacia, omitiendo procesamiento");
@@ -438,13 +479,19 @@ impl VoicePipeline {
         let vad_cfg = VadConfig::from(&self.config.read().await.speech);
         let mut vad = VadState::new(vad_cfg);
         let mut elapsed_ms = 0u64;
+        // Telemetria: diagnostico del endpointing (por que no corto, etc.)
+        let mut rms_log: Vec<f32> = Vec::new();
+        let mut end_reason = "timeout";
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(POLL_MS)).await;
             elapsed_ms += POLL_MS;
             let sr = self.sample_rate().max(1) as f32;
             let recorded_ms = (self.recording_len() as f32 / sr * 1000.0) as u64;
             let rms = self.recent_rms((sr * RMS_WINDOW_SECS) as usize);
-            if vad.push(rms, recorded_ms, POLL_MS) == VadEvent::TurnEnded {
+            rms_log.push(rms);
+            let reason = vad.push(rms, recorded_ms, POLL_MS);
+            if reason == VadEvent::TurnEnded {
+                end_reason = "silencio";
                 log::info!(
                     "VAD: fin de turno ({}ms grabados, umbral {:.3})",
                     recorded_ms,
@@ -453,9 +500,26 @@ impl VoicePipeline {
                 break;
             }
             if elapsed_ms >= max_secs * 1000 {
-                log::info!("VAD: timeout de grabación ({}s)", max_secs);
                 break;
             }
+        }
+        if !rms_log.is_empty() {
+            let mut sorted = rms_log.clone();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let p = |q: f32| sorted[(sorted.len() - 1).min((sorted.len() as f32 * q) as usize)];
+            log::info!(
+                "VAD fin ({end_reason}): {}ms, rms p10={:.3} p50={:.3} p90={:.3}, umbral {:.3}{}",
+                elapsed_ms,
+                p(0.10),
+                p(0.50),
+                p(0.90),
+                vad.silence_threshold(),
+                if end_reason == "timeout" {
+                    " (revisar si el piso de ruido supera al umbral)"
+                } else {
+                    ""
+                }
+            );
         }
         self.stop_recording()
     }
@@ -463,12 +527,18 @@ impl VoicePipeline {
     /// Espera voz real hasta `window_secs` (para conversación continua F3-2).
     /// Detecta nivel alto 3 polls seguidos (~300ms) con variación (evita
     /// disparar con un nivel congelado si no hay frames del mic).
+    /// Umbral RELATIVO al ambiente al entrar: con el absoluto 0.35 bastaba
+    /// ruido de sala (lvl~0.54) para hackear turnos fantasma.
     /// Si el usuario empieza un dictado al chat a mitad de la espera,
     /// devuelve false de inmediato: el micro queda para el dictado.
     pub async fn wait_for_speech(&self, window_secs: u64) -> bool {
         const POLL_MS: u64 = 100;
         const NEEDED: u32 = 3;
         let start_lvl = self.amplitude();
+        // Umbral: ambiente + colchón suave. Con +0.20 el usuario tenía que
+        // gritar en cuartos ruidosos (ambiente ~0.53 → umbral ~0.73). Con
+        // auriculares, el ambiente es bajo y el piso es 0.50.
+        let threshold = (start_lvl + 0.12).clamp(0.50, 0.85);
         let mut hot = 0u32;
         let mut varied = false;
         let polls = window_secs.saturating_mul(1000) / POLL_MS;
@@ -481,16 +551,31 @@ impl VoicePipeline {
             if (lvl - start_lvl).abs() > 0.02 {
                 varied = true;
             }
-            if lvl > 0.35 {
+            if lvl > threshold {
                 hot += 1;
                 if hot >= NEEDED && varied {
                     return true;
                 }
-            } else if lvl < 0.2 {
+            } else if lvl < 0.35 {
                 hot = 0;
             }
         }
         false
+    }
+
+    /// Cierra una conversación por completo: vuelve a reposo SIEMPRE.
+    /// Si una escucha quedó abierta (barge-in cuyo turno no llegó),
+    /// descarta ese audio. Sin esto, el wake gate quedaba cerrado para
+    /// siempre tras ciertos barge-ins y el usuario oía
+    /// "pipeline ocupado" en cada "hey jarvis".
+    pub fn end_conversation(&self) {
+        // Solo cortamos grabación propia de voz; la del dictado al chat es
+        // de otro dueño y vive su propio ciclo (stops vía API).
+        if self.is_recording() && !self.is_dictating() {
+            let _ = self.stop_recording(); // descartar audio colgado
+        }
+        self.end_speaking();
+        self.emit_state(VoiceState::Idle);
     }
 
     /// Turno completo de voz: grabar → procesar (STT→LLM→TTS).
@@ -498,6 +583,18 @@ impl VoicePipeline {
     /// hasta `max_extra` turnos más esperando voz en la ventana configurada.
     /// Retorna todos los `(transcript, response)` del hilo.
     pub async fn converse_voice_driven(
+        &self,
+        max_secs: u64,
+        max_extra: u32,
+    ) -> Vec<(String, String)> {
+        let turns = self.converse_voice_driven_inner(max_secs, max_extra).await;
+        // Regla dura: al terminar la conversación, el pipeline vuelve a
+        // reposo SIEMPRE (de lo contrario el wake word queda bloqueado).
+        self.end_conversation();
+        turns
+    }
+
+    async fn converse_voice_driven_inner(
         &self,
         max_secs: u64,
         max_extra: u32,
@@ -586,6 +683,10 @@ impl VoicePipeline {
                 }
             }
         }
+        // La cola gestionada también tiene que terminar en reposo: algunos
+        // caminos del loop (barge-in procesado, escucha que expiró) podían
+        // dejar el estado en Listening y bloquear el wake word.
+        self.end_conversation();
         extra
     }
 
@@ -614,6 +715,7 @@ impl VoicePipeline {
                         response: r.clone(),
                         timestamp_ms: now_ms(),
                     });
+                self.persist_exchange(t, r);
             }
         }
         // Si hay barge-in activo (escucha reiniciada), no pisar listening
@@ -629,6 +731,27 @@ impl VoicePipeline {
         r
     }
 
+    /// Persiste cada turno antes de volver a escuchar. Así un follow-up por
+    /// voz y un mensaje escrito ven exactamente el mismo historial, incluso
+    /// si QML aún no ha recibido el evento `idle`.
+    fn persist_exchange(&self, transcript: &str, response: &str) {
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let selected = self
+            .active_session
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let sid = selected
+            .filter(|id| sessions.get_session(id).ok().flatten().is_some())
+            .or_else(|| sessions.get_or_create_voice_session().ok().map(|s| s.id));
+        if let Some(sid) = sid {
+            let _ = sessions.add_message(&sid, &Message::user(transcript));
+            if !response.trim().is_empty() {
+                let _ = sessions.add_message(&sid, &Message::assistant(response));
+            }
+        }
+    }
+
     async fn process_utterance_inner(
         &self,
         audio: &[f32],
@@ -636,7 +759,6 @@ impl VoicePipeline {
     ) -> Result<(String, String)> {
         // 1. STT
         self.emit_state(VoiceState::Thinking);
-        self.chimes.play_process();
         let language_override: Option<String> = {
             let cfg = self.config.read().await;
             if cfg.speech.stt_language == "auto" {
@@ -730,17 +852,24 @@ impl VoicePipeline {
             }
         }
         let mut messages = vec![Message::system(system_prompt)];
-        // Contexto de voz: mismo hilo canonico "Conversacion por voz"
-        // (ventana deslizante de 40 para no saturar al LLM). Sin esto, Voz
-        // olvidaba cada turno; ver roadmap "Contexto en voz".
+        // Contexto de voz: mismo hilo canonico "Conversacion por voz".
+        // Ventana de 12 (era 40): cada turno de voz pega el historial entero
+        // en el prompt, y con 40 mensajes reventaba el TPM de Groq (429s).
         let mut voice_session_id: Option<String> = None;
         {
             let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-            if let Ok(vs) = sessions.get_or_create_voice_session() {
+            let selected = self
+                .active_session
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            let session = selected
+                .filter(|id| sessions.get_session(id).ok().flatten().is_some())
+                .and_then(|id| sessions.get_session(&id).ok().flatten())
+                .or_else(|| sessions.get_or_create_voice_session().ok());
+            if let Some(vs) = session {
                 if let Ok(history) = sessions.get_messages(&vs.id) {
-                    const MAX_VOICE_HISTORY: usize = 40;
-                    let start = history.len().saturating_sub(MAX_VOICE_HISTORY);
-                    messages.extend(history.into_iter().skip(start));
+                    messages.extend(trim_voice_history(history, MAX_VOICE_HISTORY));
                 }
                 voice_session_id = Some(vs.id);
             }
@@ -786,7 +915,8 @@ impl VoicePipeline {
                                 self.begin_speaking();
                                 speaking_announced = true;
                             }
-                            if sink.send(sentence).await.is_err() {
+                            let spoken = plain_text_for_tts(&sentence);
+                            if !spoken.is_empty() && sink.send(spoken).await.is_err() {
                                 // Player cortado (barge-in): dejar de
                                 // alimentarlo; el texto sigue a la UI.
                                 tts_sink = None;
@@ -815,7 +945,10 @@ impl VoicePipeline {
                 if !speaking_announced {
                     self.begin_speaking();
                 }
-                let _ = sink.send(rest).await;
+                let spoken = plain_text_for_tts(&rest);
+                if !spoken.is_empty() {
+                    let _ = sink.send(spoken).await;
+                }
             }
         }
         // Cerrar el canal de oraciones: el player drena la cola y termina.
@@ -928,6 +1061,60 @@ mod tests {
         let t0 = std::time::Instant::now();
         assert!(!vp.wait_for_speech(10).await);
         assert!(t0.elapsed() < std::time::Duration::from_secs(2));
+    }
+
+    #[test]
+    fn trim_voice_history_limita_y_no_rompe_tools() {
+        use crate::models::ToolCall;
+        let mk_tool_pair = |i: usize| {
+            let tc = ToolCall {
+                id: format!("call_{i}"),
+                name: "t".to_string(),
+                arguments: Default::default(),
+            };
+            vec![
+                Message::assistant_with_tools("déjame ver", vec![tc]),
+                Message::tool(format!("call_{i}"), "ok"),
+            ]
+        };
+        let mut hist = vec![Message::user("h0")];
+        for i in 1..=20 {
+            hist.extend(mk_tool_pair(i));
+            hist.push(Message::user(format!("h{i}")));
+            hist.push(Message::assistant(format!("r{i}")));
+        }
+        let out = trim_voice_history(hist, MAX_VOICE_HISTORY);
+        assert!(out.len() <= MAX_VOICE_HISTORY);
+        // Sin tool huérfano al inicio.
+        assert!(!matches!(out.first(), Some(Message::Tool { .. })));
+        // Sin assistant con tool_calls colgando al final.
+        assert!(!matches!(
+            out.last(),
+            Some(Message::Assistant { tool_calls, .. }) if !tool_calls.is_empty()
+        ));
+    }
+
+    #[test]
+    fn trim_voice_history_corta_el_par_cuando_cae_al_borde() {
+        use crate::models::ToolCall;
+        // [user, assistant+tool, tool, user] con max=2 → quedaria [tool, user]:
+        // el tool huérfano debe desaparecer.
+        let hist = vec![
+            Message::user("a"),
+            Message::assistant_with_tools(
+                "",
+                vec![ToolCall {
+                    id: "c1".to_string(),
+                    name: "t".to_string(),
+                    arguments: Default::default(),
+                }],
+            ),
+            Message::tool("c1", "ok"),
+            Message::user("b"),
+        ];
+        let out = trim_voice_history(hist, 2);
+        assert_eq!(out.len(), 1);
+        assert!(matches!(out.first(), Some(Message::User { .. })));
     }
 
     #[tokio::test]

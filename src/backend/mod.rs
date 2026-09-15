@@ -15,6 +15,7 @@ pub mod model_downloader;
 pub mod session_manager;
 pub mod speech_service;
 pub mod stt;
+pub mod stt_api;
 pub mod tool_executor;
 pub mod tool_registry;
 pub mod tts;
@@ -48,6 +49,13 @@ pub struct Backend {
     pub hotword: Arc<hotword::HotwordDetector>,
     pub kde: Arc<kde_integration::KdeIntegration>,
     pub voice: Arc<voice_pipeline::VoicePipeline>,
+    /// Actividad no vocal del asistente (chat escrito y herramientas) para
+    /// que el personaje la pueda representar sin falsificar estados de voz.
+    pub agent_events: tokio::sync::broadcast::Sender<String>,
+    /// El sidecar de voz (Python+Pipecat) es dueño exclusivo del mic cuando
+    /// está vivo. main.rs lo activa y lo pone en true; los handlers de voz
+    /// forwardean al sidecar en vez de abrir el mic desde Rust.
+    pub sidecar_active: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Backend {
@@ -89,6 +97,7 @@ impl Backend {
             sessions.clone(),
             chimes.clone(),
         ));
+        let (agent_events, _) = tokio::sync::broadcast::channel(32);
 
         log::info!("Todos los subservicios inicializados");
 
@@ -104,6 +113,8 @@ impl Backend {
             hotword,
             kde,
             voice,
+            agent_events,
+            sidecar_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })
     }
 
@@ -128,11 +139,13 @@ impl Backend {
             sessions: self.sessions.clone(),
             speech: self.speech.clone(),
             voice: self.voice.clone(),
+            agent_events: self.agent_events.clone(),
             local_token,
             chat_tasks: std::sync::Arc::new(
                 std::sync::Mutex::new(std::collections::HashMap::new()),
             ),
             dictation_active: self.voice.dictation_flag(),
+            sidecar_active: self.sidecar_active.clone(),
         }
     }
 
@@ -200,11 +213,13 @@ impl Backend {
         };
         // Crear y arrancar audio capture
         let mut cap = audio_capture::AudioCapture::new()?;
+        let dropped = self.hotword.dropped_frames.clone();
         cap.start(mic_opt, move |frame: &[f32]| {
             // 1) Alimentar al detector de wake word (try_send: no bloquea el thread de audio)
             let frame_vec = frame.to_vec();
             if audio_tx.try_send(frame_vec).is_err() {
-                // Channel lleno: descartar frame (aceptable para deteccion de wake word)
+                // Canal lleno: se cuenta (el loop ML lo reporta en su telemetria)
+                dropped.fetch_add(1, Ordering::Relaxed);
             }
             // 2) Alimentar al buffer de grabacion (solo si esta grabando)
             voice.push_audio(frame);

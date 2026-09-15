@@ -149,6 +149,7 @@ Item {
                 buttonSize: Theme.buttonIconSize
                 backgroundColor: Theme.surfaceChip
                 iconColor: Theme.ink
+                accessibleName: qsTr("Adjuntar archivo")
                 opacity: root.streaming ? 0.4 : 1.0
                 enabled: !root.streaming
                 onClicked: {
@@ -167,6 +168,7 @@ Item {
                 buttonSize: Theme.buttonIconSize
                 backgroundColor: Theme.surfaceChip
                 iconColor: root.recording ? Theme.inkOnPrimary : Theme.ink
+                accessibleName: root.recording ? qsTr("Detener dictado") : qsTr("Iniciar dictado")
                 active: root.recording && !root.streaming
                 activeColor: Theme.error
                 opacity: root.streaming ? 0.4 : 1.0
@@ -185,6 +187,7 @@ Item {
                 buttonSize: Theme.buttonIconSize
                 backgroundColor: root.canSend || root.streaming ? Theme.primary : Theme.surfaceChip
                 iconColor: root.canSend || root.streaming ? Theme.inkOnPrimary : Theme.inkMuted
+                accessibleName: root.streaming ? qsTr("Detener respuesta") : qsTr("Enviar mensaje")
                 active: root.streaming
                 activeColor: Theme.error
                 onClicked: {
