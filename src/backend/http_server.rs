@@ -141,7 +141,14 @@ pub fn router(state: AppState) -> Router {
         .route("/api/voice/last", get(voice_last))
         .route("/api/voice/stream", get(voice_stream))
         .route("/api/agent/stream", get(agent_stream))
+        .route("/api/agent/dashboard", get(agent_dashboard))
         .route("/api/voice/session", post(set_voice_session))
+        .route(
+            "/api/voice/calibration",
+            get(calibration_status)
+                .post(calibration_start)
+                .delete(calibration_stop),
+        )
         .route("/api/voice/log", post(voice_log))
         .route("/api/voice/barge_in", post(voice_barge_in))
         .route("/api/voice/sidecar-event", post(voice_sidecar_event))
@@ -373,6 +380,27 @@ async fn voice_stream(
                         crate::backend::voice_pipeline::VoiceSignal::Level { level } => {
                             ("level", serde_json::json!({ "level": level }).to_string())
                         }
+                        crate::backend::voice_pipeline::VoiceSignal::Transcript { content } => (
+                            "transcript",
+                            serde_json::json!({ "content": content }).to_string(),
+                        ),
+                        crate::backend::voice_pipeline::VoiceSignal::Token { content } => (
+                            "token",
+                            serde_json::json!({ "content": content }).to_string(),
+                        ),
+                        crate::backend::voice_pipeline::VoiceSignal::Exchange {
+                            transcript,
+                            response,
+                            timestamp_ms,
+                        } => (
+                            "exchange",
+                            serde_json::json!({
+                                "transcript": transcript,
+                                "response": response,
+                                "timestamp_ms": timestamp_ms,
+                            })
+                            .to_string(),
+                        ),
                     };
                     break Some((
                         Ok::<Event, Infallible>(Event::default().event(name).data(data)),
@@ -395,15 +423,19 @@ async fn agent_stream(
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     use futures_util::stream;
 
-    let rx = state.agent_events.subscribe();
-    let live = stream::unfold(rx, |mut rx| async move {
+    let rx = state.ai.activity.events.subscribe();
+    let legacy = state.agent_events.subscribe();
+    let live = stream::unfold((rx, legacy), |(mut rx, mut legacy)| async move {
         loop {
-            match rx.recv().await {
-                Ok(state) => {
-                    let data = serde_json::json!({ "state": state }).to_string();
+            let next = tokio::select! {
+                ev = rx.recv() => ev.map(|data| ("activity", data.to_string())),
+                ev = legacy.recv() => ev.map(|state| ("state", serde_json::json!({"state":state}).to_string())),
+            };
+            match next {
+                Ok((name, data)) => {
                     break Some((
-                        Ok::<Event, Infallible>(Event::default().event("state").data(data)),
-                        rx,
+                        Ok::<Event, Infallible>(Event::default().event(name).data(data)),
+                        (rx, legacy),
                     ));
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
@@ -412,6 +444,28 @@ async fn agent_stream(
         }
     });
     Sse::new(live).keep_alive(KeepAlive::default())
+}
+
+async fn agent_dashboard(State(state): State<AppState>) -> impl IntoResponse {
+    let mut snapshot = state.ai.activity.snapshot();
+    let sessions = state.sessions.clone();
+    match tokio::task::spawn_blocking(move || {
+        sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .tool_usage()
+    })
+    .await
+    {
+        Ok(Ok(usage)) => snapshot["tool_usage"] = usage,
+        _ => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error":"No se pudo consultar la actividad"})),
+            )
+        }
+    }
+    (StatusCode::OK, Json(snapshot))
 }
 
 #[derive(Debug, Deserialize)]
@@ -438,6 +492,120 @@ async fn set_voice_session(
     });
     state.voice.set_active_session(valid.clone());
     Json(serde_json::json!({ "session_id": valid }))
+}
+
+#[derive(Debug, Serialize)]
+struct CalibrationStatus {
+    required: bool,
+    count: u32,
+    target: u32,
+    active: bool,
+}
+
+async fn calibration_status(State(state): State<AppState>) -> impl IntoResponse {
+    let cfg = state.config.read().await;
+    Json(CalibrationStatus {
+        required: cfg.speech.wake_word_enrollment_required,
+        count: cfg.speech.wake_word_enrollment_count,
+        target: 3,
+        active: state.voice.calibration_active(),
+    })
+}
+
+/// Inicia una muestra de "hey jarvis". La captura permanece local y usa el
+/// mismo dispositivo ya abierto por AudioCapture.
+async fn calibration_start(State(state): State<AppState>) -> impl IntoResponse {
+    match state.voice.start_calibration() {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "status": "recording" })),
+        ),
+        Err(e) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        ),
+    }
+}
+
+/// Guarda la muestra PCM resampleada a 16 kHz en data_local. Estas muestras
+/// sirven para auditoría/calibración local; no se suben ni se usan como una
+/// falsa re-entrenamiento del modelo ONNX.
+async fn calibration_stop(State(state): State<AppState>) -> impl IntoResponse {
+    if !state.voice.calibration_active() {
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": "no hay calibración activa" })),
+        );
+    }
+    let samples = state.voice.stop_calibration();
+    if samples.len() < 12_800 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "muestra demasiado corta" })),
+        );
+    }
+    let dir = match dirs::data_local_dir() {
+        Some(d) => d.join("kde-assistant/wakeword/enrollment"),
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "sin data_local_dir" })),
+            )
+        }
+    };
+    if let Err(e) = tokio::fs::create_dir_all(&dir).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        );
+    }
+    let count = state.config.read().await.speech.wake_word_enrollment_count + 1;
+    let path = dir.join(format!("sample-{count}.wav"));
+    let write = tokio::task::spawn_blocking(move || {
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&path, spec)?;
+        for sample in samples {
+            writer.write_sample((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)?;
+        }
+        writer.finalize()?;
+        Ok::<(), anyhow::Error>(())
+    })
+    .await;
+    match write {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            );
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            );
+        }
+    }
+    let mut cfg = state.config.write().await;
+    cfg.speech.wake_word_enrollment_count = count.min(3);
+    if cfg.speech.wake_word_enrollment_count >= 3 {
+        cfg.speech.wake_word_enrollment_required = false;
+    }
+    let status = serde_json::json!({
+        "required": cfg.speech.wake_word_enrollment_required,
+        "count": cfg.speech.wake_word_enrollment_count,
+        "target": 3,
+        "active": false,
+    });
+    if let Err(e) = cfg.save().await {
+        log::warn!("no se pudo guardar estado de calibración: {e}");
+    }
+    (StatusCode::OK, Json(status))
 }
 
 /// Payload empujado por el sidecar de voz (Python/Pipecat).
@@ -1069,7 +1237,7 @@ async fn list_ai_models(
 
     let base_url = match body.base_url.as_deref().map(str::trim) {
         Some(u) if !u.is_empty() => u.to_string(),
-        _ => cfg.ai.base_url.clone(),
+        _ => cfg.ai.effective_base_url(),
     };
     let api_key = match body.api_key.as_deref().map(str::trim) {
         Some(k) if !k.is_empty() => k.to_string(),
@@ -1859,7 +2027,7 @@ mod tests {
 
     async fn test_state() -> AppState {
         let cfg = Arc::new(RwLock::new(Config::default()));
-        let sessions = Arc::new(Mutex::new(SessionManager::new().await.unwrap()));
+        let sessions = Arc::new(Mutex::new(SessionManager::in_memory_for_tests().unwrap()));
         let ai = Arc::new(AiService::new(cfg.clone()).await.unwrap());
         let tools = Arc::new(ToolExecutor::new(cfg.clone()));
         let approvals = Arc::new(crate::backend::approvals::ApprovalManager::new());

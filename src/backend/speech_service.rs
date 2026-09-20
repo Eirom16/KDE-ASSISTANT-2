@@ -296,7 +296,7 @@ impl SpeechService {
     /// Transcribe vía API Groq, con el cliente cacheado por (url, key, modelo).
     async fn transcribe_via_api(&self, audio: &[f32], language: Option<&str>) -> Result<String> {
         let cfg = self.config.read().await.clone();
-        let base_url = cfg.ai.base_url.clone();
+        let base_url = cfg.ai.effective_base_url();
         let api_key = cfg.ai.effective_api_key();
         let model = cfg.speech.stt_api_model.clone();
         let wanted = SttApiKey {

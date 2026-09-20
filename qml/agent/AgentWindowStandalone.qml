@@ -12,6 +12,8 @@ Window {
     property bool agentEnabled: true
     property bool reducedMotion: false
     property int characterSize: 140
+    property string characterAppearance: "capsule"
+    property color characterAccentColor: "#0094bb"
     property string presenceMode: "companion"
     property int sleepAfterSecs: 240
 
@@ -31,7 +33,9 @@ Window {
     maximumWidth: characterSize + 16
     maximumHeight: characterSize + 16
 
-    visible: agentEnabled && invoked
+    visible: agentEnabled && (invoked || agentWindow.activityVisible)
+    function handleActivity(event) { agentWindow.handleActivity(event) }
+    function resetActivity() { agentWindow.resetActivity() }
 
     // === AgentWindow (Item) centrado en la Window ===
     AgentWindow {
@@ -40,10 +44,13 @@ Window {
         agentEnabled: root.agentEnabled
         reducedMotion: root.reducedMotion
         characterSize: root.characterSize
+        characterAppearance: root.characterAppearance
+        characterAccentColor: root.characterAccentColor
         presenceMode: root.presenceMode
         sleepAfterSecs: root.sleepAfterSecs
         assistantState: root.assistantState
         voiceLevel: root.voiceLevel
+        moveWholeWindow: true
     }
 
     // === Posicionamiento inicial (abajo-derecha) ===
@@ -56,6 +63,10 @@ Window {
     Connections {
         target: agentWindow
         function onClickedByUser() { root.clickedByUser() }
+        function onMoveRequested(dx, dy) {
+            root.x = Math.max(0, Math.min(Screen.desktopAvailableWidth - root.width, root.x + dx))
+            root.y = Math.max(0, Math.min(Screen.desktopAvailableHeight - root.height, root.y + dy))
+        }
     }
 
     signal clickedByUser()

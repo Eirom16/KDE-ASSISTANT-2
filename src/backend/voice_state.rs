@@ -63,12 +63,10 @@ impl VoiceState {
     /// La UI filtra cualquier estado fuera de estos cuatro: mapear bien.
     pub fn ui_label(self) -> &'static str {
         match self {
-            Self::Idle
-            | Self::WakeDetected
-            | Self::Attentive
-            | Self::Cancelled
-            | Self::Error(_) => "idle",
-            Self::Listening | Self::Interrupted => "listening",
+            Self::Idle | Self::Cancelled | Self::Error(_) => "idle",
+            Self::WakeDetected | Self::Attentive | Self::Listening | Self::Interrupted => {
+                "listening"
+            }
             Self::Thinking | Self::ToolExecuting => "processing",
             Self::Responding => "speaking",
         }

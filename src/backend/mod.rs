@@ -2,11 +2,13 @@
 //!
 //! Coordina todos los servicios: AI, sesiones, voz, hotword, KDE integration.
 
+pub mod agent_activity;
 pub mod ai_service;
 pub mod approvals;
 pub mod audio_capture;
 pub mod auth;
 pub mod chime_player;
+pub mod document_suite;
 pub mod hotkey_listener;
 pub mod hotword;
 pub mod http_server;
@@ -255,9 +257,7 @@ impl Backend {
     }
 
     /// Inicia la grabacion de voz (para wake word o PTT).
-    /// Reproduce el chime de activacion.
     pub fn start_listening(&self) {
-        self.chimes.play_activate();
         // La sample rate ya esta registrada por start_voice_pipeline
         let sr = self
             .voice
@@ -273,7 +273,6 @@ impl Backend {
     /// Detiene la grabacion y procesa el utterance (STT -> LLM -> TTS).
     /// Retorna (transcript, response).
     pub async fn stop_listening_and_process(&self) -> Result<(String, String)> {
-        self.chimes.play_deactivate();
         let audio = self.voice.stop_recording();
         if audio.is_empty() {
             log::info!("Grabacion vacia, omitiendo procesamiento");

@@ -278,28 +278,38 @@ QtObject {
     }
 
     // Establecer home
-    function setHome(x, y) {
-        homeX = x
-        homeY = y
+    function setHome(newX, newY) {
+        homeX = newX
+        homeY = newY
     }
 
     // Aparecer (spawn con animación)
-    function appear(x, y, fromDirection) {
+    function appear(newX, newY, fromDirection) {
         _animationPriority = animPriority.appear
         _currentAnimation = "appear"
-        x = x
-        y = y
+        if (newX !== undefined) ctrl.x = newX
+        if (newY !== undefined) ctrl.y = newY
         vx = 0
         vy = 0
         onGround = true
 
         // Animación de entrada: scale 0->1 + slide
         if (character) {
-            character.scale = 0.0
+            character.visible = true
+            character.scale = 0.01
             character.opacity = 0.0
 
-            var anim = Qt.createQmlObject('import QtQuick; SequentialAnimation { PropertyAnimation { target: ctrl.character; property: "scale"; from: 0; to: 1; duration: 400; easing.type: Easing.OutBack } PropertyAnimation { target: ctrl.character; property: "opacity"; from: 0; to: 1; duration: 300; easing.type: Easing.OutQuad } }', ctrl, "appearAnim")
-            if (anim) anim.start()
+            try {
+                var anim = Qt.createQmlObject('import QtQuick; ParallelAnimation { PropertyAnimation { target: ctrl.character; property: "scale"; from: 0.01; to: 1; duration: 400; easing.type: Easing.OutBack } PropertyAnimation { target: ctrl.character; property: "opacity"; from: 0; to: 1; duration: 220; easing.type: Easing.OutQuad } }', ctrl, "appearAnim")
+                if (anim) anim.start()
+                else {
+                    character.scale = 1.0
+                    character.opacity = 1.0
+                }
+            } catch (e) {
+                character.scale = 1.0
+                character.opacity = 1.0
+            }
         }
 
         animationStarted("appear", animPriority.appear)
@@ -312,8 +322,14 @@ QtObject {
         _currentAnimation = "disappear"
 
         if (character) {
-            var anim = Qt.createQmlObject('import QtQuick; SequentialAnimation { PropertyAnimation { target: ctrl.character; property: "scale"; from: 1; to: 0; duration: 300; easing.type: Easing.InBack } PropertyAnimation { target: ctrl.character; property: "opacity"; from: 1; to: 0; duration: 200; easing.type: Easing.InQuad } ScriptAction { script: ctrl.animationFinished("disappear") } }', ctrl, "disappearAnim")
-            if (anim) anim.start()
+            try {
+                var anim = Qt.createQmlObject('import QtQuick; SequentialAnimation { ParallelAnimation { PropertyAnimation { target: ctrl.character; property: "scale"; from: 1; to: 0.01; duration: 240; easing.type: Easing.InBack } PropertyAnimation { target: ctrl.character; property: "opacity"; from: 1; to: 0; duration: 200; easing.type: Easing.InQuad } } ScriptAction { script: ctrl.animationFinished("disappear") } }', ctrl, "disappearAnim")
+                if (anim) anim.start()
+                else animationFinished("disappear")
+            } catch (e) {
+                character.visible = false
+                animationFinished("disappear")
+            }
         } else {
             animationFinished("disappear")
         }
@@ -321,7 +337,7 @@ QtObject {
     }
 
     // Iniciar arrastre (usuario)
-    function startDrag(x, y) {
+    function startDrag(startX, startY) {
         isDragging = true
         isMoving = false
         vx = 0
@@ -331,8 +347,8 @@ QtObject {
         _currentAnimation = "drag"
 
         // Posición inicial del drag
-        x = x
-        y = y
+        ctrl.x = startX
+        ctrl.y = startY
 
         if (character) {
             character.squashX = 1.1
@@ -342,11 +358,11 @@ QtObject {
     }
 
     // Actualizar arrastre
-    function updateDrag(x, y) {
+    function updateDrag(newX, newY) {
         if (!isDragging) return
-        x = x
-        y = y
-        positionChanged(x, y)
+        ctrl.x = newX
+        ctrl.y = newY
+        positionChanged(ctrl.x, ctrl.y)
     }
 
     // Terminar arrastre (soltar -> física)

@@ -515,8 +515,15 @@ ApplicationWindow {
     property bool drawerOpen: false
     property bool streaming: false
     property string voiceState: "idle"  // "idle" | "listening" | "processing" | "speaking"
+    property int voiceAssistantIndex: -1
+    property string voiceLiveText: ""
     property string agentState: "idle"
     readonly property string avatarState: voiceState !== "idle" ? voiceState : agentState
+    property bool calibrationOpen: false
+    property bool calibrationRecording: false
+    property int calibrationCount: 0
+    property int calibrationTarget: 3
+    property string calibrationHint: qsTr("Di «hey Jarvis» de forma natural")
     // XHR del chat en curso (F0-7: para abortar en Stop / nueva sesión).
     property var activeChatXhr: null
     // Estado backend (F0-5): se actualiza con /api/health + /api/config.
@@ -537,6 +544,8 @@ ApplicationWindow {
     property bool characterReducedMotion: false
     property int characterSleepSecs: 240
     property int characterSize: 140
+    property string characterAppearance: "capsule"
+    property color characterAccentColor: "#0094bb"
 
     // Prepara el input con un texto y abre la ventana (acciones rápidas del tray).
     function prefill(text) {
@@ -642,6 +651,7 @@ ApplicationWindow {
         applyTheme()
         startVoiceStream()
         startAgentStream()
+        checkVoiceCalibration()
         // F0-6: si cacheBase quedó vacío (sin HOME), desactivar polling.
         if (!cacheBase) {
             console.warn("HOME no disponible: polling de hotkey/voz desactivado")
@@ -650,6 +660,75 @@ ApplicationWindow {
         // Rescate: si la ventana quedó oculta (recreación por flags),
         // forzar visible + diagnóstico de geometría.
         rescueTimer.start()
+    }
+
+    function checkVoiceCalibration() {
+        var req = new XMLHttpRequest()
+        req.open("GET", backendUrl + "/api/voice/calibration")
+        setAuth(req)
+        req.onreadystatechange = function() {
+            if (req.readyState === XMLHttpRequest.DONE && req.status === 200) {
+                try {
+                    var s = JSON.parse(req.responseText)
+                    calibrationCount = s.count || 0
+                    calibrationTarget = s.target || 3
+                    calibrationOpen = s.required === true
+                } catch (e) {}
+            }
+        }
+        req.send()
+    }
+
+    function startCalibrationSample() {
+        var req = new XMLHttpRequest()
+        req.open("POST", backendUrl + "/api/voice/calibration")
+        setAuth(req)
+        req.onreadystatechange = function() {
+            if (req.readyState === XMLHttpRequest.DONE) {
+                if (req.status === 200) {
+                    calibrationRecording = true
+                    calibrationHint = qsTr("Escuchando… di «hey Jarvis»")
+                    calibrationTimeout.restart()
+                } else {
+                    calibrationHint = qsTr("No se pudo abrir el micrófono")
+                }
+            }
+        }
+        req.send()
+    }
+
+    function stopCalibrationSample() {
+        var req = new XMLHttpRequest()
+        req.open("DELETE", backendUrl + "/api/voice/calibration")
+        setAuth(req)
+        req.onreadystatechange = function() {
+            if (req.readyState !== XMLHttpRequest.DONE) return
+            calibrationRecording = false
+            calibrationTimeout.stop()
+            if (req.status === 200) {
+                try {
+                    var s = JSON.parse(req.responseText)
+                    calibrationCount = s.count || calibrationCount
+                    calibrationOpen = s.required === true
+                    calibrationHint = calibrationOpen ? qsTr("Muestra guardada. Repite con otra entonación.") : qsTr("Calibración completada")
+                } catch (e) {}
+            } else {
+                calibrationHint = qsTr("Muestra demasiado corta; inténtalo de nuevo")
+            }
+        }
+        req.send()
+    }
+
+    Timer {
+        id: calibrationTimeout
+        interval: 8000
+        repeat: false
+        onTriggered: {
+            if (root.calibrationRecording) {
+                root.calibrationHint = qsTr("Tiempo agotado; guardando la muestra")
+                root.stopCalibrationSample()
+            }
+        }
     }
     Timer {
         id: rescueTimer
@@ -805,6 +884,10 @@ ApplicationWindow {
                             root.characterSleepSecs = parseInt(cfg.character.sleep_timeout_secs) || 240
                         if (cfg.character.size !== undefined)
                             root.characterSize = parseInt(cfg.character.size) || 140
+                        if (cfg.character.appearance)
+                            root.characterAppearance = String(cfg.character.appearance)
+                        if (cfg.character.accent_color)
+                            root.characterAccentColor = cfg.character.accent_color
                     }
                 } catch (e) {}
             }
@@ -907,7 +990,7 @@ ApplicationWindow {
                 // Item con ancho acotado + clip: el texto largo (proveedor +
                 // modelo) nunca se sale del campo visible.
                 Item {
-                    anchors.right: menuBtn.left
+                    anchors.right: dashboardBtn.left
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.rightMargin: Theme.spacingXs
                     width: Math.min(statusRow.implicitWidth, parent.width * 0.5)
@@ -956,19 +1039,18 @@ ApplicationWindow {
                     }
                 }
 
-                // Menu del tray (kebab): abre el mismo popup que el click
-                // derecho en el icono, por si la sesion no lo entrega.
                 IconButton {
-                    id: menuBtn
+                    id: dashboardBtn
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.rightMargin: Theme.spacingXs
-                    iconName: "kebab-horizontal-16"
+                    iconName: "history-16"
                     iconSize: 16
                     buttonSize: 28
                     backgroundColor: "transparent"
                     iconColor: Theme.inkMuted
-                    onClicked: tray.openMenu()
+                    accessibleName: qsTr("Actividad de agentes")
+                    onClicked: agentDashboard.open()
                 }
             }
 
@@ -1105,6 +1187,11 @@ ApplicationWindow {
     }
 
     // === Audit dialog (F4-3) ===
+    AgentDashboard {
+        id: agentDashboard
+        backendUrl: root.backendUrl
+    }
+
     AuditDialog {
         id: auditDialog
         anchors.fill: parent
@@ -1124,6 +1211,63 @@ ApplicationWindow {
             console.log("Settings saved")
             root.applyTheme()
             root.checkBackend()
+        }
+    }
+
+    Popup {
+        id: calibrationPopup
+        anchors.centerIn: parent
+        width: Math.min(root.width - 32, 390)
+        padding: 24
+        modal: true
+        closePolicy: Popup.NoAutoClose
+        visible: root.calibrationOpen
+        background: Rectangle {
+            radius: Theme.radiusLg
+            color: Theme.surface
+            border.width: 1
+            border.color: Theme.hairline
+        }
+        contentItem: Column {
+            spacing: Theme.spacingMd
+            Text {
+                text: qsTr("Configura tu voz")
+                color: Theme.ink
+                font: Theme.font(Theme.fontSizeTagline, Theme.weightBold, Theme.lsHero)
+            }
+            Text {
+                text: qsTr("Para reconocer mejor «hey Jarvis», grabaremos tres muestras localmente. No se subirá ningún audio.")
+                color: Theme.inkMuted
+                wrapMode: Text.WordWrap
+                width: calibrationPopup.width - 48
+                font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
+            }
+            Text {
+                text: root.calibrationHint
+                color: root.calibrationRecording ? Theme.primary : Theme.inkMuted
+                wrapMode: Text.WordWrap
+                width: calibrationPopup.width - 48
+                font: Theme.font(Theme.fontSizeBodySmall, Theme.weightNormal, 0)
+            }
+            Text {
+                text: qsTr("Muestras: %1/%2").arg(root.calibrationCount).arg(root.calibrationTarget)
+                color: Theme.ink
+                font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0)
+            }
+            AppleButton {
+                Layout.fillWidth: true
+                text: root.calibrationRecording ? qsTr("Guardar muestra") : qsTr("Grabar muestra")
+                variant: root.calibrationRecording ? "destructive" : "primary"
+                iconName: root.calibrationRecording ? "stop-16" : "microphone-16"
+                onClicked: root.calibrationRecording ? root.stopCalibrationSample() : root.startCalibrationSample()
+            }
+            AppleButton {
+                Layout.fillWidth: true
+                visible: !root.calibrationRecording
+                text: qsTr("Configurar más tarde")
+                variant: "ghost"
+                onClicked: root.calibrationOpen = false
+            }
         }
     }
 
@@ -1200,6 +1344,8 @@ ApplicationWindow {
         presenceMode: root.characterMode
         sleepAfterSecs: root.characterSleepSecs
         characterSize: root.characterSize
+        characterAppearance: root.characterAppearance
+        characterAccentColor: root.characterAccentColor
         assistantState: root.avatarState
         invoked: root.voiceState !== "idle"
         voiceLevel: root.voiceLevel
@@ -1455,12 +1601,14 @@ ApplicationWindow {
                 }
                 try {
                     var event = JSON.parse(data)
+                    if (event.type && !root.agentOverlayRunning) agentWindow.handleActivity(event)
                     if (event.state === "processing" || event.state === "idle")
                         root.agentState = event.state
                 } catch (e) {}
             }
             if (xhr.readyState === 4) {
                 agentStreamXhr = null
+                agentWindow.resetActivity()
                 agentRetryTimer.restart()
             }
         }
@@ -1491,6 +1639,64 @@ ApplicationWindow {
         } else if (ev === "level" && obj && obj.level !== undefined) {
             var v = parseFloat(obj.level)
             if (!isNaN(v)) root.voiceLevel = Math.max(0, Math.min(1, v))
+        } else if (ev === "transcript" && obj && obj.content) {
+            // El turno hablado entra en la conversación antes de que termine
+            // el LLM; la respuesta se completa con eventos token.
+            root.voiceLiveText = ""
+            root.appendMessage({
+                role: "user",
+                authorLabel: "Tu (voz)",
+                content: obj.content,
+                raw: obj.content,
+                timestamp: nowTime(),
+                isStreaming: false,
+                toolCalls: []
+            })
+            root.appendMessage({
+                role: "assistant",
+                authorLabel: "KDE Assistant",
+                content: "",
+                raw: "",
+                timestamp: nowTime(),
+                isStreaming: true,
+                toolCalls: []
+            })
+            root.voiceAssistantIndex = root.messages.length - 1
+        } else if (ev === "token" && obj && obj.content) {
+            root.voiceLiveText += obj.content
+            if (root.voiceAssistantIndex >= 0 && root.voiceAssistantIndex < root.messages.length) {
+                var arr = root.messages.slice()
+                var old = arr[root.voiceAssistantIndex]
+                arr[root.voiceAssistantIndex] = {
+                    role: "assistant",
+                    authorLabel: "KDE Assistant",
+                    content: root.markdownToHtml(root.voiceLiveText),
+                    raw: root.voiceLiveText,
+                    timestamp: old.timestamp,
+                    isStreaming: true,
+                    toolCalls: old.toolCalls || []
+                }
+                root.messages = arr
+            }
+        } else if (ev === "exchange" && obj) {
+            root.lastVoiceCycle = String(obj.timestamp_ms || 0)
+            if (root.voiceAssistantIndex >= 0 && root.voiceAssistantIndex < root.messages.length) {
+                var done = root.messages.slice()
+                var current = done[root.voiceAssistantIndex]
+                var finalText = obj.response || root.voiceLiveText
+                done[root.voiceAssistantIndex] = {
+                    role: "assistant",
+                    authorLabel: "KDE Assistant",
+                    content: root.markdownToHtml(finalText),
+                    raw: finalText,
+                    timestamp: current.timestamp,
+                    isStreaming: false,
+                    toolCalls: current.toolCalls || []
+                }
+                root.messages = done
+            }
+            root.voiceAssistantIndex = -1
+            root.voiceLiveText = ""
         }
     }
 

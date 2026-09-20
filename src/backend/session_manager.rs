@@ -148,6 +148,61 @@ impl SessionManager {
         Ok(Self { conn, db_path })
     }
 
+    #[cfg(test)]
+    pub(crate) fn in_memory_for_tests() -> Result<Self> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            r#"
+            CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                summary TEXT NOT NULL DEFAULT '',
+                summary_count INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                tool_name TEXT,
+                tool_call_id TEXT,
+                tool_result TEXT,
+                image_url TEXT,
+                timestamp TEXT NOT NULL
+            );
+            CREATE TABLE tool_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                session_id TEXT,
+                tool TEXT NOT NULL,
+                args TEXT NOT NULL DEFAULT '',
+                success INTEGER NOT NULL DEFAULT 0,
+                duration_ms INTEGER NOT NULL DEFAULT 0,
+                permission TEXT NOT NULL DEFAULT '',
+                decided TEXT NOT NULL DEFAULT 'auto'
+            );
+            CREATE TABLE user_facts (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fire_at TEXT NOT NULL,
+                text TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                done INTEGER NOT NULL DEFAULT 0
+            );
+            "#,
+        )?;
+        Ok(Self {
+            conn,
+            db_path: PathBuf::from(":memory:"),
+        })
+    }
+
     /// Registra una ejecución en la auditoría (F4-3).
     #[allow(clippy::too_many_arguments)]
     pub fn record_tool_audit(
@@ -178,6 +233,24 @@ impl SessionManager {
         )?;
         Ok(())
     }
+    /// Persistent tool usage, aggregated without returning arguments or contents.
+    pub fn tool_usage(&self) -> Result<serde_json::Value> {
+        let mut stmt = self.conn.prepare(
+            "SELECT tool, COUNT(*), SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END),
+             SUM(CASE WHEN decided = 'denied' THEN 1 ELSE 0 END), AVG(duration_ms)
+             FROM tool_audit GROUP BY tool ORDER BY COUNT(*) DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(serde_json::json!({
+                "tool":row.get::<_, String>(0)?, "total":row.get::<_, i64>(1)?,
+                "success":row.get::<_, i64>(2)?, "denied":row.get::<_, i64>(3)?,
+                "avg_ms":row.get::<_, f64>(4)?
+            }))
+        })?;
+        let rows = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(serde_json::json!(rows))
+    }
+
     /// Últimas `limit` entradas de auditoría (más recientes primero).
     pub fn list_tool_audit(&self, limit: i64) -> Result<Vec<ToolAuditRow>> {
         let limit = limit.clamp(1, 200);
@@ -783,6 +856,50 @@ mod tests {
         assert_eq!(rows[1].tool, "read_file");
         assert!(rows[1].success);
         assert_eq!(m.list_tool_audit(1).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn tool_usage_aggregates_without_args() {
+        let m = test_db().unwrap();
+        m.record_tool_audit(
+            None,
+            "find_file",
+            r#"{"query":"secret"}"#,
+            true,
+            10,
+            "green",
+            "auto",
+        )
+        .unwrap();
+        m.record_tool_audit(
+            None,
+            "find_file",
+            r#"{"query":"secret2"}"#,
+            false,
+            30,
+            "red",
+            "denied",
+        )
+        .unwrap();
+        m.record_tool_audit(
+            None,
+            "open_app",
+            r#"{"name":"kate"}"#,
+            true,
+            9,
+            "yellow",
+            "auto",
+        )
+        .unwrap();
+
+        let usage = m.tool_usage().unwrap();
+        let rows = usage.as_array().unwrap();
+        assert_eq!(rows[0]["tool"], "find_file");
+        assert_eq!(rows[0]["total"], 2);
+        assert_eq!(rows[0]["success"], 1);
+        assert_eq!(rows[0]["denied"], 1);
+        assert_eq!(rows[0]["avg_ms"], 20.0);
+        assert!(!usage.to_string().contains("secret"));
     }
 
     #[test]

@@ -26,7 +26,37 @@ QtObject {
     property int breathePeriodMs: 2400
 
     // Registro de nombres validos (crece por fases)
-    readonly property var known: ["blink", "breathe", "appear", "disappear"]
+    readonly property var known: ["blink", "breathe", "appear", "disappear", "rock", "bounce", "search", "write", "inspect", "launch", "download", "snapshot", "attention", "shake"]
+    property real actionPhase: 0
+    property string actionName: ""
+    onActionPhaseChanged: {
+        if (!character || reducedMotion) return
+        var wave = Math.sin(actionPhase * Math.PI * 2)
+        character.actionX = actionName === "search" ? wave * 9 : actionName === "shake" ? wave * 6 : 0
+        character.actionY = actionName === "write" ? -Math.abs(wave) * 4
+            : actionName === "bounce" || actionName === "launch" ? -Math.sin(actionPhase * Math.PI) * 15
+            : actionName === "download" ? wave * 5 : actionName === "inspect" ? -Math.sin(actionPhase * Math.PI) * 3 : 0
+        character.actionRotation = actionName === "write" ? wave * 3
+            : actionName === "search" || actionName === "rock" ? wave * 7
+            : actionName === "inspect" ? Math.sin(actionPhase * Math.PI) * 10
+            : actionName === "attention" || actionName === "snapshot" ? wave * 4 : 0
+    }
+    function stopAction() {
+        actionAnim.stop()
+        actionName = ""
+        if (character) { character.actionX = 0; character.actionY = 0; character.actionRotation = 0 }
+    }
+    onReducedMotionChanged: {
+        if (reducedMotion) { stopAction(); stop("breathe") }
+        else startBreathing()
+    }
+    property NumberAnimation _action: NumberAnimation {
+        id: actionAnim
+        target: ctrl; property: "actionPhase"; from: 0; to: 1
+        duration: ctrl.actionName === "write" || ctrl.actionName === "shake" ? 280 : 850
+        easing.type: Easing.InOutSine
+        onFinished: { ctrl.stopAction(); ctrl.finished(ctrl.active) }
+    }
 
     // Prioridad basica de las animaciones actuales (0 = ambiente)
     property string active: ""
@@ -44,6 +74,11 @@ QtObject {
         else if (name === "breathe") { startBreathing(); }
         else if (name === "appear") { appearAnim.restart(); }
         else if (name === "disappear") { disappearAnim.restart(); }
+        else {
+            stopAction()
+            actionName = name
+            if (!reducedMotion) actionAnim.restart()
+        }
         active = name
         played(name)
         return true
@@ -56,6 +91,7 @@ QtObject {
     }
 
     function cancelAll() {
+        stopAction()
         stop("blink"); stop("breathe")
         appearAnim.stop(); disappearAnim.stop()
         active = ""
@@ -92,6 +128,7 @@ QtObject {
 
     // === breathe: ciclo eterno suave (breathePhase 0->1->0) ===
     function startBreathing() {
+        if (reducedMotion) return
         breathAnim.loops = Animation.Infinite
         breathAnim.start()
     }

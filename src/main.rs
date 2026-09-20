@@ -172,10 +172,8 @@ fn main() -> Result<()> {
     const MAX_RECORDING_SECS: u64 = 8;
     const MAX_EXTRA_TURNS: u32 = 2;
     let wake_word_label = cfg.speech.wake_word.clone();
-    let wake_greeting = cfg.speech.wake_greeting.clone();
     if let Some(mut rx) = voice_events {
         let vp = backend.voice.clone();
-        let speech = backend.speech.clone();
         runtime.spawn(async move {
             while let Some(event) = rx.recv().await {
                 match event {
@@ -199,14 +197,26 @@ fn main() -> Result<()> {
                         vp.emit_state(
                             kde_assistant_lib::backend::voice_state::VoiceState::WakeDetected,
                         );
-                        // Saludo hablado ANTES de grabar (si no, el micro
-                        // captaria nuestra propia voz y entraria en bucle)
-                        if let Err(e) = speech.speak(&wake_greeting).await {
-                            log::warn!("Saludo TTS fallo: {e}");
-                        }
-                        vp.start_listening();
                         let vp2 = vp.clone();
+                        let greeting = {
+                            let cfg = vp2.config.read().await;
+                            cfg.speech.wake_greeting.trim().to_string()
+                        };
                         tokio::spawn(async move {
+                            // Dar una señal audible de que Jarvis está atento
+                            // evita que el usuario empiece a hablar antes de
+                            // que el micrófono haya cambiado de estado. La
+                            // grabación comienza solo después del saludo para
+                            // que Whisper no lo confunda con el comando.
+                            if !greeting.is_empty() {
+                                vp2.emit_state(
+                                    kde_assistant_lib::backend::voice_state::VoiceState::Attentive,
+                                );
+                                if let Err(e) = vp2.speech.speak(&greeting).await {
+                                    log::warn!("Saludo de wake word fallo: {e}");
+                                }
+                            }
+                            vp2.start_listening();
                             let turns = vp2
                                 .converse_voice_driven(MAX_RECORDING_SECS, MAX_EXTRA_TURNS)
                                 .await;

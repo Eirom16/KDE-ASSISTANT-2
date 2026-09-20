@@ -18,6 +18,25 @@ Rectangle {
     property string apiKey: ""
     property string model: ""
     property string baseUrl: ""
+    property var providerKeys: ({})
+    property var providerBaseUrls: ({})
+    property var providerModels: ({})
+    property string providerSearch: ""
+    property var providerCatalog: [
+        { id: "openrouter", name: "OpenRouter", url: "https://openrouter.ai/api/v1", key: "sk-or-...", model: "openrouter/z-ai/glm-5.2:free", note: qsTr("Muchos modelos y proveedores detrás de una sola API") },
+        { id: "groq", name: "Groq", url: "https://api.groq.com/openai/v1", key: "gsk-...", model: "llama-3.3-70b-versatile", note: qsTr("Muy rápido; útil también para STT API") },
+        { id: "openai", name: "OpenAI", url: "https://api.openai.com/v1", key: "sk-...", model: "gpt-4o-mini", note: qsTr("API oficial compatible OpenAI") },
+        { id: "deepseek", name: "DeepSeek", url: "https://api.deepseek.com/v1", key: "sk-...", model: "deepseek-chat", note: qsTr("Modelos DeepSeek OpenAI-compatible") },
+        { id: "mistral", name: "Mistral", url: "https://api.mistral.ai/v1", key: "...", model: "mistral-small-latest", note: qsTr("Modelos Mistral") },
+        { id: "xai", name: "xAI", url: "https://api.x.ai/v1", key: "xai-...", model: "grok-3-mini", note: qsTr("Modelos Grok vía xAI") },
+        { id: "together", name: "Together", url: "https://api.together.xyz/v1", key: "...", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo", note: qsTr("Catálogo amplio OpenAI-compatible") },
+        { id: "fireworks", name: "Fireworks", url: "https://api.fireworks.ai/inference/v1", key: "...", model: "accounts/fireworks/models/llama-v3p3-70b-instruct", note: qsTr("Inferencia rápida OpenAI-compatible") },
+        { id: "cerebras", name: "Cerebras", url: "https://api.cerebras.ai/v1", key: "csk-...", model: "llama3.1-8b", note: qsTr("Inferencia acelerada") },
+        { id: "sambanova", name: "SambaNova", url: "https://api.sambanova.ai/v1", key: "...", model: "Meta-Llama-3.1-8B-Instruct", note: qsTr("Proveedor OpenAI-compatible") },
+        { id: "lmstudio", name: "LM Studio", url: "http://127.0.0.1:1234/v1", key: "lm-studio", model: "local-model", note: qsTr("Servidor local; normalmente no requiere key real") },
+        { id: "ollama", name: "Ollama", url: "http://127.0.0.1:11434/v1", key: "ollama", model: "llama3.1", note: qsTr("Servidor local OpenAI-compatible") },
+        { id: "custom", name: qsTr("Personalizado"), url: "", key: qsTr("tu-api-key"), model: "", note: qsTr("Cualquier endpoint /v1 compatible con OpenAI") }
+    ]
     property bool toolCallingEnabled: true
     property bool autoSpeak: false
     property bool autoListen: false
@@ -61,6 +80,8 @@ Rectangle {
     property bool characterReducedMotion: false
     property int characterSleepSecs: 240
     property int characterSize: 140
+    property string characterAppearance: "capsule"
+    property string characterAccentColor: "#0094bb"
 
     // Tabs
     property string activeTab: "general"  // general | voz | atajos | memoria | personaje
@@ -102,18 +123,72 @@ Rectangle {
         root.closed()
     }
 
+    function providerProfile(p) {
+        for (var i = 0; i < providerCatalog.length; ++i) {
+            if (providerCatalog[i].id === p) return providerCatalog[i]
+        }
+        return providerCatalog[0]
+    }
+
+    function cloneMap(src) {
+        var out = ({})
+        if (!src) return out
+        for (var k in src) out[k] = src[k]
+        return out
+    }
+
+    function rememberProviderFields() {
+        var keys = cloneMap(root.providerKeys)
+        var urls = cloneMap(root.providerBaseUrls)
+        var models = cloneMap(root.providerModels)
+        keys[root.provider] = apiKeyField.value || ""
+        urls[root.provider] = baseUrlField.value || ""
+        models[root.provider] = modelCombo.editText || ""
+        root.providerKeys = keys
+        root.providerBaseUrls = urls
+        root.providerModels = models
+    }
+
+    function applyProviderFields(p) {
+        var profile = providerProfile(p)
+        baseUrlField.value = root.providerBaseUrls[p] !== undefined ? root.providerBaseUrls[p] : profile.url
+        apiKeyField.value = root.providerKeys[p] !== undefined ? root.providerKeys[p] : ((p === "lmstudio" || p === "ollama") ? profile.key : "")
+        modelCombo.editText = root.providerModels[p] !== undefined ? root.providerModels[p] : profile.model
+        root.baseUrl = baseUrlField.value
+        root.apiKey = apiKeyField.value
+        root.model = modelCombo.editText
+        root.modelList = []
+        modelHint.color = Theme.inkMuted
+        modelHint.text = profile.note || ""
+    }
+
+    function switchProvider(p) {
+        if (p === root.provider) return
+        rememberProviderFields()
+        root.provider = p
+        applyProviderFields(p)
+        if (apiKeyField.value !== "" || p === "lmstudio" || p === "ollama") fetchModels()
+    }
+
     function providerBaseUrl(p) {
-        if (p === "groq") return "https://api.groq.com/openai/v1"
-        if (p === "openai") return "https://api.openai.com/v1"
-        if (p === "openrouter") return "https://openrouter.ai/api/v1"
-        return baseUrlField.value || ""
+        return providerProfile(p).url
     }
 
     function keyPlaceholder() {
-        if (root.provider === "groq") return "gsk-..."
-        if (root.provider === "openai") return "sk-..."
-        if (root.provider === "custom") return "tu-api-key"
-        return "sk-or-..."
+        return providerProfile(root.provider).key || "sk-..."
+    }
+
+    function providerMatches(profile, query) {
+        var q = String(query || "").trim().toLowerCase()
+        if (q === "") return true
+        var haystack = [
+            profile.id || "",
+            profile.name || "",
+            profile.note || "",
+            profile.url || "",
+            profile.model || ""
+        ].join(" ").toLowerCase()
+        return haystack.indexOf(q) >= 0
     }
 
     // Carga la config del backend y rellena los campos (imperativo, sin bindings)
@@ -132,9 +207,19 @@ Rectangle {
                 if (!cfg.memory) cfg.memory = {}
                 if (!cfg.character) cfg.character = {}
                 root.provider = cfg.ai.provider || "openrouter"
-                root.apiKey = cfg.ai.api_key || ""
                 root.model = cfg.ai.model || ""
                 root.baseUrl = cfg.ai.base_url || ""
+                root.providerKeys = cloneMap(cfg.ai.provider_keys || ({}))
+                root.providerBaseUrls = cloneMap(cfg.ai.provider_base_urls || ({}))
+                root.providerModels = cloneMap(cfg.ai.provider_models || ({}))
+                // Migración suave: configs antiguas tenían una sola key/url/modelo.
+                if (Object.keys(root.providerKeys).length === 0 && cfg.ai.api_key)
+                    root.providerKeys[root.provider] = cfg.ai.api_key
+                if (root.providerBaseUrls[root.provider] === undefined && root.baseUrl)
+                    root.providerBaseUrls[root.provider] = root.baseUrl
+                if (root.providerModels[root.provider] === undefined && root.model)
+                    root.providerModels[root.provider] = root.model
+                root.apiKey = root.providerKeys[root.provider] || ""
                 root.toolCallingEnabled = cfg.ai.enable_tool_calling !== false
                 root.autoSpeak = cfg.speech.auto_speak === true
                 root.autoListen = cfg.speech.auto_listen === true
@@ -161,10 +246,10 @@ Rectangle {
                 root.characterReducedMotion = cfg.character.reduced_motion === true
                 root.characterSleepSecs = parseInt(cfg.character.sleep_timeout_secs) || 240
                 root.characterSize = parseInt(cfg.character.size) || 140
+                root.characterAppearance = cfg.character.appearance || "capsule"
+                root.characterAccentColor = cfg.character.accent_color || "#0094bb"
                 // Volcar a los campos (rompe nada: asignacion directa)
-                baseUrlField.value = root.baseUrl
-                apiKeyField.value = root.apiKey
-                modelCombo.editText = root.model
+                applyProviderFields(root.provider)
                 piperField.value = root.piperModel
                 speedSlider.value = root.piperLengthScale
                 wakeField.value = root.wakeWord
@@ -317,10 +402,14 @@ Rectangle {
         if (!cfg.ui) cfg.ui = {}
         if (!cfg.shortcuts) cfg.shortcuts = {}
         if (!cfg.memory) cfg.memory = {}
+        rememberProviderFields()
         cfg.ai.provider = root.provider
-        cfg.ai.api_key = apiKeyField.value
-        cfg.ai.model = modelCombo.editText
-        cfg.ai.base_url = baseUrlField.value
+        cfg.ai.provider_keys = cloneMap(root.providerKeys)
+        cfg.ai.provider_base_urls = cloneMap(root.providerBaseUrls)
+        cfg.ai.provider_models = cloneMap(root.providerModels)
+        cfg.ai.api_key = root.providerKeys[root.provider] || ""
+        cfg.ai.model = root.providerModels[root.provider] || ""
+        cfg.ai.base_url = root.providerBaseUrls[root.provider] || providerBaseUrl(root.provider)
         cfg.ai.enable_tool_calling = toolCallingEnabled
         cfg.speech.auto_speak = autoSpeak
         cfg.speech.auto_listen = autoListen
@@ -347,10 +436,12 @@ Rectangle {
         cfg.character.reduced_motion = characterReducedMotion
         cfg.character.sleep_timeout_secs = characterSleepSecs
         cfg.character.size = characterSize
+        cfg.character.appearance = characterAppearance
+        cfg.character.accent_color = characterAccentColor
         // Refrescar props locales para que la UI quede consistente
-        root.apiKey = apiKeyField.value
-        root.model = modelCombo.editText
-        root.baseUrl = baseUrlField.value
+        root.apiKey = cfg.ai.api_key
+        root.model = cfg.ai.model
+        root.baseUrl = cfg.ai.base_url
         root.piperModel = piperField.value
         root.piperLengthScale = speedSlider.value
         root.micDevice = micCombo.currentIndex >= 0 ? root.audioDevices[micCombo.currentIndex] : ""
@@ -366,6 +457,8 @@ Rectangle {
         root.characterReducedMotion = characterReducedMotion
         root.characterSleepSecs = characterSleepSecs
         root.characterSize = characterSize
+        root.characterAppearance = characterAppearance
+        root.characterAccentColor = characterAccentColor
 
         var xhr = new XMLHttpRequest()
         xhr.open("POST", backendUrl + "/api/config")
@@ -388,9 +481,10 @@ Rectangle {
     // === Panel de settings ===
     Rectangle {
         id: panel
+        objectName: "settingsPanel"
         anchors.centerIn: parent
-        width: Math.min(parent.width - 48, 480)
-        height: Math.min(parent.height - 80, 580)
+        width: Math.min(parent.width - 24, 760)
+        height: Math.min(parent.height - 32, 720)
         radius: Theme.radiusLg + 2
         color: Theme.surface
         border.width: 1
@@ -404,6 +498,11 @@ Rectangle {
             color: Theme.shadowCard
             opacity: 0.5
             radius: parent.radius + 4
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
         }
 
         ColumnLayout {
@@ -440,36 +539,48 @@ Rectangle {
                 }
             }
 
-            Flow {
+            RowLayout {
                 Layout.fillWidth: true
-                Layout.rightMargin: 10
-                spacing: Theme.spacingXs
-                PillButton {
-                    text: qsTr("General")
-                    active: root.activeTab === "general"
-                    onClicked: root.activeTab = "general"
+                Layout.fillHeight: true
+                spacing: Theme.spacingSm
+                ColumnLayout {
+                    Layout.preferredWidth: panel.width < 500 ? 88 : 132
+                    Layout.fillHeight: true
+                    spacing: Theme.spacingXs
+                    Repeater {
+                        model: [
+                            {key:"general", label:qsTr("General")},
+                            {key:"voz", label:qsTr("Voz")},
+                            {key:"atajos", label:qsTr("Atajos")},
+                            {key:"memoria", label:qsTr("Memoria")},
+                            {key:"personaje", label:qsTr("Personaje")}
+                        ]
+                        delegate: Button {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            text: modelData.label
+                            checkable: true
+                            checked: root.activeTab === modelData.key
+                            Accessible.name: text
+                            onClicked: {
+                                root.activeTab = modelData.key
+                                formScroll.contentItem.contentY = 0
+                            }
+                            contentItem: Text {
+                                text: parent.text
+                                color: parent.checked ? Theme.inkOnPrimary : Theme.ink
+                                font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0)
+                                elide: Text.ElideRight
+                            }
+                            background: Rectangle {
+                                radius: Theme.radiusSm
+                                color: parent.checked ? Theme.primary : parent.hovered ? Theme.surfaceHover : Theme.surfacePearl
+                                border.color: parent.activeFocus ? Theme.primary : "transparent"
+                            }
+                        }
+                    }
+                    Item { Layout.fillHeight: true }
                 }
-                PillButton {
-                    text: qsTr("Voz")
-                    active: root.activeTab === "voz"
-                    onClicked: root.activeTab = "voz"
-                }
-                PillButton {
-                    text: qsTr("Atajos")
-                    active: root.activeTab === "atajos"
-                    onClicked: root.activeTab = "atajos"
-                }
-                PillButton {
-                    text: qsTr("Memoria")
-                    active: root.activeTab === "memoria"
-                    onClicked: root.activeTab = "memoria"
-                }
-                PillButton {
-                    text: qsTr("Personaje")
-                    active: root.activeTab === "personaje"
-                    onClicked: root.activeTab = "personaje"
-                }
-            }
 
             // === Form ===
             ScrollView {
@@ -527,40 +638,167 @@ Rectangle {
                         Layout.fillWidth: true
                     }
 
-                    Flow {
+                    Rectangle {
                         Layout.fillWidth: true
-                        spacing: Theme.spacingXs
-                        PillButton {
-                            text: qsTr("OpenRouter")
-                            active: root.provider === "openrouter"
-                            onClicked: {
-                                root.provider = "openrouter"
-                                baseUrlField.value = providerBaseUrl("openrouter")
-                                if (apiKeyField.value !== "") fetchModels()
+                        Layout.preferredHeight: 64
+                        radius: Theme.radiusMd
+                        color: Theme.surfacePearl
+                        border.width: 1
+                        border.color: Theme.hairline
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.margins: Theme.spacingSm
+                            spacing: Theme.spacingSm
+
+                            Rectangle {
+                                Layout.preferredWidth: 36
+                                Layout.preferredHeight: 36
+                                radius: Theme.radiusPill
+                                color: Qt.rgba(0.16, 0.58, 1.0, 0.16)
+                                Octicon {
+                                    anchors.centerIn: parent
+                                    name: "hubot-16"
+                                    size: 16
+                                    color: Theme.primary
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: providerProfile(root.provider).name
+                                    color: Theme.ink
+                                    font: Theme.font(Theme.fontSizeBody, Theme.weightBold, Theme.lsBody)
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: providerProfile(root.provider).note
+                                    color: Theme.inkMuted
+                                    font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                                    elide: Text.ElideRight
+                                }
+                            }
+
+                            Text {
+                                text: qsTr("Activo")
+                                color: Theme.primary
+                                font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.2)
                             }
                         }
-                        PillButton {
-                            text: qsTr("Groq")
-                            active: root.provider === "groq"
-                            onClicked: {
-                                root.provider = "groq"
-                                baseUrlField.value = providerBaseUrl("groq")
-                                if (apiKeyField.value !== "") fetchModels()
+                    }
+
+                    TextField {
+                        id: providerSearchField
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 38
+                        text: root.providerSearch
+                        placeholderText: qsTr("Buscar proveedor por nombre, API o modelo…")
+                        placeholderTextColor: Theme.inkMuted
+                        color: Theme.ink
+                        font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
+                        selectByMouse: true
+                        Accessible.name: qsTr("Buscar proveedor de IA")
+                        onTextChanged: root.providerSearch = text
+                        Keys.onDownPressed: {
+                            providerList.currentIndex = 0
+                            providerList.forceActiveFocus()
+                        }
+                        background: Rectangle {
+                            radius: Theme.radiusMd
+                            color: providerSearchField.activeFocus ? Theme.surface : Theme.surfacePearl
+                            border.width: 1
+                            border.color: providerSearchField.activeFocus ? Theme.primary : Theme.hairline
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.min(244, Math.max(48, providerList.count * 48))
+                        radius: Theme.radiusMd
+                        color: Theme.surfacePearl
+                        border.width: 1
+                        border.color: Theme.hairline
+                        clip: true
+
+                        ListView {
+                            id: providerList
+                            anchors.fill: parent
+                            anchors.margins: 4
+                            clip: true
+                            currentIndex: 0
+                            model: root.providerCatalog.filter(function(profile) {
+                                return root.providerMatches(profile, providerSearchField.text)
+                            })
+                            ScrollBar.vertical: ScrollBar {
+                                policy: ScrollBar.AsNeeded
+                            }
+                            Keys.onReturnPressed: {
+                                if (currentIndex >= 0 && currentIndex < count)
+                                    root.switchProvider(model[currentIndex].id)
+                            }
+                            delegate: Button {
+                                id: providerChoice
+                                required property var modelData
+                                width: providerList.width
+                                height: 48
+                                checkable: true
+                                checked: root.provider === modelData.id
+                                Accessible.name: modelData.name
+                                onClicked: {
+                                    root.switchProvider(modelData.id)
+                                    providerSearchField.forceActiveFocus()
+                                }
+                                contentItem: RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: Theme.spacingSm
+                                    anchors.rightMargin: Theme.spacingSm
+                                    spacing: Theme.spacingSm
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 1
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: modelData.name
+                                            color: providerChoice.checked ? Theme.inkOnPrimary : Theme.ink
+                                            font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0)
+                                            elide: Text.ElideRight
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: modelData.url
+                                            color: providerChoice.checked ? Qt.rgba(1,1,1,0.72) : Theme.inkMuted
+                                            font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                                            elide: Text.ElideMiddle
+                                        }
+                                    }
+                                    Text {
+                                        text: modelData.model
+                                        color: providerChoice.checked ? Qt.rgba(1,1,1,0.8) : Theme.inkMuted
+                                        font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                                        elide: Text.ElideRight
+                                        Layout.maximumWidth: Math.max(84, providerList.width * 0.32)
+                                    }
+                                }
+                                background: Rectangle {
+                                    radius: Theme.radiusSm
+                                    color: parent.checked ? Theme.primary : parent.hovered ? Theme.surfaceHover : Theme.surfacePearl
+                                    Behavior on color {
+                                        ColorAnimation { duration: Theme.animFast; easing.type: Easing.OutCubic }
+                                    }
+                                }
                             }
                         }
-                        PillButton {
-                            text: qsTr("OpenAI")
-                            active: root.provider === "openai"
-                            onClicked: {
-                                root.provider = "openai"
-                                baseUrlField.value = providerBaseUrl("openai")
-                                if (apiKeyField.value !== "") fetchModels()
-                            }
-                        }
-                        PillButton {
-                            text: qsTr("Personalizado")
-                            active: root.provider === "custom"
-                            onClicked: root.provider = "custom"
+
+                        Text {
+                            anchors.centerIn: parent
+                            visible: providerList.count === 0
+                            text: qsTr("Sin proveedores para esa búsqueda")
+                            color: Theme.inkMuted
+                            font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
                         }
                     }
 
@@ -591,63 +829,11 @@ Rectangle {
                         Layout.fillWidth: true
                         spacing: Theme.spacingXs
 
-                        ComboBox {
+                        ModelPicker {
                             id: modelCombo
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 36
-                            editable: true
-                            model: root.modelList
-                            font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
-                            // Sin bindings en editText: se fija por codigo en
-                            // loadConfig/fetchModels y se lee en saveConfig.
-                            onActivated: function(index) {
-                                root.model = modelCombo.currentText
-                            }
-                            onAccepted: {
-                                root.model = modelCombo.editText
-                            }
-                            background: Rectangle {
-                                radius: Theme.radiusMd
-                                color: modelCombo.hovered || modelCombo.activeFocus ? Theme.surface : Theme.surfacePearl
-                                border.width: 1
-                                border.color: modelCombo.activeFocus ? Theme.primary : Theme.hairline
-                            }
-                            // NOTA: sin contentItem personalizado; el estilo del
-                            // sistema (Breeze) espera un TextInput con
-                            // positionToRectangle() y rompe con un Text plano.
-                            // Indicador propio (siempre visible con cualquier estilo).
-                            indicator: Text {
-                                x: modelCombo.width - width - 12
-                                y: (modelCombo.height - height) / 2
-                                text: "▾"
-                                color: Theme.inkMuted
-                                font.pixelSize: 14
-                            }
-                            popup: Popup {
-                                y: modelCombo.height
-                                width: modelCombo.width
-                                padding: 4
-                                background: Rectangle {
-                                    color: Theme.surface
-                                    border.color: Theme.hairline
-                                    border.width: 1
-                                    radius: Theme.radiusMd
-                                }
-                                contentItem: ListView {
-                clip: true
-                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-                                    implicitHeight: Math.min(contentHeight, 280)
-                                    model: modelCombo.popup.visible ? modelCombo.delegateModel : null
-                                    currentIndex: modelCombo.highlightedIndex
-                                    ScrollIndicator.vertical: ScrollIndicator { }
-                                }
-                            }
-                            delegate: ItemDelegate {
-                                width: modelCombo.width
-                                text: modelData
-                                font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
-                                highlighted: modelCombo.highlightedIndex === index
-                            }
+                            Layout.preferredHeight: 40
+                            models: root.modelList
                         }
 
                         IconButton {
@@ -1349,9 +1535,100 @@ Rectangle {
                             }
                         }
 
+                        Text {
+                            text: qsTr("Aspecto")
+                            font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
+                            color: Theme.inkMuted
+                            Layout.topMargin: Theme.spacingSm
+                            Layout.fillWidth: true
+                        }
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingXs
+                            PillButton {
+                                text: qsTr("Cápsula")
+                                active: root.characterAppearance === "capsule"
+                                onClicked: root.characterAppearance = "capsule"
+                            }
+                            PillButton {
+                                text: qsTr("Redondo")
+                                active: root.characterAppearance === "round"
+                                onClicked: root.characterAppearance = "round"
+                            }
+                            PillButton {
+                                text: qsTr("Pebble")
+                                active: root.characterAppearance === "pebble"
+                                onClicked: root.characterAppearance = "pebble"
+                            }
+                            PillButton {
+                                text: qsTr("Compacto")
+                                active: root.characterAppearance === "compact"
+                                onClicked: root.characterAppearance = "compact"
+                            }
+                        }
+
+                        Text {
+                            text: qsTr("Color")
+                            font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
+                            color: Theme.inkMuted
+                            Layout.topMargin: Theme.spacingSm
+                            Layout.fillWidth: true
+                        }
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingXs
+                            Repeater {
+                                model: [
+                                    { name: qsTr("Cian"), value: "#0094bb" },
+                                    { name: qsTr("Azul"), value: "#2997ff" },
+                                    { name: qsTr("Violeta"), value: "#5e5ce6" },
+                                    { name: qsTr("Rosa"), value: "#bf5af2" },
+                                    { name: qsTr("Verde"), value: "#30d158" },
+                                    { name: qsTr("Naranja"), value: "#ff9f0a" }
+                                ]
+                                delegate: Button {
+                                    required property var modelData
+                                    text: modelData.name
+                                    checkable: true
+                                    checked: root.characterAccentColor.toLowerCase() === modelData.value
+                                    onClicked: root.characterAccentColor = modelData.value
+                                    contentItem: Row {
+                                        spacing: 6
+                                        Rectangle {
+                                            width: 14
+                                            height: 14
+                                            radius: 7
+                                            color: modelData.value
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                        Text {
+                                            text: parent.parent.text
+                                            color: parent.parent.checked ? Theme.inkOnPrimary : Theme.ink
+                                            font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0)
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                    }
+                                    background: Rectangle {
+                                        radius: Theme.radiusSm
+                                        color: parent.checked ? Theme.primary : parent.hovered ? Theme.surfaceHover : Theme.surfacePearl
+                                        border.color: parent.activeFocus ? Theme.primary : "transparent"
+                                    }
+                                }
+                            }
+                        }
+                        Text {
+                            text: qsTr("Se mantiene la misma librería/identidad Blobatar; estos controles solo cambian forma visual y tinte local.")
+                            font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
+                            color: Theme.inkMuted
+                            wrapMode: Text.Wrap
+                            Layout.fillWidth: true
+                        }
+
                     } // Personaje
                 }
             }
+
+            } // Sidebar + form
 
             // === Footer ===
             RowLayout {

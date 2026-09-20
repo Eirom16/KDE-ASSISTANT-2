@@ -17,23 +17,25 @@ const MIN_SOFT_LEN: usize = 24;
 /// Convierte Markdown ligero a texto que Piper puede pronunciar. El LLM usa
 /// Markdown para el chat, pero los símbolos de formato no son conversación.
 pub fn plain_text_for_tts(input: &str) -> String {
-    input
+    let lines: Vec<String> = input
         .lines()
-        .filter(|line| !line.trim_start().starts_with("```"))
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty() && !line.starts_with("```") && !line.starts_with('|'))
         .map(|line| {
-            line.trim_start()
-                .trim_start_matches('#')
-                .trim_start()
+            line.trim_start_matches('#')
                 .trim_start_matches("- ")
                 .trim_start_matches("* ")
+                .replace('|', " ")
+                .replace("**", "")
+                .replace("__", "")
+                .replace(['`', '*'], "")
+                .trim()
+                .to_string()
         })
-        .collect::<Vec<_>>()
-        .join(". ")
-        .replace("**", "")
-        .replace("__", "")
-        .replace(['`', '*'], "")
-        .trim()
-        .to_string()
+        .filter(|line| !line.is_empty())
+        .collect();
+
+    lines.join(". ")
 }
 
 #[derive(Debug, Default)]

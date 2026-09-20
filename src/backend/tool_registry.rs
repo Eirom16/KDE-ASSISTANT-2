@@ -31,8 +31,10 @@ impl Permission {
 /// Nivel de cada herramienta.
 pub fn permission(name: &str) -> Permission {
     match name {
-        "read_file" | "web_search" | "show_image" | "find_file" | "system_info"
-        | "network_status" => Permission::Green,
+        "read_file" | "web_search" | "show_image" | "find_file" | "find_document"
+        | "preview_document" | "list_open_apps" | "system_info" | "network_status" => {
+            Permission::Green
+        }
         "edit_file" => Permission::Red,
         _ => Permission::Yellow,
     }
@@ -47,8 +49,14 @@ pub fn all_tools() -> Vec<Tool> {
         web_search_tool(),
         show_image_tool(),
         find_file_tool(),
+        find_document_tool(),
+        preview_document_tool(),
         open_file_tool(),
+        copy_file_tool(),
         open_url_tool(),
+        list_open_apps_tool(),
+        focus_app_tool(),
+        close_app_tool(),
         system_info_tool(),
         notify_tool(),
         media_tool(),
@@ -330,12 +338,170 @@ fn open_file_tool() -> Tool {
         tool_type: "function".to_string(),
         function: ToolFunction {
             name: "open_file".to_string(),
-            description: "Abre un archivo o carpeta con la app por defecto. Con reveal=true lo muestra en Dolphin."
+            description: "Abre un archivo o carpeta con la app predeterminada del sistema. Para documentos, esto debe abrir el office preferido del usuario (por ejemplo OnlyOffice si KDE lo tiene asociado). Con reveal=true lo muestra en Dolphin."
                 .to_string(),
             parameters: ToolParameters {
                 param_type: "object".to_string(),
                 properties,
                 required: vec!["path".to_string()],
+            },
+        },
+    }
+}
+
+fn copy_file_tool() -> Tool {
+    let mut properties = HashMap::new();
+    properties.insert(
+        "source".to_string(),
+        str_prop("Ruta del archivo/documento origen dentro de allowed_paths"),
+    );
+    properties.insert(
+        "destination".to_string(),
+        str_prop("Ruta destino dentro de allowed_paths. Puede ser carpeta o archivo final."),
+    );
+    properties.insert(
+        "overwrite".to_string(),
+        ToolProperty {
+            prop_type: "boolean".to_string(),
+            description: Some(
+                "Si true, permite sobrescribir el destino. Por defecto false.".to_string(),
+            ),
+            r#enum: None,
+            items: None,
+        },
+    );
+
+    Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "copy_file".to_string(),
+            description: "Copia un archivo o documento dentro de allowed_paths. Úsala después de find_document/preview_document cuando el usuario pida duplicar o copiar el documento."
+                .to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties,
+                required: vec!["source".to_string(), "destination".to_string()],
+            },
+        },
+    }
+}
+
+fn find_document_tool() -> Tool {
+    let mut properties = HashMap::new();
+    properties.insert(
+        "query".to_string(),
+        str_prop(
+            "Subcadena del nombre del documento a buscar (ej: 'factura', 'contrato', 'notas')",
+        ),
+    );
+    properties.insert(
+        "dir".to_string(),
+        str_prop("Directorio base opcional dentro de allowed_paths. Sin el, busca en todos."),
+    );
+
+    Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "find_document".to_string(),
+            description: "Busca documentos por nombre dentro de allowed_paths. Filtra PDF, imagenes, texto, Markdown, DOCX/ODT y hojas de calculo. Devuelve rutas que luego puedes pasar a preview_document u open_file."
+                .to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties,
+                required: vec!["query".to_string()],
+            },
+        },
+    }
+}
+
+fn preview_document_tool() -> Tool {
+    let mut properties = HashMap::new();
+    properties.insert(
+        "path".to_string(),
+        str_prop("Ruta del documento a previsualizar como imagen dentro de allowed_paths"),
+    );
+    properties.insert(
+        "page".to_string(),
+        ToolProperty {
+            prop_type: "number".to_string(),
+            description: Some("Pagina a renderizar para PDF/DOCX/ODT. Por defecto 1.".to_string()),
+            r#enum: None,
+            items: None,
+        },
+    );
+
+    Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "preview_document".to_string(),
+            description: "Muestra un documento dentro del chat como preview interna sin abrir OnlyOffice, LibreOffice ni otra suite externa. Soporta imagenes directas, PDF via pdftoppm, texto/Markdown como preview SVG y documentos Office/OpenDocument mediante la suite documental interna."
+                .to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties,
+                required: vec!["path".to_string()],
+            },
+        },
+    }
+}
+
+fn list_open_apps_tool() -> Tool {
+    Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "list_open_apps".to_string(),
+            description: "Lista ventanas/aplicaciones abiertas visibles. En X11 usa xdotool; en Wayland puede requerir kdotool."
+                .to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties: HashMap::new(),
+                required: vec![],
+            },
+        },
+    }
+}
+
+fn focus_app_tool() -> Tool {
+    let mut properties = HashMap::new();
+    properties.insert(
+        "name".to_string(),
+        str_prop(
+            "Nombre de la app o parte del titulo de ventana a enfocar (ej: Dolphin, Brave, Kate)",
+        ),
+    );
+
+    Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "focus_app".to_string(),
+            description: "Trae al frente una ventana/app abierta por nombre o titulo. Si no esta abierta, no crea una instancia nueva."
+                .to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties,
+                required: vec!["name".to_string()],
+            },
+        },
+    }
+}
+
+fn close_app_tool() -> Tool {
+    let mut properties = HashMap::new();
+    properties.insert(
+        "name".to_string(),
+        str_prop("Nombre de la app o parte del titulo de ventana a cerrar. Si se omite, intenta cerrar la ventana activa para ordenes como 'cierralo'."),
+    );
+
+    Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "close_app".to_string(),
+            description: "Cierra una app/ventana abierta. Usa cierre normal de ventana cuando es posible; si no hay backend de ventanas, intenta cierre SIGTERM exacto por proceso resuelto. Para 'cierralo', puede omitir name y cerrar la ventana activa."
+                .to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties,
+                required: vec![],
             },
         },
     }
@@ -619,11 +785,29 @@ pub fn filtered_tools(cfg: &Config) -> Vec<Tool> {
     if cfg.tools.find_file {
         out.push(find_file_tool());
     }
+    if cfg.tools.find_document {
+        out.push(find_document_tool());
+    }
+    if cfg.tools.preview_document {
+        out.push(preview_document_tool());
+    }
     if cfg.tools.open_file {
         out.push(open_file_tool());
     }
+    if cfg.tools.copy_file {
+        out.push(copy_file_tool());
+    }
     if cfg.tools.open_url {
         out.push(open_url_tool());
+    }
+    if cfg.tools.list_open_apps {
+        out.push(list_open_apps_tool());
+    }
+    if cfg.tools.focus_app {
+        out.push(focus_app_tool());
+    }
+    if cfg.tools.close_app {
+        out.push(close_app_tool());
     }
     if cfg.tools.system_info {
         out.push(system_info_tool());
@@ -675,8 +859,14 @@ mod tests {
         cfg.tools.web_search = false;
         cfg.tools.show_image = false;
         cfg.tools.find_file = false;
+        cfg.tools.find_document = false;
+        cfg.tools.preview_document = false;
         cfg.tools.open_file = false;
+        cfg.tools.copy_file = false;
         cfg.tools.open_url = false;
+        cfg.tools.list_open_apps = false;
+        cfg.tools.focus_app = false;
+        cfg.tools.close_app = false;
         cfg.tools.system_info = false;
         cfg.tools.notify = false;
         cfg.tools.media = false;
@@ -693,15 +883,21 @@ mod tests {
     #[test]
     fn all_enabled_by_default() {
         let cfg = Config::default();
-        assert_eq!(filtered_tools(&cfg).len(), 17);
+        assert_eq!(filtered_tools(&cfg).len(), 23);
     }
 
     #[test]
     fn permission_levels() {
         use super::permission;
         assert_eq!(permission("read_file"), super::Permission::Green);
+        assert_eq!(permission("find_document"), super::Permission::Green);
+        assert_eq!(permission("preview_document"), super::Permission::Green);
+        assert_eq!(permission("list_open_apps"), super::Permission::Green);
         assert_eq!(permission("network_status"), super::Permission::Green);
         assert_eq!(permission("open_app"), super::Permission::Yellow);
+        assert_eq!(permission("copy_file"), super::Permission::Yellow);
+        assert_eq!(permission("close_app"), super::Permission::Yellow);
+        assert_eq!(permission("focus_app"), super::Permission::Yellow);
         assert_eq!(permission("media"), super::Permission::Yellow);
         assert_eq!(permission("kdeconnect"), super::Permission::Yellow);
         assert_eq!(permission("edit_file"), super::Permission::Red);

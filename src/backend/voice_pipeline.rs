@@ -30,8 +30,23 @@ use tokio::sync::RwLock;
 /// Señal de voz para la UI (F3-1: push SSE en vez de polling de archivos).
 #[derive(Debug, Clone)]
 pub enum VoiceSignal {
-    State { state: String },
-    Level { level: f32 },
+    State {
+        state: String,
+    },
+    Level {
+        level: f32,
+    },
+    Transcript {
+        content: String,
+    },
+    Token {
+        content: String,
+    },
+    Exchange {
+        transcript: String,
+        response: String,
+        timestamp_ms: u64,
+    },
 }
 
 /// Buffer de grabacion compartida entre el thread de audio y el orquestador.
@@ -86,6 +101,7 @@ pub struct VoicePipeline {
     /// Sesión seleccionada en el chat. Es la fuente de contexto para voz y
     /// texto; si no hay una, se usa la sesión de voz histórica.
     active_session: Arc<Mutex<Option<String>>>,
+    calibration_active: Arc<AtomicBool>,
     amplitude: Arc<AtomicU32>, // f32 bits 0..1
     speaking: Arc<AtomicBool>,
     barge_counter: Arc<AtomicU32>,
@@ -147,6 +163,25 @@ fn trim_voice_history(history: Vec<Message>, max: usize) -> Vec<Message> {
     slice
 }
 
+fn is_wake_only_transcript(text: &str) -> bool {
+    let normalized = text
+        .to_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c.is_whitespace() {
+                c
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>();
+    let words = normalized.split_whitespace().collect::<Vec<_>>();
+    matches!(
+        words.as_slice(),
+        ["jarvis"] | ["hey" | "ey" | "oye" | "ei", "jarvis"]
+    )
+}
+
 impl VoicePipeline {
     pub fn new(
         config: Arc<RwLock<Config>>,
@@ -168,6 +203,7 @@ impl VoicePipeline {
             buffer: Arc::new(Mutex::new(RecordingBuffer::new())),
             last_exchange: Arc::new(Mutex::new(None)),
             active_session: Arc::new(Mutex::new(None)),
+            calibration_active: Arc::new(AtomicBool::new(false)),
             amplitude: Arc::new(AtomicU32::new(0.0f32.to_bits())),
             speaking: Arc::new(AtomicBool::new(false)),
             barge_counter: Arc::new(AtomicU32::new(0)),
@@ -202,6 +238,28 @@ impl VoicePipeline {
             .active_session
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = session_id;
+    }
+
+    pub fn calibration_active(&self) -> bool {
+        self.calibration_active.load(Ordering::Relaxed)
+    }
+
+    pub fn start_calibration(&self) -> Result<()> {
+        if self.is_dictating() || self.is_recording() || self.is_speaking() {
+            anyhow::bail!("el audio está ocupado")
+        }
+        let rate = self.sample_rate().max(1);
+        self.start_recording(rate);
+        self.calibration_active.store(true, Ordering::Release);
+        self.emit_state(VoiceState::Listening);
+        Ok(())
+    }
+
+    pub fn stop_calibration(&self) -> Vec<f32> {
+        self.calibration_active.store(false, Ordering::Release);
+        let samples = self.stop_recording();
+        self.emit_state(VoiceState::Idle);
+        samples
     }
 
     /// Suscribe un receptor de señales de voz (para `/api/voice/stream`).
@@ -243,7 +301,7 @@ impl VoicePipeline {
     /// o hablamos, el wake word se ignora (si no, un "hey jarvis" repetido
     /// pisa el turno en curso — el audio que seguía se perdía).
     pub fn wake_gate_open(&self) -> bool {
-        self.state() == VoiceState::Idle
+        self.state() == VoiceState::Idle && !self.calibration_active()
     }
 
     pub fn amplitude(&self) -> f32 {
@@ -288,7 +346,9 @@ impl VoicePipeline {
     }
 
     /// Anade samples al buffer de grabacion y actualiza el nivel para el orbe.
-    /// Si esta hablando (`speaking`), detecta barge-in por amplitud.
+    /// Si esta hablando (`speaking`), detecta barge-in comparando el nivel
+    /// del micrófono con la referencia del audio TTS. El umbral relativo evita
+    /// que los altavoces disparen la interrupción por sí solos.
     pub fn push_audio(&self, samples: &[f32]) {
         // Nivel para el orbe (siempre, aunque no se este grabando, para preview)
         let mut lvl_opt: Option<f32> = None;
@@ -300,16 +360,49 @@ impl VoicePipeline {
             lvl_opt = Some(lvl);
         }
 
-        // No hay cancelación acústica de eco en esta captura. Inferir un
-        // barge-in solo con RMS hacía que Piper se oyera a sí mismo y abriese
-        // falsos turnos (por ejemplo, transcritos como "Gracias"). La
-        // interrupción explícita por Escape/botón Stop se conserva en
-        // `barge_in_silent`; el automático volverá cuando haya AEC/VAD real.
-        let _ = lvl_opt;
+        let mut auto_barge = false;
+        if let Some(level) = lvl_opt {
+            let since =
+                now_ms().saturating_sub(self.speaking_since_ms.load(Ordering::Relaxed) as u64);
+            if self.is_speaking() && since >= 350 {
+                let playback = self.speech.tts_playback_level();
+                // No activar barge-in automático si todavía no hay audio TTS
+                // medible. Piper puede tardar varios segundos sintetizando la
+                // primera frase; en esa ventana el micro puede marcar alto y
+                // antes cortaba la respuesta antes de que sonara.
+                if playback <= 0.02 {
+                    self.barge_counter.store(0, Ordering::Relaxed);
+                } else {
+                    let threshold = (playback * 1.35 + 0.12).clamp(0.34, 0.88);
+                    let above_echo = level > threshold && level > playback + 0.12;
+                    if above_echo {
+                        let count = self.barge_counter.fetch_add(1, Ordering::Relaxed) + 1;
+                        auto_barge = count >= 3;
+                    } else if level < threshold * 0.82 {
+                        self.barge_counter.store(0, Ordering::Relaxed);
+                    }
+                }
+            }
+        }
 
         let mut buf = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
         if buf.recording.load(Ordering::Relaxed) {
             buf.push(samples);
+        }
+        drop(buf);
+
+        if auto_barge {
+            // `barge_in_silent` abre un buffer nuevo. Conservamos al menos el
+            // frame que disparó la detección para que el inicio de la frase
+            // no se pierda al cambiar de reproducción a escucha.
+            self.barge_in_silent();
+            let mut buf = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
+            buf.push(samples);
+            log::info!(
+                "Barge-in automático: mic={:.2}, tts={:.2}",
+                self.amplitude(),
+                self.speech.tts_playback_level()
+            );
         }
     }
 
@@ -709,13 +802,19 @@ impl VoicePipeline {
         // Guardar ANTES de marcar idle: la UI lee el intercambio al ver idle.
         if let Ok((t, r)) = &r {
             if !t.is_empty() {
+                let timestamp_ms = now_ms();
                 *self.last_exchange.lock().unwrap_or_else(|e| e.into_inner()) =
                     Some(VoiceExchange {
                         transcript: t.clone(),
                         response: r.clone(),
-                        timestamp_ms: now_ms(),
+                        timestamp_ms,
                     });
                 self.persist_exchange(t, r);
+                let _ = self.signal_tx.send(VoiceSignal::Exchange {
+                    transcript: t.clone(),
+                    response: r.clone(),
+                    timestamp_ms,
+                });
             }
         }
         // Si hay barge-in activo (escucha reiniciada), no pisar listening
@@ -767,7 +866,31 @@ impl VoicePipeline {
                 Some(cfg.speech.stt_language.clone())
             }
         };
-        let transcript = match self
+        fn is_whisper_silence_hallucination(transcript: &str) -> bool {
+            let t = transcript.trim().to_lowercase();
+            let cleaned = t.trim_matches(|c: char| !c.is_alphanumeric() && c != ' ');
+            let cleaned = cleaned.trim();
+            matches!(
+                cleaned,
+                "gracias"
+                    | "¡gracias!"
+                    | "muchas gracias"
+                    | "gracias por ver"
+                    | "gracias por ver el video"
+                    | "gracias por ver el vídeo"
+                    | "subtítulos realizados por la comunidad de amara.org"
+                    | "subtitulos realizados por la comunidad de amara.org"
+                    | "subtítulos por amara.org"
+                    | "subtitulos por amara.org"
+                    | "amara.org"
+                    | "bye"
+                    | "thanks for watching"
+                    | "thank you"
+                    | "chao"
+            )
+        }
+
+        let mut transcript = match self
             .speech
             .transcribe(audio, language_override.as_deref())
             .await
@@ -779,23 +902,24 @@ impl VoicePipeline {
                 return Err(e);
             }
         };
-        // F0-6 (B2): antes se retornaba ("","") en silencio y la UI no mostraba
-        // nada ("¿qué pasó?"). Ahora aviso visible + hablado.
+
+        if is_whisper_silence_hallucination(&transcript) {
+            log::info!("[STT] Omitiendo alucinación de silencio de Whisper: '{transcript}'");
+            transcript.clear();
+        }
+        if is_wake_only_transcript(&transcript) {
+            log::info!("[STT] Omitiendo wake word aislado: '{transcript}'");
+            transcript.clear();
+        }
+
         if transcript.trim().is_empty() {
-            log::info!("VoicePipeline STT vacío: aviso al usuario");
-            let aviso = "No te escuché, ¿puedes repetirlo?";
-            self.begin_speaking();
-            let speak_res = self.speech.speak(aviso).await;
-            self.end_speaking();
-            if let Err(e) = speak_res {
-                log::warn!("TTS aviso fallo: {e}");
-            }
-            return Ok((
-                "(inaudible)".to_string(),
-                "No te escuché, ¿puedes repetirlo?".to_string(),
-            ));
+            log::info!("VoicePipeline STT vacío (silencio)");
+            return Ok(("(inaudible)".to_string(), "".to_string()));
         }
         log::info!("[STT] Final transcript: '{transcript}'");
+        let _ = self.signal_tx.send(VoiceSignal::Transcript {
+            content: transcript.clone(),
+        });
 
         // 2+3. LLM streaming + TTS por oración (plan §10/§11): las oraciones
         // se sintetizan y suenan mientras el resto de la respuesta sigue
@@ -838,6 +962,17 @@ impl VoicePipeline {
         let cfg = self.config.read().await.clone();
         // F5: facts del usuario también en voz (SQLite local).
         let mut system_prompt = cfg.ai.system_prompt.clone();
+        if tts_tx.is_some() {
+            system_prompt.push_str(
+                "\n\n[MODO VOZ ACTIVO]: Estás respondiendo por VOZ parlante (Text-to-Speech).\n\
+                 - Tu respuesta debe ser breve, directa, fluida y conversacional (2 a 3 oraciones cortas).\n\
+                 - NUNCA generes tablas Markdown (con '|'), listas numeradas largas, bloques de código ni URLs.\n\
+                 - Si usas herramientas como búsquedas web, resume los hallazgos en lenguaje hablado natural.\n\
+                 - No uses viñetas, asteriscos ni símbolos de formato.\n\
+                 - No empieces con «gracias», «de nada» ni frases de relleno; responde directamente.\n\
+                 - No describas la puntuación ni el formato de tu respuesta.",
+            );
+        }
         if cfg.memory.enabled {
             let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
             if let Ok(facts) = sessions.list_facts() {
@@ -902,6 +1037,7 @@ impl VoicePipeline {
 
         // Consumir eventos: reenviar a la UI y trocear en oraciones para TTS.
         // Si la UI se desconecta, se sigue alimentando TTS (fallos aislados).
+        let emit_live_signals = tx.is_none();
         let mut ext = tx;
         let mut tts_sink = tts_tx;
         let mut chunker = SentenceChunker::new();
@@ -909,6 +1045,11 @@ impl VoicePipeline {
         while let Some(ev) = stream_rx.recv().await {
             match &ev {
                 StreamEvent::Token { content } => {
+                    if emit_live_signals {
+                        let _ = self.signal_tx.send(VoiceSignal::Token {
+                            content: content.clone(),
+                        });
+                    }
                     if let Some(sink) = &tts_sink {
                         for sentence in chunker.push(content) {
                             if !speaking_announced {
@@ -974,9 +1115,7 @@ mod tests {
         let tools = Arc::new(ToolExecutor::new(cfg.clone()));
         let approvals = Arc::new(crate::backend::approvals::ApprovalManager::new());
         let sessions = Arc::new(Mutex::new(
-            crate::backend::session_manager::SessionManager::new()
-                .await
-                .unwrap(),
+            crate::backend::session_manager::SessionManager::in_memory_for_tests().unwrap(),
         ));
         let speech = Arc::new(SpeechService::new(cfg.clone()).await.unwrap());
         let chimes = Arc::new(ChimePlayer::new().await.unwrap());
@@ -1025,6 +1164,24 @@ mod tests {
         assert_eq!(vp.current_state(), "listening");
         assert!(!vp.is_speaking());
         assert!(vp.is_recording());
+    }
+
+    #[tokio::test]
+    async fn auto_barge_ignora_mic_alto_si_tts_aun_no_suena() {
+        let vp = test_pipeline().await;
+        vp.emit_state(VoiceState::Responding);
+        vp.speaking.store(true, Ordering::Relaxed);
+        vp.speaking_since_ms
+            .store(now_ms().saturating_sub(1_000) as u32, Ordering::Relaxed);
+
+        let loud_frame = vec![1.0; 1024];
+        for _ in 0..5 {
+            vp.push_audio(&loud_frame);
+        }
+
+        assert!(vp.is_speaking());
+        assert_eq!(vp.state(), VoiceState::Responding);
+        assert!(!vp.is_recording());
     }
 
     #[tokio::test]
@@ -1115,6 +1272,15 @@ mod tests {
         let out = trim_voice_history(hist, 2);
         assert_eq!(out.len(), 1);
         assert!(matches!(out.first(), Some(Message::User { .. })));
+    }
+
+    #[test]
+    fn wake_word_aislado_no_es_prompt() {
+        assert!(is_wake_only_transcript("Jarvis"));
+        assert!(is_wake_only_transcript("hey, Jarvis."));
+        assert!(is_wake_only_transcript("oye jarvis"));
+        assert!(!is_wake_only_transcript("Jarvis abre Dolphin"));
+        assert!(!is_wake_only_transcript("cierra Dolphin"));
     }
 
     #[tokio::test]

@@ -326,9 +326,13 @@ fn write_hotkey_state(action: HotkeyAction) {
 /// Borra el estado previo al arrancar (FIX-sesión-real).
 pub fn clear_hotkey_state() {
     if let Some(cache_dir) = dirs::cache_dir() {
-        let path = cache_dir.join("kde-assistant").join("hotkey.state");
-        let _ = std::fs::remove_file(path);
+        clear_hotkey_state_in(&cache_dir);
     }
+}
+
+fn clear_hotkey_state_in(cache_dir: &std::path::Path) {
+    let path = cache_dir.join("kde-assistant").join("hotkey.state");
+    let _ = std::fs::remove_file(path);
 }
 
 pub struct GlobalHotkeyListener;
@@ -378,10 +382,15 @@ mod tests {
 
     #[test]
     fn clear_hotkey_state_removes_file() {
-        let dir = dirs::cache_dir().unwrap().join("kde-assistant");
+        let cache_home =
+            std::env::temp_dir().join(format!("kda_hotkey_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&cache_home);
+        std::fs::create_dir_all(&cache_home).unwrap();
+        let dir = cache_home.join("kde-assistant");
         let _ = std::fs::create_dir_all(&dir);
         std::fs::write(dir.join("hotkey.state"), "toggle_window|1").unwrap();
-        clear_hotkey_state();
+        clear_hotkey_state_in(&cache_home);
         assert!(!dir.join("hotkey.state").exists());
+        let _ = std::fs::remove_dir_all(&cache_home);
     }
 }

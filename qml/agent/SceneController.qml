@@ -1,161 +1,116 @@
-// SceneController.qml - Orquesta escenas animadas para representar
-// acciones del asistente (búsqueda, apertura apps, archivos, etc.).
-//
-// Fase 5: escenas coreografiadas = secuencia de estados visuales
-// (expresión, mood, movimiento, mirada) con duración y cancelación.
-
 import QtQuick
 
+// Work stays active until its correlated tool result arrives.
 QtObject {
     id: ctrl
-
-    // === Referencias a subsistemas ===
     property var characterCtrl: null
     property var expressionCtrl: null
     property var animationCtrl: null
     property var moodCtrl: null
     property var gazeCtrl: null
     property var movementCtrl: null
-
-    // === Estado de escena actual ===
     property string _currentScene: ""
-    property var _currentSceneObj: null
     property int _scenePriority: 0
-
-    // Prioridades de escena
-    readonly property var scenePriority: ({
-        "none": 0, "idle": 1, "search": 2, "openapp": 3, "file": 3,
-        "system": 3, "error": 4, "success": 3, "download": 3, "screenshot": 3
+    property string tool: ""
+    property string toolCallId: ""
+    property string runId: ""
+    property string phase: ""
+    property string pendingResult: ""
+    property double startedAt: 0
+    property int step: 0
+    readonly property bool active: _currentScene !== ""
+    readonly property var toolToScene: ({
+        open_app:"openapp", open_url:"openapp", find_file:"search", web_search:"search",
+        create_file:"file", edit_file:"file", read_file:"file", open_file:"file", copy_file:"file",
+        find_document:"search", preview_document:"file",
+        list_open_apps:"system", focus_app:"openapp", close_app:"openapp",
+        show_image:"download", screenshot:"screenshot", notify:"success", remind_in:"success",
+        system_info:"system", network_status:"system", volume:"system", brightness:"system",
+        media:"system", kdeconnect:"system"
     })
-
-    // === Signals ===
     signal sceneStarted(string name, int priority)
     signal sceneFinished(string name)
     signal sceneCancelled(string name)
-
-    // === Registro de escenas (instanciadas bajo demanda) ===
-    property var _sceneCache: ({})
-
-    // === API pública ===
-
-    // Ejecutar una escena por nombre
+    function sceneForTool(name) { return toolToScene[name] || "system" }
+    function isPlaying(name) { return _currentScene === name }
     function play(name, params) {
-        var prio = scenePriority[name] !== undefined ? scenePriority[name] : 2
-        if (prio < _scenePriority) {
-            console.log("SceneController:", name, "rechazada (prioridad", prio, "<", _scenePriority, ")")
-            return false
-        }
-
-        // Cancelar escena actual si existe
-        if (_currentScene) {
-            _cancelCurrentScene()
-        }
-
-        var sceneObj = _getScene(name)
-        if (!sceneObj) {
-            console.warn("SceneController: escena desconocida:", name)
-            return false
-        }
-
-        _currentScene = name
-        _currentSceneObj = sceneObj
-        _scenePriority = prio
-
-        // Pausar idle autónomo durante la escena
-        if (characterCtrl) characterCtrl.busy = true
-
-        sceneObj.start(params)
-        sceneStarted(name, prio)
+        cancel()
+        params = params || {}
+        _currentScene = ["search","openapp","file","system","error","success","download","screenshot"].indexOf(name) >= 0 ? name : "system"
+        tool = params.tool || ""
+        toolCallId = params.toolCallId || ""
+        runId = params.runId || ""
+        phase = params.approval ? "approval" : "working"
+        pendingResult = ""
+        startedAt = Date.now()
+        step = 0
+        _scenePriority = name === "error" ? 4 : 2
+        if (moodCtrl) moodCtrl.setMood(phase === "approval" ? "concerned" : "focused", 0.8, 0)
+        animateWork()
+        clock.restart()
+        sceneStarted(_currentScene, _scenePriority)
         return true
     }
-
-    function _getScene(name) {
-        if (_sceneCache[name]) return _sceneCache[name]
-
-        var sceneObj = null
-        switch (name) {
-        case "search": sceneObj = Qt.createQmlObject('import QtQuick; SearchScene { }', ctrl, "searchScene"); break
-        case "openapp": sceneObj = Qt.createQmlObject('import QtQuick; OpenAppScene { }', ctrl, "openAppScene"); break
-        case "file": sceneObj = Qt.createQmlObject('import QtQuick; FileScene { }', ctrl, "fileScene"); break
-        case "system": sceneObj = Qt.createQmlObject('import QtQuick; SystemScene { }', ctrl, "systemScene"); break
-        case "error": sceneObj = Qt.createQmlObject('import QtQuick; ErrorScene { }', ctrl, "errorScene"); break
-        case "success": sceneObj = Qt.createQmlObject('import QtQuick; SuccessScene { }', ctrl, "successScene"); break
-        case "download": sceneObj = Qt.createQmlObject('import QtQuick; DownloadScene { }', ctrl, "downloadScene"); break
-        case "screenshot": sceneObj = Qt.createQmlObject('import QtQuick; ScreenshotScene { }', ctrl, "screenshotScene"); break
+    function animateWork() {
+        if (phase !== "working") {
+            if (expressionCtrl) expressionCtrl.request("unsure")
+            return
         }
-
-        if (sceneObj) {
-            _injectDependencies(sceneObj)
-            _sceneCache[name] = sceneObj
+        var zone = tool === "web_search" || tool === "open_url" ? "left" : "files"
+        if (gazeCtrl) gazeCtrl.lookAtZone(zone, 900)
+        if (expressionCtrl) expressionCtrl.request("thinking")
+        var motion = "inspect"
+        switch (_currentScene) {
+        case "search": motion = "search"; break
+        case "file": motion = tool === "create_file" || tool === "edit_file" ? "write" : "inspect"; break
+        case "openapp": motion = "launch"; break
+        case "download": motion = "download"; break
+        case "screenshot": motion = "snapshot"; break
+        case "success": motion = "attention"; break
+        case "error": motion = "shake"; break
         }
-        return sceneObj
+        if (animationCtrl) animationCtrl.play(motion)
     }
-
-    function _injectDependencies(obj) {
-        obj.characterCtrl = ctrl.characterCtrl
-        obj.expressionCtrl = ctrl.expressionCtrl
-        obj.animationCtrl = ctrl.animationCtrl
-        obj.moodCtrl = ctrl.moodCtrl
-        obj.gazeCtrl = ctrl.gazeCtrl
-        obj.movementCtrl = ctrl.movementCtrl
+    function result(id, outcome, run) {
+        if (id !== toolCallId) return
+        if (run && run !== runId) return
+        pendingResult = outcome
+        if (Date.now() - startedAt >= 900) showResult()
     }
-
-    function _cancelCurrentScene() {
-        if (_currentSceneObj && _currentSceneObj.cancel) {
-            _currentSceneObj.cancel()
-        }
-        if (characterCtrl) characterCtrl.busy = false
-        sceneCancelled(_currentScene)
-        _currentScene = ""
-        _currentSceneObj = null
-        _scenePriority = 0
+    function showResult() {
+        phase = pendingResult
+        pendingResult = ""
+        var ok = phase === "done"
+        if (expressionCtrl) expressionCtrl.flash(ok ? "happy" : "unsure", 900)
+        if (animationCtrl) animationCtrl.play(ok ? "bounce" : "shake")
+        if (moodCtrl) moodCtrl.setMood(ok ? "happy" : "concerned", 0.7, 3)
+        clock.restart()
     }
-
-    // Cancelar escena actual
-    function cancel() {
-        if (_currentScene) {
-            _cancelCurrentScene()
-        }
-    }
-
-    // Completar escena actual (llamado por la escena al terminar)
     function complete(name) {
-        if (_currentScene === name) {
-            if (characterCtrl) characterCtrl.busy = false
-            sceneFinished(name)
-            _currentScene = ""
-            _currentSceneObj = null
-            _scenePriority = 0
+        if (name !== _currentScene) return
+        var previous = _currentScene
+        clock.stop()
+        if (animationCtrl) animationCtrl.stopAction()
+        _currentScene = ""; _scenePriority = 0; phase = ""
+        toolCallId = ""; runId = ""
+        if (gazeCtrl) gazeCtrl.rest(200)
+        sceneFinished(previous)
+    }
+    function cancel() {
+        if (!active) return
+        var previous = _currentScene
+        complete(previous)
+        sceneCancelled(previous)
+    }
+    property Timer _clock: Timer {
+        id: clock
+        interval: 950
+        repeat: true
+        onTriggered: {
+            if (ctrl.pendingResult) { ctrl.showResult(); return }
+            if (ctrl.phase !== "working" && ctrl.phase !== "approval") { ctrl.complete(ctrl._currentScene); return }
+            if (!ctrl.toolCallId && ctrl.step++ >= 2) { ctrl.complete(ctrl._currentScene); return }
+            ctrl.animateWork()
         }
-    }
-
-    // Verificar si hay escena activa
-    function isPlaying(name) {
-        return _currentScene === name
-    }
-
-    // Mapeo tool → escena (usado por CharacterController/IntentRouter en Fase 6)
-    readonly property var toolToScene: ({
-        "open_app": "openapp",
-        "create_file": "file",
-        "edit_file": "file",
-        "read_file": "file",
-        "find_file": "search",
-        "web_search": "search",
-        "show_image": "success",
-        "open_file": "file",
-        "open_url": "openapp",
-        "system_info": "system",
-        "notify": "success",
-        "media": "system",
-        "volume": "system",
-        "brightness": "system",
-        "network_status": "system",
-        "remind_in": "success",
-        "kdeconnect": "system"
-    })
-
-    function sceneForTool(toolName) {
-        return toolToScene[toolName] || "system"
     }
 }

@@ -14,6 +14,8 @@ WelcomeScreen 1.0 WelcomeScreen.qml
 ErrorBanner 1.0 ErrorBanner.qml
 ImagePreviewDialog 1.0 ImagePreviewDialog.qml
 SettingsDialog 1.0 SettingsDialog.qml
+ModelPicker 1.0 ModelPicker.qml
+AgentDashboard 1.0 AgentDashboard.qml
 SettingsField 1.0 SettingsField.qml
 SettingsToggle 1.0 SettingsToggle.qml
 TrayMenu 1.0 TrayMenu.qml

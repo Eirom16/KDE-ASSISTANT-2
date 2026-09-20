@@ -10,6 +10,7 @@
 //! remuestrea a 16kHz mono (requerido por openWakeWord).
 
 use anyhow::Result;
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, RwLock};
@@ -159,6 +160,10 @@ impl HotwordDetector {
             let mut score_win_max: f32 = 0.0;
             let mut score_win_frames: u32 = 0;
             let mut score_win_start = std::time::Instant::now();
+            // Evidencia reciente: el score de openWakeWord puede repartirse
+            // entre varios bloques de 80 ms. Conservar la ventana evita
+            // perder una detección por un único bloque ligeramente bajo.
+            let mut recent_scores: VecDeque<f32> = VecDeque::with_capacity(5);
             // Frames de voz requeridos: escala con la confianza configurada.
             // A mayor confianza, mas frames consecutivos para evitar falsos positivos.
             let required_frames = (confidence * 30.0).round() as u32 + 10;
@@ -182,6 +187,7 @@ impl HotwordDetector {
                     while let Ok(f) = audio_rx.try_recv() {
                         frames_16k.extend_from_slice(&resample_to_16k(&f, rate));
                     }
+                    normalize_wake_audio(&mut frames_16k);
                     // Extraer bloques completos de 1280 samples (sin mantener el lock)
                     let blocks: Vec<Vec<f32>> = {
                         let mut pend = pending_16k.lock().unwrap();
@@ -208,6 +214,10 @@ impl HotwordDetector {
                     }
                     // Decidir con cooldown (aqui si hay awaits, sin locks activos)
                     if let Some(s) = best {
+                        recent_scores.push_back(s);
+                        while recent_scores.len() > 5 {
+                            recent_scores.pop_front();
+                        }
                         // Telemetria: max score por ventana de ~2s. El wake
                         // word fallaba en silencio sin dejar rastro; con esto
                         // se ve si el modelo "oye" (scores suben con voz) y
@@ -237,7 +247,13 @@ impl HotwordDetector {
                         }
                         let now_ms = chrono::Utc::now().timestamp_millis() as u32;
                         let last = last_detected.load(Ordering::Relaxed);
-                        if s >= confidence && now_ms.saturating_sub(last) >= cooldown {
+                        let recent_peak = recent_scores.iter().copied().fold(0.0, f32::max);
+                        // Detección directa o evidencia acumulada: permite
+                        // aceptar dos bloques cercanos al umbral sin bajar
+                        // permanentemente la exigencia contra falsos positivos.
+                        let confirmed = s >= confidence
+                            || (s >= confidence * 0.82 && recent_peak >= confidence * 0.95);
+                        if confirmed && now_ms.saturating_sub(last) >= cooldown {
                             last_detected.store(now_ms, Ordering::Relaxed);
                             log::info!("Wake word ML detectado (score={s:.2})");
                             if event_tx.send(HotwordEvent::Detected).await.is_err() {
@@ -309,6 +325,27 @@ pub fn zero_crossing_rate(samples: &[f32]) -> f32 {
     crossings as f32 / (samples.len() - 1) as f32
 }
 
+/// Acondiciona el audio para que un micrófono silencioso no quede por debajo
+/// del rango aprendido por openWakeWord. Se elimina DC y se aplica ganancia
+/// limitada; no se normaliza el silencio porque eso amplificaría el ruido.
+fn normalize_wake_audio(samples: &mut [f32]) {
+    if samples.is_empty() {
+        return;
+    }
+    let mean = samples.iter().sum::<f32>() / samples.len() as f32;
+    for sample in samples.iter_mut() {
+        *sample = (*sample - mean).clamp(-1.0, 1.0);
+    }
+    let rms = (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32).sqrt();
+    if rms < 0.008 {
+        return;
+    }
+    let gain = (0.075 / rms).clamp(0.7, 2.5);
+    for sample in samples.iter_mut() {
+        *sample = (*sample * gain).clamp(-1.0, 1.0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,6 +375,17 @@ mod tests {
             .collect();
         let zcr = zero_crossing_rate(&samples);
         assert!(zcr > 0.4);
+    }
+
+    #[test]
+    fn normaliza_microfono_silencioso_sin_amplificar_silencio() {
+        let mut voice = vec![0.02; 1000];
+        normalize_wake_audio(&mut voice);
+        assert!(voice.iter().all(|s| s.abs() < 0.001));
+
+        let mut silence = vec![0.001; 1000];
+        normalize_wake_audio(&mut silence);
+        assert!(silence.iter().all(|s| s.abs() < 0.0001));
     }
 
     #[test]

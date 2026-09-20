@@ -25,6 +25,8 @@ Item {
     property int size: 140
     width: size
     height: size
+    property string appearance: "capsule"
+    property color accentColor: CharacterData.body.fill
 
     // === Estado de pose (lo conduce ExpressionController) ===
     property var pose: CharacterData.poseOf("idle")
@@ -55,6 +57,9 @@ Item {
     property real squashY: 1.0
     // Postura ociosa (IdleBehavior): leve rotacion de cuerpo en grados
     property real postureRot: 0.0
+    property real actionX: 0.0
+    property real actionY: 0.0
+    property real actionRotation: 0.0
     // Dormido: Zzz + (el pose 'sleepy' lo fija el Mood/Idle controller)
     property bool sleeping: false
 
@@ -64,6 +69,22 @@ Item {
     // Centro del cuerpo (viewBox): item anclado ahi para rock/shake
     readonly property real bodyCx: (CharacterData.body.left + CharacterData.body.right) / 2.0
     readonly property real bodyCy: CharacterData.body.capY
+    readonly property real baseBodyW: (CharacterData.body.right - CharacterData.body.left + 2 * CharacterData.body.r)
+    readonly property real baseBodyH: (CharacterData.body.bottom - CharacterData.body.top)
+    readonly property real bodyScaleX: appearance === "round" ? baseBodyH / baseBodyW
+        : appearance === "pebble" ? 1.18
+        : appearance === "compact" ? 0.82
+        : 1.0
+    readonly property real bodyScaleY: appearance === "pebble" ? 0.92
+        : appearance === "compact" ? 1.04
+        : 1.0
+    readonly property real bodyVisualW: baseBodyW * bodyScaleX
+    readonly property real bodyVisualH: baseBodyH * bodyScaleY
+    readonly property real bodyRadiusFactor: appearance === "compact" ? 0.36 : 0.5
+    readonly property color effectiveBodyColor: {
+        if (pose.hot) return CharacterData.bodyColor(pose)
+        return accentColor
+    }
 
     // =====================================================================
     // Pose root: bdy (salto/gravedad de la pose) + rock + shake + breathe
@@ -74,7 +95,9 @@ Item {
         height: chara.height
 
         // bdy en viewBox -> px; breathe estira un 2.5% maximo desde abajo
-        y: chara.pose.bdy * chara.u
+        x: chara.actionX
+        y: chara.pose.bdy * chara.u + chara.actionY
+        rotation: chara.actionRotation
         transform: [
             // Respiracion: escala Y anclada abajo (los "pies" no flotan);
             // amplitud modulada por el mood (breatheAmp).
@@ -103,15 +126,18 @@ Item {
         // === Cuerpo: estadio exacto (rect + caps), color con tinte por pose ===
         Rectangle {
             id: body
-            x: (CharacterData.body.left - CharacterData.body.r) * chara.u
-            y: CharacterData.body.top * chara.u
-            width: (CharacterData.body.right - CharacterData.body.left + 2 * CharacterData.body.r) * chara.u
-            height: (CharacterData.body.bottom - CharacterData.body.top) * chara.u
-            radius: height / 2
-            color: CharacterData.bodyColor(chara.pose)
+            x: (chara.bodyCx - chara.bodyVisualW / 2) * chara.u
+            y: (chara.bodyCy - chara.bodyVisualH / 2) * chara.u
+            width: chara.bodyVisualW * chara.u
+            height: chara.bodyVisualH * chara.u
+            radius: height * chara.bodyRadiusFactor
+            color: chara.effectiveBodyColor
             antialiasing: true
 
             Behavior on color { ColorAnimation { duration: 320 } }
+            Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+            Behavior on height { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+            Behavior on radius { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
         }
 
         // === Cara: 2 ojos (paths absolutos) bajo el offset de mirada ===
