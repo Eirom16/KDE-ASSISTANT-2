@@ -30,6 +30,8 @@ pub enum HotkeyAction {
     NewSession,
     /// Abre el menu del tray (popup propio junto al icono).
     OpenMenu,
+    /// Abre el diálogo de configuración de la ventana principal.
+    OpenSettings,
 }
 
 impl HotkeyAction {
@@ -40,6 +42,7 @@ impl HotkeyAction {
             HotkeyAction::PushToTalkEnd => "push_to_talk_end",
             HotkeyAction::NewSession => "new_session",
             HotkeyAction::OpenMenu => "open_menu",
+            HotkeyAction::OpenSettings => "open_settings",
         }
     }
 }
@@ -284,6 +287,14 @@ fn on_key(key: Key, pressed: bool, tx: &mpsc::Sender<HotkeyAction>, config: &Arc
 
 fn emit_action(action: HotkeyAction, tx: &mpsc::Sender<HotkeyAction>) {
     log::info!("Global hotkey detectado: {action:?}");
+    if let Err(error) = request_ui_action(action) {
+        log::warn!("No se pudo notificar la acción a la UI: {error}");
+    }
+    let _ = tx.try_send(action);
+}
+
+/// Notifica una acción a la UI mediante el canal persistente que QML consume.
+pub fn request_ui_action(action: HotkeyAction) -> Result<()> {
     // Emitir via DBus a la UI QML
     let result = Command::new("dbus-send")
         .args([
@@ -300,27 +311,27 @@ fn emit_action(action: HotkeyAction, tx: &mpsc::Sender<HotkeyAction>) {
             log::debug!("No se pudo emitir HotkeyTriggered (UI no escuchando?)");
         }
     }
-    // Tambien escribir a un archivo de estado (para que QML lo lea)
-    write_hotkey_state(action);
-    // Tambien emitir al canal local
-    let _ = tx.try_send(action);
+    write_hotkey_state(action)
 }
 
 /// Escribe la accion de hotkey a un archivo de estado que QML puede leer.
 /// Path: ~/.cache/kde-assistant/hotkey.state
-fn write_hotkey_state(action: HotkeyAction) {
-    let cache_dir = match dirs::cache_dir() {
-        Some(d) => d.join("kde-assistant"),
-        None => return,
-    };
-    let _ = std::fs::create_dir_all(&cache_dir);
-    let path = cache_dir.join("hotkey.state");
+fn write_hotkey_state(action: HotkeyAction) -> Result<()> {
+    let cache_dir = dirs::cache_dir().context("resolviendo el directorio de caché")?;
+    write_hotkey_state_in(&cache_dir, action)
+}
+
+fn write_hotkey_state_in(cache_dir: &std::path::Path, action: HotkeyAction) -> Result<()> {
+    let state_dir = cache_dir.join("kde-assistant");
+    std::fs::create_dir_all(&state_dir).context("creando el directorio de estado UI")?;
+    let path = state_dir.join("hotkey.state");
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
-        .unwrap_or(0);
+        .context("calculando el timestamp de la acción UI")?
+        .as_millis();
     let content = format!("{}|{}", action.as_str(), timestamp);
-    let _ = std::fs::write(&path, content);
+    std::fs::write(&path, content).context("escribiendo la acción UI")
 }
 
 /// Borra el estado previo al arrancar (FIX-sesión-real).
@@ -360,6 +371,7 @@ mod tests {
         let m = parse_shortcut("Super+Shift+M").unwrap();
         assert!(m.super_ && m.shift && !m.ctrl && m.key == Key::KeyM);
         assert_eq!(HotkeyAction::OpenMenu.as_str(), "open_menu");
+        assert_eq!(HotkeyAction::OpenSettings.as_str(), "open_settings");
     }
 
     #[test]
@@ -392,5 +404,27 @@ mod tests {
         clear_hotkey_state_in(&cache_home);
         assert!(!dir.join("hotkey.state").exists());
         let _ = std::fs::remove_dir_all(&cache_home);
+    }
+
+    #[test]
+    fn write_settings_action_persists_ui_contract() {
+        // Given
+        let cache_home = std::env::temp_dir().join(format!(
+            "kda_settings_action_{}_{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+
+        // When
+        write_hotkey_state_in(&cache_home, HotkeyAction::OpenSettings)
+            .expect("escribir acción de configuración");
+
+        // Then
+        let content = std::fs::read_to_string(
+            cache_home.join("kde-assistant").join("hotkey.state"),
+        )
+        .expect("leer acción de configuración");
+        assert!(content.starts_with("open_settings|"));
+        std::fs::remove_dir_all(cache_home).expect("limpiar fixture");
     }
 }

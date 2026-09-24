@@ -4,4 +4,5 @@
 //! desde otros crates (futuro: bindings Qt/QML via cxx-qt).
 
 pub mod backend;
+pub mod app_paths;
 pub mod models;
