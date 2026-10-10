@@ -2178,6 +2178,16 @@ mod tests {
         let audit = state.sessions.lock().unwrap().list_tool_audit(10).unwrap();
         assert_eq!(audit.len(), 1);
         assert!(audit[0].success);
+        let operations = state
+            .sessions
+            .lock()
+            .unwrap()
+            .list_operations(Some(&sid), 10)
+            .unwrap();
+        assert_eq!(operations.len(), 1);
+        assert_eq!(operations[0].state, "succeeded");
+        assert_eq!(operations[0].turn_id, turn.id);
+
         assert_eq!(
             state
                 .sessions

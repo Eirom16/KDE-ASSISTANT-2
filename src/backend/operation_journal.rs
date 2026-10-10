@@ -64,6 +64,8 @@ pub(crate) fn atomic<T>(conn: &Connection, work: impl FnOnce() -> Result<T>) -> 
     }
     let _rollback = RollbackOnUnwind(conn);
     let result = work().and_then(|value| {
+        #[cfg(test)]
+        crash_checkpoint("transaction");
         conn.execute_batch("COMMIT")?;
         Ok(value)
     });
@@ -77,6 +79,8 @@ pub(crate) fn atomic<T>(conn: &Connection, work: impl FnOnce() -> Result<T>) -> 
 
 pub(crate) fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(include_str!("../../migrations/003_operation_journal.sql"))?;
+    #[cfg(test)]
+    crash_checkpoint("migration");
     Ok(())
 }
 
@@ -95,6 +99,8 @@ fn audit(conn: &Connection, id: &str, state: &str, consent: &str) -> Result<i64>
             consent
         ],
     )?;
+    #[cfg(test)]
+    crash_checkpoint("audit");
     ensure!(changed == 1, "operation_audit_missing");
     Ok(anchor)
 }
@@ -194,6 +200,8 @@ pub(crate) fn recover(conn: &Connection) -> Result<()> {
                 None,
             )?;
         }
+        #[cfg(test)]
+        crash_checkpoint("recovery");
         conn.execute_batch("INSERT OR IGNORE INTO turn_recovery(turn_id,previous_state,recovered_at)
             SELECT id,state,strftime('%Y-%m-%dT%H:%M:%fZ','now') FROM conversation_turns
             WHERE state IN ('created','running','waiting_for_approval','cancelling');
@@ -383,5 +391,255 @@ impl SessionManager {
     pub fn regeneration_is_safe(&self, session: &str) -> Result<bool> {
         let count: i64 = self.conn.query_row("SELECT COUNT(*) FROM operation_journal WHERE (turn_id=(SELECT turn_id FROM messages WHERE session_id=?1 ORDER BY id DESC LIMIT 1) OR turn_id IN (SELECT turn_id FROM turn_inputs WHERE user_message_id=(SELECT id FROM messages WHERE session_id=?1 ORDER BY id DESC LIMIT 1))) AND state IN ('dispatched','succeeded','failed','unknown_outcome')",[session],|r|r.get(0))?;
         Ok(count == 0)
+    }
+}
+
+// Compiled only in the unit-test executable, armed exclusively by our child fixture.
+#[cfg(test)]
+fn crash_checkpoint(label: &str) {
+    if std::env::var("KDA_F1B3_HOOK").as_deref() == Ok(label) {
+        let root =
+            std::path::PathBuf::from(std::env::var_os("KDA_F1B3_UNIT_ROOT").expect("child root"));
+        std::fs::write(root.join("ready"), label).expect("child checkpoint");
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        fs,
+        os::unix::fs::DirBuilderExt,
+        path::PathBuf,
+        process::Command,
+        time::{Duration, Instant},
+    };
+
+    #[test]
+    #[ignore = "SIGKILL child fixture only"]
+    fn crash_worker() {
+        let root = PathBuf::from(std::env::var_os("KDA_F1B3_UNIT_ROOT").unwrap());
+        let stage = std::env::var("KDA_F1B3_UNIT_STAGE").unwrap();
+        if stage == "migration" || stage == "recovery" {
+            std::env::set_var("KDA_F1B3_HOOK", &stage);
+        }
+        let db = SessionManager::open_at(root.join("sessions.db")).unwrap();
+        db.begin_turn("crash", Some("fixture"), None).unwrap();
+        if stage == "transaction" {
+            std::env::set_var("KDA_F1B3_HOOK", "transaction");
+            db.prepare_operation("crash", "create_file").unwrap();
+        } else if stage == "audit" {
+            let op = db.prepare_operation("crash", "create_file").unwrap();
+            db.transition_operation(&op, OperationState::Authorized, "auto", None)
+                .unwrap();
+            db.transition_operation(&op, OperationState::Dispatched, "auto", None)
+                .unwrap();
+            std::env::set_var("KDA_F1B3_HOOK", "audit");
+            db.transition_operation(&op, OperationState::Succeeded, "auto", Some(12))
+                .unwrap();
+        }
+        panic!("checkpoint not reached");
+    }
+    fn kill_at(stage: &str) {
+        let root = std::env::temp_dir().join(format!("kda-unit-crash-{}", uuid::Uuid::new_v4()));
+        fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+        let path = root.join("sessions.db");
+        let db = SessionManager::open_at(path.clone()).unwrap();
+        db.conn.execute("INSERT INTO sessions(id,title,created_at,updated_at) VALUES('fixture','fixture','now','now')",[]).unwrap();
+        db.add_message(
+            "fixture",
+            &crate::models::Message::assistant("already complete"),
+        )
+        .unwrap();
+        if stage == "recovery" {
+            db.begin_turn("crash", Some("fixture"), None).unwrap();
+            let op = db.prepare_operation("crash", "create_file").unwrap();
+            db.transition_operation(&op, OperationState::Authorized, "auto", None)
+                .unwrap();
+            db.transition_operation(&op, OperationState::Dispatched, "auto", None)
+                .unwrap();
+        }
+        if stage == "migration" {
+            db.conn.execute_batch("DROP TABLE operation_events; DROP TABLE operation_journal; DROP TABLE turn_recovery; DROP TABLE recovery_migrations;").unwrap();
+        }
+        drop(db);
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "backend::operation_journal::tests::crash_worker",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("KDA_F1B3_UNIT_ROOT", &root)
+            .env("KDA_F1B3_UNIT_STAGE", stage)
+            .env_remove("KDA_F1B3_HOOK")
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !root.join("ready").exists() {
+            if child.try_wait().unwrap().is_some() {
+                panic!("child failed before checkpoint");
+            }
+            if Instant::now() > deadline {
+                child.kill().unwrap();
+                child.wait().unwrap();
+                panic!("checkpoint timed out");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        child.kill().unwrap();
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(child.wait().unwrap().signal(), Some(9));
+        let sql = Connection::open(&path).unwrap();
+        if stage == "migration" {
+            assert_eq!(
+                sql.query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE name='operation_journal'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+                0
+            );
+        }
+        if stage == "recovery" || stage == "audit" {
+            assert_eq!(
+                sql.query_row("SELECT state FROM operation_journal", [], |r| r
+                    .get::<_, String>(0))
+                    .unwrap(),
+                "dispatched"
+            );
+        }
+        if stage == "transaction" {
+            assert_eq!(
+                sql.query_row("SELECT COUNT(*) FROM operation_journal", [], |r| r
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+            assert_eq!(
+                sql.query_row("SELECT COUNT(*) FROM tool_audit", [], |r| r
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+        }
+        for _ in 0..3 {
+            let db = SessionManager::open_at(path.clone()).unwrap();
+            assert_eq!(db.get_messages("fixture").unwrap().len(), 1);
+            let ops = db.list_operations(None, 50).unwrap();
+            if stage == "recovery" || stage == "audit" {
+                assert_eq!(ops[0].state, "unknown_outcome");
+            }
+            assert_eq!(
+                db.conn
+                    .query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))
+                    .unwrap(),
+                "ok"
+            );
+            assert_eq!(
+                db.conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM recovery_migrations WHERE version=3",
+                        [],
+                        |r| r.get::<_, i64>(0)
+                    )
+                    .unwrap(),
+                1
+            );
+            assert_eq!(
+                db.conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM operation_events WHERE state='unknown_outcome'",
+                        [],
+                        |r| r.get::<_, i64>(0)
+                    )
+                    .unwrap(),
+                i64::from(stage == "recovery" || stage == "audit")
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn sigkill_during_actual_migration() {
+        kill_at("migration");
+    }
+    #[test]
+    fn sigkill_during_actual_recovery() {
+        kill_at("recovery");
+    }
+    #[test]
+    fn sigkill_before_journal_commit() {
+        kill_at("transaction");
+    }
+    #[test]
+    fn sigkill_during_actual_audit_write() {
+        kill_at("audit");
+    }
+
+    #[test]
+    fn full_and_commit_errors_rollback_and_release_connection() {
+        let db = SessionManager::in_memory_for_tests().unwrap();
+        let pages: i64 = db
+            .conn
+            .query_row("PRAGMA page_count", [], |r| r.get(0))
+            .unwrap();
+        db.conn
+            .pragma_update(None, "max_page_count", pages)
+            .unwrap();
+        let error=atomic(&db.conn,|| {
+            db.conn.execute("INSERT INTO user_facts(key,value,updated_at) VALUES('full',zeroblob(1000000),'now')",[])?;
+            Ok(())
+        }).unwrap_err();
+        let sqlite = error.downcast_ref::<rusqlite::Error>().unwrap();
+        assert_eq!(
+            sqlite.sqlite_error_code(),
+            Some(rusqlite::ErrorCode::DiskFull)
+        );
+        assert!(db.conn.is_autocommit());
+        db.conn.execute_batch("PRAGMA max_page_count=100000; PRAGMA foreign_keys=ON; CREATE TABLE parent(id INTEGER PRIMARY KEY); CREATE TABLE child(id INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED)").unwrap();
+        assert!(atomic(&db.conn, || {
+            db.conn.execute("INSERT INTO child VALUES(42)", [])?;
+            Ok(())
+        })
+        .is_err());
+        assert!(db.conn.is_autocommit());
+        assert_eq!(
+            db.conn
+                .query_row("SELECT COUNT(*) FROM child", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert!(atomic(&db.conn, || {
+            db.conn.execute("INSERT INTO parent VALUES(42)", [])?;
+            Ok(())
+        })
+        .is_ok());
+    }
+    #[test]
+    fn transaction_unwind_rolls_back_before_supervisor_continues() {
+        let db = SessionManager::in_memory_for_tests().unwrap();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _: Result<()> = atomic(&db.conn, || {
+                db.conn.execute(
+                    "INSERT INTO user_facts VALUES('panic','synthetic','now')",
+                    [],
+                )?;
+                panic!("controlled unwind");
+            });
+        }));
+        assert!(result.is_err());
+        assert!(db.conn.is_autocommit());
+        assert_eq!(
+            db.conn
+                .query_row("SELECT COUNT(*) FROM user_facts", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        db.create_turn("after-unwind", None).unwrap();
     }
 }
