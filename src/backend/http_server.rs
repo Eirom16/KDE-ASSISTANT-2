@@ -43,6 +43,7 @@ use tokio::sync::RwLock;
 /// Estado compartido del servidor HTTP.
 #[derive(Clone)]
 pub struct AppState {
+    pub voice_enabled: Arc<std::sync::atomic::AtomicBool>,
     pub ai: Arc<AiService>,
     pub tools: Arc<ToolExecutor>,
     pub approvals: Arc<crate::backend::approvals::ApprovalManager>,
@@ -88,13 +89,32 @@ async fn auth_layer(State(state): State<AppState>, req: Request, next: Next) -> 
         )
             .into_response();
     }
-    if !crate::backend::auth::valid_bearer(req.headers(), &state.local_token) {
+    if !crate::backend::auth::valid_server_token(&state.local_token)
+        || !crate::backend::auth::valid_bearer(req.headers(), &state.local_token)
+    {
         log::debug!("auth: bearer inválido para {}", path);
         return (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({ "error": "unauthorized: falta Bearer local" })),
         )
             .into_response();
+    }
+    let optional_voice = path.starts_with("/api/dictate/")
+        || path.starts_with("/api/speak")
+        || path.starts_with("/api/audio/")
+        || (path.starts_with("/api/voice/")
+            && !matches!(
+                path.as_str(),
+                "/api/voice/stream" | "/api/voice/last" | "/api/voice/session"
+            ));
+    if optional_voice
+        && !state
+            .voice_enabled
+            .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
+            "error": "Voz diferida/desactivada; el chat escrito sigue disponible. No se descargan dependencias automáticamente."
+        }))).into_response();
     }
     next.run(req).await
 }
@@ -1164,21 +1184,72 @@ async fn set_audio_device(
     }
 }
 
-/// Devuelve la configuracion actual (JSON completo).
+/// Configuración sin secretos: la UI recibe presencia y estado, nunca claves guardadas.
 async fn get_config(State(state): State<AppState>) -> impl IntoResponse {
     let cfg = state.config.read().await.clone();
-    Json(cfg).into_response()
+    let mut public = serde_json::to_value(&cfg).unwrap_or_default();
+    public["ai"]["api_key"] = serde_json::json!("");
+    public["ai"]["provider_keys"] = serde_json::json!({});
+    public["ai"]["has_api_key"] = serde_json::json!(!cfg.ai.effective_api_key().trim().is_empty());
+    public["ai"]["configured_provider_keys"] =
+        serde_json::json!(cfg.ai.provider_keys.keys().collect::<Vec<_>>());
+    public["capabilities"] = serde_json::json!({
+        "text": "ready", "voice": if state.voice_enabled.load(std::sync::atomic::Ordering::Relaxed) { "active" } else { "deferred" },
+        "whisper_model_present": state.speech.stt_model_exists(),
+        "piper_binary_present": crate::backend::tts::piper::PiperEngine::find_binary().is_ok(),
+        "microphone": "not_initialized_by_text_startup",
+        "onnx_runtime": "deferred",
+        "wakeword": "deferred",
+        "piper_initialized": state.speech.tts_initialized(),
+        "downloads_on_startup": false,
+        "detail": "Voz opcional diferida; no se carga Piper, ONNX ni micrófono al iniciar texto"
+    });
+    Json(public).into_response()
 }
-/// Actualiza la configuracion y la persiste en config.json.
+
+/// Campos de credenciales vacíos de la vista redactada conservan claves previas.
+/// Sólo entradas no vacías sustituyen una clave; no hay borrado implícito.
 async fn update_config(
     State(state): State<AppState>,
-    Json(new_cfg): Json<Config>,
+    Json(mut new_cfg): Json<Config>,
 ) -> impl IntoResponse {
-    // Guardar en memoria y persistir
     let mut cfg = state.config.write().await;
-    *cfg = new_cfg.clone();
-    match cfg.save().await {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "status": "ok" }))),
+    let mut keys = cfg.ai.provider_keys.clone();
+    if keys
+        .get(cfg.ai.provider_id())
+        .is_none_or(|key| key.trim().is_empty())
+        && !cfg.ai.api_key.trim().is_empty()
+    {
+        keys.insert(cfg.ai.provider_id().to_owned(), cfg.ai.api_key.clone());
+    }
+    for (provider, key) in &new_cfg.ai.provider_keys {
+        if !key.trim().is_empty() {
+            keys.insert(provider.clone(), key.clone());
+        }
+    }
+    if !new_cfg.ai.api_key.trim().is_empty() {
+        keys.insert(
+            new_cfg.ai.provider_id().to_owned(),
+            new_cfg.ai.api_key.clone(),
+        );
+    }
+    new_cfg.ai.provider_keys = keys;
+    if new_cfg.ai.api_key.trim().is_empty() {
+        // La vista redactada no autoriza borrar/reemplazar un valor legacy,
+        // incluso si el mapa activo contiene otra clave o cambia el proveedor.
+        new_cfg.ai.api_key = cfg.ai.api_key.clone();
+    }
+    if let Err(e) = new_cfg.validate() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        );
+    }
+    match new_cfg.save().await {
+        Ok(()) => {
+            *cfg = new_cfg;
+            (StatusCode::OK, Json(serde_json::json!({ "status": "ok" })))
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": e.to_string() })),
@@ -1235,13 +1306,19 @@ async fn list_ai_models(
     };
     let provider_name = AiConfig::provider_name(&provider_id);
 
+    let mut selected_ai = cfg.ai.clone();
+    if selected_ai.provider_id() != provider_id {
+        selected_ai.api_key.clear();
+        selected_ai.base_url.clear();
+    }
+    selected_ai.provider = provider_id.clone();
     let base_url = match body.base_url.as_deref().map(str::trim) {
         Some(u) if !u.is_empty() => u.to_string(),
-        _ => cfg.ai.effective_base_url(),
+        _ => selected_ai.effective_base_url(),
     };
     let api_key = match body.api_key.as_deref().map(str::trim) {
         Some(k) if !k.is_empty() => k.to_string(),
-        _ => cfg.ai.effective_api_key(),
+        _ => selected_ai.effective_api_key(),
     };
     if api_key.trim().is_empty() {
         let env_var = AiConfig::provider_env_var(&provider_id);
@@ -1617,7 +1694,12 @@ async fn chat_complete(
     // Regla voz/texto: el chat escrito solo habla si auto_speak esta activo
     // (las respuestas por voz siempre hablan, ver voice_pipeline).
     let auto_speak = state.config.read().await.speech.auto_speak;
-    if auto_speak && !response.trim().is_empty() {
+    if state
+        .voice_enabled
+        .load(std::sync::atomic::Ordering::Relaxed)
+        && auto_speak
+        && !response.trim().is_empty()
+    {
         let speech = state.speech.clone();
         let resp = response.clone();
         tokio::spawn(async move {
@@ -1638,6 +1720,10 @@ async fn chat_complete(
 
 /// Arranca el servidor HTTP en `127.0.0.1:port`.
 pub async fn serve(state: AppState, port: u16) -> Result<()> {
+    anyhow::ensure!(
+        crate::backend::auth::valid_server_token(&state.local_token),
+        "Token inválido: API no publicada"
+    );
     let app = router(state);
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -2043,6 +2129,7 @@ mod tests {
             chimes,
         ));
         AppState {
+            voice_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ai,
             tools,
             approvals,

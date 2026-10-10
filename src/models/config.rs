@@ -582,58 +582,127 @@ impl Config {
         &self.speech
     }
 
-    /// Ausencia/corrupción bloquea el arranque antes de inicializar capacidades.
-    /// Los defaults explícitos siguen disponibles para crear configuración;
-    /// no son una política de recuperación de errores.
+    /// Sólo NotFound permite crear la configuración inicial restrictiva.
+    /// Corrupción y errores de acceso conservan el archivo y bloquean el arranque.
     pub async fn load() -> Result<Self> {
         let path = Self::config_path()?;
-        let mut config = Self::load_from(&path).await?;
-        // Migra modelos retirados por el proveedor (ej. Groq apagó los llama
-        // el 16/08/2026: sin esto todo el chat da 404 para siempre).
-        if let Some(replacement) = retired_model_replacement(&config.ai.provider, &config.ai.model)
-        {
-            log::warn!(
-                "Modelo '{}' retirado; migrando a '{}'",
-                config.ai.model,
-                replacement
-            );
-            config.ai.model = replacement.to_string();
-            if let Err(e) = config.save().await {
-                log::warn!("No se pudo persistir la migración del modelo: {e}");
+        match tokio::fs::symlink_metadata(&path).await {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let initial = Self::first_run();
+                let content = serde_json::to_string_pretty(&initial)?;
+                let dest = path.clone();
+                let published = tokio::task::spawn_blocking(move || {
+                    crate::backend::private_files::write_private(&dest, &content, true)
+                })
+                .await?;
+                crate::backend::private_files::allow_creation_race(published)?;
+                log::info!("Configuración inicial restrictiva creada; configura proveedor/modelo en la interfaz");
             }
+            Err(e) => return Err(e).context("configuración inaccesible; capacidades bloqueadas"),
+            Ok(_) => {}
         }
-        log::info!("Config cargada desde {}", path.display());
-        Ok(config)
+        Self::load_from(&path).await
     }
 
     async fn load_from(path: &std::path::Path) -> Result<Self> {
-        let content = tokio::fs::read_to_string(path)
-            .await
-            .context("configuracion ausente o ilegible; capacidades bloqueadas")?;
+        let path = path.to_owned();
+        let content = tokio::task::spawn_blocking(move || {
+            if let Some(parent) = path.parent() {
+                crate::backend::private_files::private_dir(parent)?;
+            }
+            let content = crate::backend::private_files::read_private(&path)?;
+            let backup = path.with_extension("json.bak");
+            match std::fs::symlink_metadata(&backup) {
+                Ok(_) => {
+                    crate::backend::private_files::read_private(&backup)?;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
+            }
+            Ok::<_, anyhow::Error>(content)
+        })
+        .await?
+        .context("configuración ilegible; conserva y corrige config.json para reintentar")?;
         let config: Self = serde_json::from_str(&content)
-            .context("configuracion inválida; capacidades bloqueadas")?;
-        config.ai.validate_provider()?;
+            .context("configuración inválida; conserva y corrige config.json para reintentar")?;
+        config.validate()?;
         Ok(config)
     }
 
-    pub async fn save(&self) -> Result<()> {
-        let path = Self::config_path()?;
-        if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-        // F0-7: backup previo + 0600 (contiene api_key en plaintext).
-        if path.exists() {
-            let bak = path.with_extension("json.bak");
-            let _ = tokio::fs::copy(&path, &bak).await;
-        }
-        let content = serde_json::to_string_pretty(self)?;
-        tokio::fs::write(&path, content).await?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await;
-        }
+    pub fn validate(&self) -> Result<()> {
+        self.ai.validate_provider()?;
+        let url = reqwest::Url::parse(&self.ai.effective_base_url())
+            .context("URL del proveedor inválida")?;
+        anyhow::ensure!(
+            matches!(url.scheme(), "http" | "https")
+                && url.host_str().is_some()
+                && url.username().is_empty()
+                && url.password().is_none(),
+            "URL del proveedor inválida"
+        );
+        anyhow::ensure!(
+            !self.ai.effective_model().trim().is_empty(),
+            "Falta modelo de IA"
+        );
         Ok(())
+    }
+
+    /// Compatible con el esquema existente; no migra valores ni credenciales.
+    pub fn first_run() -> Self {
+        let mut config = Self::default_internal();
+        config.ai.api_key.clear();
+        config.ai.enable_tool_calling = false;
+        config.tools.open_app = false;
+        config.tools.create_file = false;
+        config.tools.edit_file = false;
+        config.tools.read_file = false;
+        config.tools.web_search = false;
+        config.tools.show_image = false;
+        config.tools.find_file = false;
+        config.tools.open_file = false;
+        config.tools.copy_file = false;
+        config.tools.open_url = false;
+        config.tools.list_open_apps = false;
+        config.tools.focus_app = false;
+        config.tools.close_app = false;
+        config.tools.find_document = false;
+        config.tools.preview_document = false;
+        config.tools.system_info = false;
+        config.tools.notify = false;
+        config.tools.media = false;
+        config.tools.volume = false;
+        config.tools.brightness = false;
+        config.tools.network_status = false;
+        config.tools.remind_in = false;
+        config.tools.kdeconnect = false;
+        config.tools.allowed_paths.clear();
+        config.speech.wake_word_enabled = false;
+        config.speech.auto_listen = false;
+        config.speech.auto_speak = false;
+        config.speech.chimes_enabled = false;
+        config.speech.stt_backend = "local".into();
+        config.memory.enabled = false;
+        config.memory.auto_summarize = false;
+        config.character.enabled = false;
+        config
+    }
+
+    pub async fn save(&self) -> Result<()> {
+        self.validate()?;
+        let path = Self::config_path()?;
+        let content = serde_json::to_string_pretty(self)?;
+        tokio::task::spawn_blocking(move || {
+            if path.exists() {
+                let previous = crate::backend::private_files::read_private(&path)?;
+                crate::backend::private_files::write_private(
+                    &path.with_extension("json.bak"),
+                    &previous,
+                    false,
+                )?;
+            }
+            crate::backend::private_files::write_private(&path, &content, false)
+        })
+        .await?
     }
 
     pub fn config_path() -> Result<PathBuf> {

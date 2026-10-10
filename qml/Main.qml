@@ -793,14 +793,14 @@ ApplicationWindow {
                                 // (p.ej. otra instancia vieja ocupa el puerto).
                                 backendStatus = "offline"
                                 lastError = qsTr("No autorizado")
-                                lastErrorDetail = qsTr("Token local inválido. Cierra otras instancias (`pkill -f kde-assistant`) y reinicia.")
+                                lastErrorDetail = qsTr("Token local inválido. Cierra KDE Assistant desde su menú y reinicia.")
                                 showErrorBanner = true
                                 return
                             }
                             if (c.status !== 200) return
                             try {
                                 var cfg = JSON.parse(c.responseText)
-                                var key = (cfg.ai && cfg.ai.api_key) ? String(cfg.ai.api_key).trim() : ""
+                                var key = (cfg.ai && cfg.ai.has_api_key === true) ? "configured" : ""
                                 var model = (cfg.ai && cfg.ai.model) ? String(cfg.ai.model) : ""
                                 lastModel = model
                                 lastProvider = (cfg.ai && cfg.ai.provider) ? String(cfg.ai.provider) : ""

@@ -2,6 +2,8 @@
 // Uso: snap_ui [ancho alto] [archivo_qml] [output.png]
 
 use anyhow::Result;
+use kde_assistant_lib::owned_process::OwnedChild;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -21,40 +23,46 @@ fn main() -> Result<()> {
         vec!["/tmp/snap.png".to_string()]
     };
 
-    // Limpiar locks previos
-    let _ = Command::new("pkill").args(["-f", "qml6|Xvfb"]).status();
-    let _ = std::fs::remove_file("/tmp/.X99-lock");
-    std::thread::sleep(Duration::from_millis(500));
-
-    // Iniciar Xvfb
-    let _xvfb = Command::new("Xvfb")
-        .args([
-            ":99",
-            "-screen",
-            "0",
-            &format!("{width}x{height}x24"),
-            "-ac",
-        ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-
-    std::thread::sleep(Duration::from_secs(2));
+    // Xvfb selecciona un display libre; nunca se borran locks ajenos.
+    let mut xvfb = OwnedChild::new(
+        Command::new("Xvfb")
+            .args([
+                "-displayfd",
+                "1",
+                "-screen",
+                "0",
+                &format!("{width}x{height}x24"),
+                "-nolisten",
+                "tcp",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?,
+    );
+    let mut display = String::new();
+    BufReader::new(
+        xvfb.stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("Xvfb sin stdout"))?,
+    )
+    .read_line(&mut display)?;
+    let display = format!(":{}", display.trim());
 
     if !Path::new(&qml_file).exists() {
         eprintln!("QML no encontrado: {qml_file}");
-        let _ = Command::new("pkill").args(["-f", "Xvfb"]).status();
-        std::process::exit(1);
+        anyhow::bail!("QML no encontrado");
     }
 
     // Lanzar QML
-    let mut child = Command::new("qml6")
-        .args(["-I", ".", &qml_file])
-        .env("DISPLAY", ":99")
-        .env("QT_QPA_PLATFORM", "xcb")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
+    let mut child = OwnedChild::new(
+        Command::new("qml6")
+            .args(["-I", ".", &qml_file])
+            .env("DISPLAY", &display)
+            .env("QT_QPA_PLATFORM", "xcb")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?,
+    );
 
     std::thread::sleep(Duration::from_secs(4));
 
@@ -70,7 +78,7 @@ fn main() -> Result<()> {
                 "-framerate",
                 "1",
                 "-i",
-                ":99",
+                &display,
                 "-frames:v",
                 "1",
                 "-update",
@@ -92,8 +100,6 @@ fn main() -> Result<()> {
     // Limpiar
     let _ = child.kill();
     let _ = child.wait();
-    let _ = Command::new("pkill").args(["-f", "Xvfb"]).status();
-    let _ = std::fs::remove_file("/tmp/.X99-lock");
 
     Ok(())
 }

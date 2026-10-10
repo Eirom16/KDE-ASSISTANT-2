@@ -14,6 +14,7 @@ pub mod hotword;
 pub mod http_server;
 pub mod kde_integration;
 pub mod model_downloader;
+pub(crate) mod private_files;
 mod safe_fs;
 pub mod session_manager;
 pub mod speech_service;
@@ -72,13 +73,6 @@ impl Backend {
         let config = Arc::new(RwLock::new(config));
         log::info!("Config cargada desde ~/.config/kde-assistant/config.json");
 
-        // Descargar modelos ML si faltan (whisper según stt_model, piper, wakeword).
-        // Solo si hay conexion; los errores se loguean pero no bloquean el arranque.
-        let stt_model = config.read().await.speech.stt_model.clone();
-        if let Err(e) = Self::ensure_models_available(&stt_model).await {
-            log::warn!("No se pudieron descargar los modelos ML: {e}");
-        }
-
         let ai = Arc::new(ai_service::AiService::new(config.clone()).await?);
         let sessions = Arc::new(Mutex::new(session_manager::SessionManager::new().await?));
         // F4-3: el executor audita en SQLite.
@@ -127,14 +121,9 @@ impl Backend {
         self.voice.process_utterance(audio, None).await
     }
     /// Construye el estado compartido para el servidor HTTP local.
-    pub fn http_state(&self) -> http_server::AppState {
-        // Token local F0-3: si falla, usar vacío (el middleware rechazará todo
-        // salvo /health; el log avisará).
-        let local_token = crate::backend::auth::ensure_server_token().unwrap_or_else(|e| {
-            log::warn!("No se pudo garantizar server.token: {e}");
-            String::new()
-        });
-        http_server::AppState {
+    pub fn http_state(&self) -> Result<http_server::AppState> {
+        let local_token = crate::backend::auth::ensure_server_token()?;
+        Ok(http_server::AppState {
             ai: self.ai.clone(),
             tools: self.tools.clone(),
             approvals: self.approvals.clone(),
@@ -149,52 +138,8 @@ impl Backend {
             ),
             dictation_active: self.voice.dictation_flag(),
             sidecar_active: self.sidecar_active.clone(),
-        }
-    }
-
-    /// Descarga los modelos ML necesarios si no existen.
-    async fn ensure_models_available(stt_model: &str) -> Result<()> {
-        let downloader = model_downloader::ModelDownloader::new()?;
-        let mut models = model_downloader::required_models();
-        // Whisper según elección (tiny/base): required trae base; si es tiny,
-        // asegurar también el tiny sin descargar base de más si ya está.
-        let whisper_wanted = model_downloader::whisper_spec(stt_model);
-        if !models.iter().any(|m| m.rel_path == whisper_wanted.rel_path) {
-            models.push(whisper_wanted);
-        }
-        let mut missing = Vec::new();
-        for spec in &models {
-            if !downloader.is_downloaded(spec) {
-                missing.push(spec.clone());
-            }
-        }
-
-        if missing.is_empty() {
-            log::info!("Todos los modelos ML estan presentes");
-        } else {
-            log::info!("Descargando {} modelo(s) ML faltantes...", missing.len());
-            for spec in &missing {
-                let progress: model_downloader::ProgressCallback =
-                    Arc::new(move |name, done, total| {
-                        if let Some(t) = total {
-                            let pct = (done as f64 / t as f64 * 100.0) as u32;
-                            if done % (t / 20).max(1) < 1024 {
-                                log::debug!("{name}: {pct}% ({done}/{t} bytes)");
-                            }
-                        }
-                    });
-                if let Err(e) = downloader.download(spec, Some(progress)).await {
-                    log::warn!("Fallo al descargar '{}': {e}", spec.name);
-                }
-            }
-        }
-
-        // ONNX Runtime (libreria nativa para el wake word ML).
-        // Si ya hay alguna usable (incluida, sistema o python), no descarga nada.
-        if let Err(e) = wakeword_ml::ensure_onnx_runtime_lib().await {
-            log::warn!("ONNX Runtime no disponible: {e}");
-        }
-        Ok(())
+            voice_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        })
     }
 
     /// Inicia captura de audio + deteccion de hotword en background.
@@ -202,6 +147,15 @@ impl Backend {
     /// el buffer de grabacion del VoicePipeline (para PTT/wake word).
     /// Retorna un receiver de eventos HotwordEvent.
     pub async fn start_voice_pipeline(&self) -> Result<mpsc::Receiver<hotword::HotwordEvent>> {
+        anyhow::ensure!(
+            self.speech.is_available().await && self.speech.stt_model_exists(),
+            "Voz no disponible: faltan Piper o modelos locales; no se descargan automáticamente"
+        );
+        self.hotword.try_load_ml();
+        anyhow::ensure!(
+            self.hotword.ml_active(),
+            "Wake word no disponible: faltan modelos/runtime ONNX; captura desactivada"
+        );
         let (audio_tx, audio_rx) = mpsc::channel::<Vec<f32>>(64);
         let (event_tx, event_rx) = mpsc::channel::<hotword::HotwordEvent>(8);
 

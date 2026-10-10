@@ -167,7 +167,6 @@ Rectangle {
         rememberProviderFields()
         root.provider = p
         applyProviderFields(p)
-        if (apiKeyField.value !== "" || p === "lmstudio" || p === "ollama") fetchModels()
     }
 
     function providerBaseUrl(p) {
@@ -259,9 +258,9 @@ Rectangle {
                 pttField.value = root.shortcutPtt
                 newSessionField.value = root.shortcutNewSession
                 menuField.value = root.shortcutMenu
-                // Listar lo que ofrece la API (usa la key recien cargada)
-                fetchModels()
-                fetchAudioDevices()
+                // Presencia de credenciales y capacidades, sin consultas automáticas.
+                modelHint.text = cfg.ai.has_api_key ? qsTr("Clave guardada; deja el campo vacío para conservarla. Consulta modelos cuando lo necesites.") : qsTr("Falta clave API. Configura proveedor, modelo y clave para conversar.")
+                micHint.text = (cfg.capabilities && cfg.capabilities.detail) || qsTr("Voz diferida")
                 fetchFacts()
             }
         }
@@ -466,8 +465,18 @@ Rectangle {
         setAuth(xhr)
         xhr.onreadystatechange = function() {
             if (xhr.readyState === XMLHttpRequest.DONE) {
-                root.saved()
-                root.hide()
+                if (xhr.status === 200) {
+                    root.saved()
+                    root.hide()
+                } else {
+                    root.activeTab = "general"
+                    modelHint.color = Theme.error
+                    try {
+                        modelHint.text = JSON.parse(xhr.responseText).error || qsTr("No se pudo guardar la configuración")
+                    } catch (e) {
+                        modelHint.text = qsTr("No se pudo guardar la configuración; revisa el backend")
+                    }
+                }
             }
         }
         xhr.send(JSON.stringify(cfg))

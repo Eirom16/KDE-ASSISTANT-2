@@ -19,7 +19,7 @@ use crate::models::Config;
 
 pub struct SpeechService {
     pub config: Arc<RwLock<Config>>,
-    pub piper: PiperEngine,
+    piper: tokio::sync::OnceCell<PiperEngine>,
     pub whisper: Arc<WhisperEngine>,
     stop_requested: Arc<AtomicBool>,
     /// Cliente STT por API (Groq). Cache: se reconstruye si cambian
@@ -48,25 +48,6 @@ enum SttBackend {
 
 impl SpeechService {
     pub async fn new(config: Arc<RwLock<Config>>) -> Result<Self> {
-        let piper = PiperEngine::new().context("inicializando Piper TTS")?;
-        let models = piper.list_models();
-        let available = piper.has_binary();
-
-        if !available {
-            log::warn!("piper-tts no encontrado. TTS no funcionara hasta instalar.");
-        } else if models.is_empty() {
-            log::warn!(
-                "piper-tts disponible pero sin modelos en {}. Descarga uno desde https://huggingface.co/rhasspy/piper-voices",
-                piper.models_dir.display()
-            );
-        } else {
-            log::info!(
-                "SpeechService: piper-tts con {} modelo(s): {:?}",
-                models.len(),
-                models.iter().map(|m| &m.id).collect::<Vec<_>>()
-            );
-        }
-
         // Inicializar whisper (STT) con el modelo elegido (tiny/base).
         let cfg = config.read().await.clone();
         let whisper_path = whisper_model_path_for(&cfg.speech.stt_model)?;
@@ -83,19 +64,34 @@ impl SpeechService {
             );
         } else {
             log::warn!(
-                "whisper sin modelo en '{}'. Se descargara automaticamente al iniciar.",
+                "whisper sin modelo en '{}'. STT no disponible; instalación manual requerida.",
                 whisper_path_display()
             );
         }
 
         Ok(Self {
             config,
-            piper,
+            piper: tokio::sync::OnceCell::new(),
             whisper,
             stop_requested: Arc::new(AtomicBool::new(false)),
             stt_api: std::sync::Mutex::new(None),
             tts_now: Arc::new(AtomicU32::new(0.0f32.to_bits())),
         })
+    }
+
+    /// Sólo una solicitud explícita de voz construye el motor real; no hay sustituto.
+    async fn piper(&self) -> Result<&PiperEngine> {
+        self.piper
+            .get_or_try_init(|| async {
+                tokio::task::spawn_blocking(PiperEngine::new)
+                    .await?
+                    .context("Piper no disponible")
+            })
+            .await
+    }
+
+    pub fn tts_initialized(&self) -> bool {
+        self.piper.initialized()
     }
 
     /// Nivel del TTS reproduciéndose ahora (0..1, misma escala que el mic).
@@ -107,7 +103,8 @@ impl SpeechService {
     /// Sintetiza texto a bytes WAV.
     pub async fn synthesize(&self, text: &str) -> Result<Vec<u8>> {
         let cfg = self.config.read().await.clone();
-        self.piper
+        self.piper()
+            .await?
             .synthesize(
                 text,
                 Some(&cfg.speech.piper_model),
@@ -122,7 +119,8 @@ impl SpeechService {
         self.stop_requested.store(false, Ordering::Relaxed);
         let cfg = self.config.read().await.clone();
         let wav = self
-            .piper
+            .piper()
+            .await?
             .synthesize(
                 text,
                 Some(&cfg.speech.piper_model),
@@ -167,7 +165,7 @@ impl SpeechService {
         };
         let (wav_tx, mut wav_rx) = mpsc::channel::<Vec<u8>>(2);
         let producer_stop = self.stop_requested.clone();
-        let piper = self.piper.clone();
+        let piper = self.piper().await?.clone();
         let producer = tokio::spawn(async move {
             while let Some(sentence) = sentences.recv().await {
                 if producer_stop.load(Ordering::Relaxed) {
@@ -328,12 +326,15 @@ impl SpeechService {
 
     /// Verifica si piper esta disponible (binario + al menos un modelo).
     pub async fn is_available(&self) -> bool {
-        self.piper.is_available()
+        self.piper().await.is_ok_and(|p| p.is_available())
     }
 
     /// Lista los modelos de voz piper disponibles.
     pub async fn list_models(&self) -> Vec<String> {
-        self.piper.list_models().into_iter().map(|m| m.id).collect()
+        match self.piper().await {
+            Ok(p) => p.list_models().into_iter().map(|m| m.id).collect(),
+            Err(_) => Vec::new(),
+        }
     }
 
     /// Verifica si el modelo STT (whisper) esta disponible.

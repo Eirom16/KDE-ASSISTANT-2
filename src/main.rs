@@ -6,6 +6,7 @@
 // Flags:
 //   --ui-off       No lanzar UI (solo backend + KDE integration)
 //   --no-shortcuts No registrar global shortcuts
+//   --enable-voice Activar voz existente con dependencias locales instaladas
 //   --send-msg <s> Emitir senal DBus SendMessage con texto y salir
 //   --toggle       Emitir senal ShowWindow (toggle) y salir
 
@@ -65,6 +66,21 @@ fn main() -> Result<()> {
         };
     }
 
+    // Señal de apagado limpio
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let shutdown_signal = shutdown.clone();
+    ctrlc::set_handler(move || {
+        shutdown_signal.store(true, Ordering::SeqCst);
+    })
+    .context("setting up ctrl-c handler")?;
+
+    // Mantener el listener reservado elimina la carrera y evita alterar bootstrap
+    // de una instancia activa. No se publica HTTP hasta completar lo crítico.
+    const HTTP_PORT: u16 = 8765;
+    let listener = std::net::TcpListener::bind(std::net::SocketAddr::from(([127, 0, 0, 1], HTTP_PORT)))
+        .context("Puerto 8765 ocupado: otra instancia o servicio está activo; no se modificó ni terminó ningún proceso")?;
+    listener.set_nonblocking(true)?;
+
     // Init backend en runtime Tokio
     let runtime = tokio::runtime::Runtime::new().context("creando Tokio runtime")?;
     // Backend contiene AudioCapture (cpal), que no es Send/Sync en todas las
@@ -77,36 +93,6 @@ fn main() -> Result<()> {
         Ok::<_, anyhow::Error>(Arc::new(b))
     })?;
 
-    // Pre-warm de whisper en background (el modelo de 147MB tarda
-    // varios segundos en cargar; mejor al arrancar que en la primera voz)
-    {
-        let speech = backend.speech.clone();
-        runtime.spawn(async move {
-            if speech.stt_model_exists() {
-                let whisper = speech.whisper.clone();
-                match tokio::task::spawn_blocking(move || whisper.ensure_loaded()).await {
-                    Ok(Ok(())) => log::info!("Whisper pre-cargado en background"),
-                    Ok(Err(e)) => log::warn!("Pre-warm de whisper fallo: {e}"),
-                    Err(e) => log::warn!("Task de pre-warm fallo: {e}"),
-                }
-            }
-        });
-    }
-
-    // Pre-warm de piper (la PRIMERA síntesis carga el modelo ONNX en el
-    // proceso: ~4-5s. El saludo tras el wake word debe salir enseguida).
-    {
-        let speech = backend.speech.clone();
-        runtime.spawn(async move {
-            if speech.is_available().await {
-                match speech.synthesize("Listo").await {
-                    Ok(_) => log::info!("Piper pre-cargado en background"),
-                    Err(e) => log::warn!("Pre-warm de piper fallo: {e}"),
-                }
-            }
-        });
-    }
-
     // F6: disparar recordatorios pendientes de sesiones anteriores.
     {
         let sessions = backend.sessions.clone();
@@ -115,55 +101,61 @@ fn main() -> Result<()> {
         });
     }
 
-    // Iniciar servidor HTTP local (IPC con la UI QML)
-    const HTTP_PORT: u16 = 8765;
-    // Falla rápido si el puerto está ocupado (otra instancia vieja con OTRO
-    // token: la UI lanzaría contra ese backend y todo daría 401 "No autorizado").
-    if std::net::TcpListener::bind(std::net::SocketAddr::from(([127, 0, 0, 1], HTTP_PORT))).is_err()
-    {
-        eprintln!(
-            "Puerto {HTTP_PORT} en uso. ¿Hay otra instancia de kde-assistant corriendo?\n\
-             Ciérrala (o `pkill -f kde-assistant; pkill -f \"qml6.*Main.qml\"`) y vuelve a intentar."
-        );
-        std::process::exit(1);
-    }
-    // Token local F0-3 para que el QML se autentique en /api/*.
-    // OJO: llamar http_state() una sola vez (contiene el mapa de tasks F0-7).
-    let http_state = backend.http_state();
+    let http_state = backend.http_state()?;
     let local_token = http_state.local_token.clone();
-    {
+    // El módulo privado también es crítico para la interfaz autenticada.
+    let cfg = runtime.block_on(async { backend.config.read().await.clone() });
+    let auth_inc = if ui_off {
+        None
+    } else {
+        Some(kde_assistant_lib::backend::auth::write_qml_auth_module(
+            &local_token,
+            false,
+        )?)
+    };
+    let server = runtime.spawn({
         let http_state = http_state.clone();
-        runtime.spawn(async move {
-            if let Err(e) =
-                kde_assistant_lib::backend::http_server::serve(http_state, HTTP_PORT).await
-            {
-                log::error!("Servidor HTTP fallo: {e}");
-            }
-        });
-        log::info!("Servidor HTTP local en http://127.0.0.1:{HTTP_PORT}");
-    }
+        async move {
+            let listener = tokio::net::TcpListener::from_std(listener)?;
+            axum::serve(
+                listener,
+                kde_assistant_lib::backend::http_server::router(http_state),
+            )
+            .await?;
+            Ok::<_, anyhow::Error>(())
+        }
+    });
+    log::info!("Núcleo de texto listo en http://127.0.0.1:{HTTP_PORT}; voz diferida, descargas desactivadas");
 
     // Iniciar pipeline de voz (captura de audio + deteccion de wake word)
     // Solo si esta habilitado en config (por defecto desactivado por falsos positivos)
-    let cfg = runtime.block_on(async { backend.config.read().await.clone() });
     // Rust es la única autoridad de conversación: conserva una sola sesión,
     // permisos, streaming y TTS. El sidecar experimental tenía otro LLM y
     // rompía la conversación bidireccional al no compartir contexto.
     let mut sidecar_child: Option<Child> = None;
-    let voice_events = if cfg.speech.wake_word_enabled {
+    let voice_events = if args.iter().any(|a| a == "--enable-voice") && cfg.speech.wake_word_enabled
+    {
         runtime.block_on(async {
             match backend.start_voice_pipeline().await {
-                Ok(rx) => Some(rx),
+                Ok(rx) => {
+                    http_state.voice_enabled.store(true, Ordering::Relaxed);
+                    if cfg.speech.chimes_enabled {
+                        if let Err(e) = backend.chimes.initialize().await {
+                            log::warn!("Chimes no disponibles: {e}");
+                        }
+                    }
+                    Ok::<_, anyhow::Error>(Some(rx))
+                }
                 Err(e) => {
                     log::warn!("No se pudo iniciar el pipeline de voz: {e}");
                     log::warn!("(verifica que tienes microfono y permisos de audio)");
-                    None
+                    Ok(None)
                 }
             }
-        })
+        })?
     } else {
         log::info!(
-            "Wake word desactivado por configuracion. Usa el InputBar para escribir mensajes."
+            "Voz diferida; requiere --enable-voice y dependencias locales. Usa el InputBar para escribir mensajes."
         );
         None
     };
@@ -258,6 +250,7 @@ fn main() -> Result<()> {
             action_tx,
             backend.config.clone(),
         );
+        let voice_enabled = http_state.voice_enabled.clone();
         // Consumir acciones: PTT start/stop conectan con la grabacion real
         let vp = backend.voice.clone();
         runtime.spawn(async move {
@@ -265,10 +258,17 @@ fn main() -> Result<()> {
             while let Some(action) = action_rx.recv().await {
                 match action {
                     HotkeyAction::PushToTalkStart => {
+                        if !voice_enabled.load(Ordering::Relaxed) {
+                            log::warn!("PTT no disponible: voz diferida; utiliza el chat escrito");
+                            continue;
+                        }
                         log::info!("PTT: inicio de grabacion");
                         vp.start_listening();
                     }
                     HotkeyAction::PushToTalkEnd => {
+                        if !voice_enabled.load(Ordering::Relaxed) {
+                            continue;
+                        }
                         log::info!("PTT: fin de grabacion, procesando...");
                         match vp.stop_and_process().await {
                             Ok((t, r)) => {
@@ -292,22 +292,6 @@ fn main() -> Result<()> {
         log::info!("Global hotkey listener: Super+Shift+A (toggle), Super+Shift+V (PTT mantener), Ctrl+Shift+K (new session), Super+Shift+M (menu)");
     } else {
         log::info!("Global shortcuts deshabilitados (--no-shortcuts)");
-    }
-
-    // Señal de apagado limpio
-    let shutdown = Arc::new(AtomicBool::new(false));
-    let shutdown_signal = shutdown.clone();
-    ctrlc::set_handler(move || {
-        shutdown_signal.store(true, Ordering::SeqCst);
-    })
-    .context("setting up ctrl-c handler")?;
-
-    // Autolimpieza: QMLs huespedes de ejecuciones previas. Si el backend
-    // murio (p. ej. `pkill -f kde-assistant`) su qml6 queda vivo con icono
-    // y menu propios en la bandeja, y cada arranque suma uno duplicado.
-    // Solo cuando vamos a lanzar nuestra UI (con --ui-off no tocar nada).
-    if !ui_off {
-        cull_stale_qml();
     }
 
     // Lanzar UI QML como subproceso
@@ -345,13 +329,14 @@ fn main() -> Result<()> {
         // Módulo qml.auth: token + cacheDir + flag de overlay, sin depender de
         // Qt.platform.environment (nulo en varias sesiones qml6).
         // KDE_ASSISTANT_TOKEN / KDE_ASSISTANT_AGENT_OVERLAY quedan como respaldo.
-        let auth_inc =
-            kde_assistant_lib::backend::auth::write_qml_auth_module(&local_token, spawn_overlay)
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|e| {
-                    log::warn!("No se pudo generar el módulo QML de auth: {e}");
-                    String::new()
-                });
+        let auth_inc = auth_inc
+            .as_ref()
+            .context("Falta módulo QML privado")?
+            .to_string_lossy()
+            .to_string();
+        if spawn_overlay {
+            kde_assistant_lib::backend::auth::write_qml_auth_module(&local_token, true)?;
+        }
         let mut qml_cmd = Command::new("qml6");
         // El módulo generado va el ÚLTIMO: ante un módulo duplicado el motor
         // QML prefiere el último -I (verificado empíricamente; qmlimportscanner
@@ -368,26 +353,28 @@ fn main() -> Result<()> {
         }
         qml_cmd.env("QT_QPA_PLATFORM", &platform);
 
-        let mut child = qml_cmd
-            .arg("qml/Main.qml")
-            // Sin caché de QML: evita arrancar con bytecode rancio tras actualizar.
-            .env("QML_DISABLE_DISK_CACHE", "1")
-            .env("QML_XHR_ALLOW_FILE_READ", "1")
-            .env("KDE_ASSISTANT_TOKEN", &local_token)
-            .env(
-                "KDE_ASSISTANT_AGENT_OVERLAY",
-                if spawn_overlay { "1" } else { "0" },
-            )
-            .spawn()
-            .context(
-                "lanzando qml6 (asegurate de tener Qt6 instalado: pacman -S qt6-declarative)",
-            )?;
+        let mut child = kde_assistant_lib::owned_process::OwnedChild::new(
+            qml_cmd
+                .arg("qml/Main.qml")
+                // Sin caché de QML: evita arrancar con bytecode rancio tras actualizar.
+                .env("QML_DISABLE_DISK_CACHE", "1")
+                .env("QML_XHR_ALLOW_FILE_READ", "1")
+                .env("KDE_ASSISTANT_TOKEN", &local_token)
+                .env(
+                    "KDE_ASSISTANT_AGENT_OVERLAY",
+                    if spawn_overlay { "1" } else { "0" },
+                )
+                .spawn()
+                .context(
+                    "lanzando qml6 (asegurate de tener Qt6 instalado: pacman -S qt6-declarative)",
+                )?,
+        );
         log::info!("UI QML lanzada (pid {})", child.id());
 
         // === Proceso separado: Desktop Agent overlay (Fase 4) ===
         // Proceso qml6 independiente con layer-shell (Wayland). Independiente
         // de la ventana principal: si minimizas el chat, el personaje sigue.
-        let overlay_child: Option<Child> = if spawn_overlay {
+        let overlay_child: Option<kde_assistant_lib::owned_process::OwnedChild> = if spawn_overlay {
             let mut ocmd = Command::new("qml6");
             // Las flags -I van ANTES del archivo QML: qml6 deja de parsear
             // opciones al encontrar el primer argumento posicional y se
@@ -404,7 +391,7 @@ fn main() -> Result<()> {
             match ocmd.spawn() {
                 Ok(c) => {
                     log::info!("Desktop Agent overlay lanzado (pid {})", c.id());
-                    Some(c)
+                    Some(kde_assistant_lib::owned_process::OwnedChild::new(c))
                 }
                 Err(e) => {
                     log::warn!("No se pudo lanzar el overlay del personaje: {e}");
@@ -426,10 +413,18 @@ fn main() -> Result<()> {
         loop {
             match child.try_wait() {
                 Ok(Some(status)) => {
+                    anyhow::ensure!(
+                        status.success(),
+                        "La interfaz QML terminó con error: {status}"
+                    );
                     log::info!("UI QML termino con codigo {:?}", status.code());
                     break;
                 }
                 Ok(None) => {
+                    anyhow::ensure!(
+                        !server.is_finished(),
+                        "Servidor HTTP terminó inesperadamente"
+                    );
                     if shutdown.load(Ordering::SeqCst) {
                         log::info!("Apagando UI QML (pid {})...", child.id());
                         let _ = child.kill();
@@ -438,10 +433,7 @@ fn main() -> Result<()> {
                     }
                     std::thread::sleep(std::time::Duration::from_millis(200));
                 }
-                Err(e) => {
-                    log::warn!("Esperando a la UI QML: {e}");
-                    break;
-                }
+                Err(e) => return Err(e).context("Esperando a la UI QML"),
             }
         }
         if let Some(mut oc) = overlay_child.take() {
@@ -457,47 +449,20 @@ fn main() -> Result<()> {
     } else {
         log::info!("UI desactivada por flag --ui-off");
         log::info!("Presiona Ctrl+C para salir.");
-        runtime.block_on(async {
-            tokio::signal::ctrl_c().await.ok();
-        });
+        while !shutdown.load(Ordering::SeqCst) {
+            anyhow::ensure!(
+                !server.is_finished(),
+                "Servidor HTTP terminó inesperadamente"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
     }
 
+    server.abort();
+    let _ = runtime.block_on(server);
+    runtime.block_on(backend.stop_voice_pipeline());
     log::info!("Apagando KDE Assistant v2...");
     Ok(())
-}
-
-/// Patron (ERE para pgrep/pkill -f) que identifica QMLs huespedes de
-/// esta app: procesos `qml6 ... qml/Main.qml` de ejecuciones previas.
-fn stale_qml_pattern() -> &'static str {
-    "qml6.*Main\\.qml"
-}
-
-/// Mata QMLs huespedes de ejecuciones previas (best-effort). Sin esto,
-/// cada arranque tras un backend muerto suma un icono y un menu
-/// duplicados en la bandeja del sistema.
-fn cull_stale_qml() {
-    let pattern = stale_qml_pattern();
-    // Listar primero para el log (pgrep se excluye solo).
-    let listed = Command::new("pgrep")
-        .args(["-af", pattern])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-        .unwrap_or_default();
-    let victims: Vec<&str> = listed
-        .lines()
-        .filter(|l| !l.contains("pgrep") && !l.contains("pkill"))
-        .collect();
-    if victims.is_empty() {
-        return;
-    }
-    log::warn!(
-        "QMLs huespedes de ejecuciones previas ({}): los cierro para no duplicar la bandeja",
-        victims.len()
-    );
-    for v in &victims {
-        log::warn!("  huesped: {v}");
-    }
-    let _ = Command::new("pkill").args(["-f", pattern]).status();
 }
 
 fn truncate(s: &str, max: usize) -> String {

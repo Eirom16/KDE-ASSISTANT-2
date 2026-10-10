@@ -24,18 +24,22 @@ impl ChimePlayer {
         let chimes_dir = dirs::data_dir()
             .ok_or_else(|| anyhow::anyhow!("sin data_dir"))?
             .join("kde-assistant/chimes");
-        tokio::fs::create_dir_all(&chimes_dir).await.ok();
-
-        let player = Self {
-            enabled: AtomicBool::new(true),
+        Ok(Self {
+            enabled: AtomicBool::new(false),
             chimes_dir,
-        };
+        })
+    }
 
-        // Generar WAVs si no existen
-        if let Err(e) = player.ensure_chimes().await {
-            log::warn!("No se pudieron generar chimes: {e}");
-        }
+    pub async fn initialize(&self) -> Result<()> {
+        tokio::fs::create_dir_all(&self.chimes_dir).await?;
+        self.ensure_chimes().await?;
+        self.set_enabled(true);
+        Ok(())
+    }
 
+    pub async fn with_resources() -> Result<Self> {
+        let player = Self::new().await?;
+        player.initialize().await?;
         Ok(player)
     }
 
@@ -199,7 +203,7 @@ mod tests {
 
     #[tokio::test]
     async fn ensure_chimes_creates_files() {
-        let p = ChimePlayer::new().await.unwrap();
+        let p = ChimePlayer::with_resources().await.unwrap();
         assert!(p.chimes_dir.join("activate.wav").exists());
         assert!(p.chimes_dir.join("process.wav").exists());
         assert!(p.chimes_dir.join("deactivate.wav").exists());

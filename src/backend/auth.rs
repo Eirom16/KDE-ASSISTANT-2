@@ -24,44 +24,44 @@ pub fn server_token_path() -> Result<PathBuf> {
     Ok(dir.join("server.token"))
 }
 
-/// Lee el token si existe (trim). None si no hay o está vacío.
-pub fn load_server_token() -> Option<String> {
-    let path = server_token_path().ok()?;
-    let content = std::fs::read_to_string(&path).ok()?;
-    let t = content.trim().to_string();
-    if t.len() >= 32 {
-        Some(t)
-    } else {
-        None
-    }
+pub fn valid_server_token(token: &str) -> bool {
+    token.len() == TOKEN_BYTES_HEX && token.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-/// Garantiza que existe un token, creándolo con 0600 si falta.
-/// Retorna el token.
+pub fn load_server_token() -> Option<String> {
+    let path = server_token_path().ok()?;
+    let content = crate::backend::private_files::read_private(&path).ok()?;
+    let token = content.trim();
+    valid_server_token(token).then(|| token.to_owned())
+}
+
+/// Un token existente inválido es un error de bootstrap, nunca una capacidad vacía.
 pub fn ensure_server_token() -> Result<String> {
-    if let Some(t) = load_server_token() {
-        return Ok(t);
-    }
     let path = server_token_path()?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).context("creando dir config")?;
+        crate::backend::private_files::private_dir(parent)?;
     }
-    // uuid v4 usa getrandom: 2x uuid sin guiones = 64 hex chars.
-    let token = format!(
-        "{}{}",
-        uuid::Uuid::new_v4().simple(),
-        uuid::Uuid::new_v4().simple()
+    match std::fs::symlink_metadata(&path) {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let token = format!(
+                "{}{}",
+                uuid::Uuid::new_v4().simple(),
+                uuid::Uuid::new_v4().simple()
+            );
+            crate::backend::private_files::allow_creation_race(
+                crate::backend::private_files::write_private(&path, &format!("{token}\n"), true),
+            )?;
+        }
+        Err(e) => return Err(e).context("leyendo token local"),
+    }
+    let content = crate::backend::private_files::read_private(&path)?;
+    let token = content.trim();
+    anyhow::ensure!(
+        valid_server_token(token),
+        "Token local inválido; API bloqueada. Corrige server.token antes de reintentar"
     );
-    // Asegurar 64 chars (simple() ya da 32 cada uno).
-    let token: String = token.chars().take(TOKEN_BYTES_HEX).collect();
-    std::fs::write(&path, format!("{token}\n")).context("escribiendo server.token")?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-    }
-    log::info!("Token local creado en {}", path.display());
-    Ok(token)
+    Ok(token.to_owned())
 }
 
 /// ¿La ruta requiere auth? Todo `/api/*` salvo `/api/health`.
@@ -87,6 +87,7 @@ pub fn path_requires_auth(path: &str) -> bool {
 ///
 /// Retorna el directorio a pasar con `-I`.
 pub fn write_qml_auth_module(token: &str, agent_overlay: bool) -> Result<PathBuf> {
+    anyhow::ensure!(valid_server_token(token), "Token QML inválido");
     let dir = dirs::cache_dir()
         .ok_or_else(|| anyhow::anyhow!("sin cache_dir"))?
         .join("kde-assistant/qml-generated");
@@ -98,7 +99,9 @@ fn write_qml_auth_module_to(token: &str, agent_overlay: bool, dir: &Path) -> Res
     use std::fmt::Write as _;
     // Módulo `qml.auth`: <dir>/qml/auth/{qmldir,AuthToken.qml}.
     let mod_dir = dir.join("qml/auth");
-    std::fs::create_dir_all(&mod_dir).context("creando dir qml auth")?;
+    crate::backend::private_files::private_dir(dir)?;
+    crate::backend::private_files::private_dir(&dir.join("qml"))?;
+    crate::backend::private_files::private_dir(&mod_dir)?;
     // Escapar el token para QML (solo hex esperado, pero sin sorpresas).
     let mut lit = String::with_capacity(token.len() + 2);
     lit.push('"');
@@ -124,9 +127,10 @@ fn write_qml_auth_module_to(token: &str, agent_overlay: bool, dir: &Path) -> Res
         }
     }
     let _ = write!(cache_lit, "/\"");
-    std::fs::write(
-        mod_dir.join("qmldir"),
+    crate::backend::private_files::write_private(
+        &mod_dir.join("qmldir"),
         "module qml.auth\nsingleton AuthToken 1.0 AuthToken.qml\n",
+        false,
     )
     .context("qmldir auth")?;
     let qml = format!(
@@ -139,12 +143,16 @@ fn write_qml_auth_module_to(token: &str, agent_overlay: bool, dir: &Path) -> Res
          \x20   readonly property bool agentOverlay: {agent_overlay}\n\
          }}\n"
     );
-    std::fs::write(mod_dir.join("AuthToken.qml"), qml).context("AuthToken.qml")?;
+    crate::backend::private_files::write_private(&mod_dir.join("AuthToken.qml"), &qml, false)
+        .context("AuthToken.qml")?;
     Ok(())
 }
 
 /// Valida `Authorization: Bearer <token>` con comparación constante (anti-timing).
 pub fn valid_bearer(headers: &axum::http::HeaderMap, expected: &str) -> bool {
+    if expected.is_empty() {
+        return false;
+    }
     let got = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
@@ -168,36 +176,36 @@ fn constant_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-/// Valida `Host`: solo loopback. `None` (tests sin host) se permite.
+/// Autoridad exacta de este servidor. Ausencia de Host no autentica.
 pub fn valid_host(headers: &axum::http::HeaderMap) -> bool {
-    let host = headers
+    if headers.get_all(axum::http::header::HOST).iter().count() != 1 {
+        return false;
+    }
+    headers
         .get(axum::http::header::HOST)
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    if host.is_empty() {
-        return true;
-    }
-    let h = host.to_lowercase();
-    // Aceptar con o sin puerto.
-    h.starts_with("127.0.0.1") || h.starts_with("localhost") || h.starts_with("[::1]")
+        .is_some_and(|h| {
+            matches!(
+                h.to_ascii_lowercase().as_str(),
+                "127.0.0.1:8765" | "localhost:8765" | "[::1]:8765"
+            )
+        })
 }
 
-/// Valida `Origin`: QML envía vacío/`null`. Un navegador evil enviaría
-/// `https://evil.com`: rechazar todo lo que no sea vacío/null/loopback/file.
+/// QML nativo omite Origin o usa null; autoridades web se comparan completas.
 pub fn valid_origin(headers: &axum::http::HeaderMap) -> bool {
-    let origin = headers
-        .get(axum::http::header::ORIGIN)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    if origin.is_empty() || origin == "null" {
-        return true;
+    if headers.get_all(axum::http::header::ORIGIN).iter().count() > 1 {
+        return false;
     }
-    let o = origin.to_lowercase();
-    o.contains("127.0.0.1")
-        || o.contains("localhost")
-        || o.contains("[::1]")
-        || o.starts_with("file://")
-        || o.starts_with("qrc:")
+    match headers.get(axum::http::header::ORIGIN) {
+        None => true,
+        Some(value) => value.to_str().is_ok_and(|o| {
+            matches!(
+                o.to_ascii_lowercase().as_str(),
+                "null" | "http://127.0.0.1:8765" | "http://localhost:8765" | "http://[::1]:8765"
+            )
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -231,7 +239,7 @@ mod tests {
     fn host_validation() {
         use axum::http::{HeaderMap, HeaderValue};
         let mut h = HeaderMap::new();
-        assert!(valid_host(&h));
+        assert!(!valid_host(&h));
         h.insert(
             axum::http::header::HOST,
             HeaderValue::from_str("127.0.0.1:8765").unwrap(),

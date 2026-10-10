@@ -51,8 +51,7 @@ impl HotwordDetector {
             pending_16k: Arc::new(Mutex::new(Vec::new())),
             dropped_frames: Arc::new(AtomicU64::new(0)),
         };
-        // Intentar cargar el modelo ML (no bloquea el arranque si falla)
-        det.try_load_ml();
+        // Modelo/runtime sólo bajo activación explícita de la capacidad de voz.
         Ok(det)
     }
 
