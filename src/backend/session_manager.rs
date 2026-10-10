@@ -794,6 +794,67 @@ mod tests {
     }
 
     #[test]
+    fn publication_release_failure_rolls_back_and_allows_next_turn() {
+        let m = test_db().unwrap();
+        let sid = m.create_session("failure").unwrap().id;
+        m.create_turn("turn-a", Some(&sid)).unwrap();
+        m.add_turn_message(&sid, "turn-a", &Message::user("original"))
+            .unwrap();
+        m.conn.execute_batch("PRAGMA foreign_keys=ON; CREATE TABLE parent(id INTEGER PRIMARY KEY); CREATE TABLE deferred_child(id INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED); CREATE TRIGGER fail_release AFTER UPDATE ON conversation_turns WHEN NEW.state='completed' BEGIN INSERT INTO deferred_child VALUES(99); END;").unwrap();
+        let turn = crate::backend::conversation_turn::Turn::new(Some(sid.clone()));
+        turn.transition(crate::backend::conversation_turn::TurnState::Running)
+            .unwrap();
+        assert!(turn
+            .complete(|| m.publish_turn(
+                Some(&sid),
+                "turn-a",
+                &[Message::assistant("false success")]
+            ))
+            .is_err());
+        assert_ne!(
+            turn.state(),
+            crate::backend::conversation_turn::TurnState::Completed
+        );
+        assert!(
+            m.conn.is_autocommit(),
+            "failed RELEASE left an open publication transaction"
+        );
+        assert_eq!(m.get_messages(&sid).unwrap().len(), 1);
+        let state: String = m
+            .conn
+            .query_row(
+                "SELECT state FROM conversation_turns WHERE id='turn-a'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(state, "running");
+        m.conn.execute_batch("DROP TRIGGER fail_release").unwrap();
+        m.finish_turn("turn-a", "failed").unwrap();
+        m.create_turn("turn-b", Some(&sid)).unwrap();
+        m.publish_turn(Some(&sid), "turn-b", &[Message::assistant("valid b")])
+            .unwrap();
+        assert_eq!(m.get_messages(&sid).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn publication_statement_rollback_preserves_original_error() {
+        let m = test_db().unwrap();
+        let sid = m.create_session("rollback").unwrap().id;
+        m.create_turn("turn-a", Some(&sid)).unwrap();
+        m.conn.execute_batch("CREATE TRIGGER fail_insert BEFORE INSERT ON messages WHEN NEW.role='assistant' BEGIN SELECT RAISE(ROLLBACK, 'injected publication failure'); END;").unwrap();
+        let error = m
+            .publish_turn(Some(&sid), "turn-a", &[Message::assistant("false success")])
+            .unwrap_err();
+        assert!(
+            format!("{error:#}").contains("injected publication failure"),
+            "{error:#}"
+        );
+        assert!(m.conn.is_autocommit());
+        assert!(m.get_messages(&sid).unwrap().is_empty());
+    }
+
+    #[test]
     fn create_and_list_sessions() {
         let m = test_db().unwrap();
         let s1 = m.create_session("Test 1").unwrap();

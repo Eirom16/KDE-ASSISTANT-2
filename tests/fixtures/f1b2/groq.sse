@@ -1,0 +1,6 @@
+data: {"id":"fixture","choices":[{"index":0,"delta":{"content":"niño"},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"x_groq":{"id":"fixture"}}
+
+data: [DONE]
+

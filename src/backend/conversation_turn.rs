@@ -289,3 +289,112 @@ impl Drop for ClientLease {
         self.0.cancel();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    #[tokio::test]
+    async fn cancelled_before_dispatch_never_polls_effect() {
+        let turn = Turn::new(Some("session".into()));
+        turn.transition(TurnState::Running).unwrap();
+        turn.cancel();
+        let effects = AtomicUsize::new(0);
+        assert!(turn
+            .dispatch(async {
+                effects.fetch_add(1, Ordering::SeqCst);
+            })
+            .await
+            .is_err());
+        assert_eq!(effects.load(Ordering::SeqCst), 0);
+        turn.transition(TurnState::Cancelled).unwrap();
+        assert!(turn.transition(TurnState::Running).is_err());
+        assert!(!turn.cancel());
+    }
+    #[tokio::test]
+    async fn terminal_turn_never_dispatches_or_waits_for_cancellation() {
+        for state in [
+            TurnState::Cancelled,
+            TurnState::Failed,
+            TurnState::Completed,
+        ] {
+            let turn = Turn::new(None);
+            turn.transition(TurnState::Running).unwrap();
+            match state {
+                TurnState::Cancelled => {
+                    turn.cancel();
+                    turn.transition(state).unwrap();
+                }
+                TurnState::Completed => turn.complete(|| Ok(())).unwrap(),
+                _ => turn.transition(state).unwrap(),
+            }
+            let effects = AtomicUsize::new(0);
+            assert!(turn
+                .dispatch(async {
+                    effects.fetch_add(1, Ordering::SeqCst);
+                })
+                .await
+                .is_err());
+            assert_eq!(effects.load(Ordering::SeqCst), 0);
+            tokio::time::timeout(Duration::from_millis(100), turn.cancellation())
+                .await
+                .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn finished_supervisor_without_terminal_is_diagnosed_and_releases_slot() {
+        let registry = TurnRegistry::default();
+        let turn = registry.reserve(Some("session".into())).unwrap();
+        turn.transition(TurnState::Running).unwrap();
+        let task = tokio::spawn(async {
+            panic!("injected supervisor panic");
+        });
+        while !task.is_finished() {
+            tokio::task::yield_now().await;
+        }
+        registry.supervise(&turn, task);
+        assert_eq!(
+            registry.current(&turn.session_id).unwrap().state(),
+            TurnState::Failed
+        );
+        assert_eq!(registry.active_count(), 0);
+        assert_eq!(registry.running_tasks(), 0);
+        assert!(registry.reserve(turn.session_id.clone()).is_ok());
+    }
+
+    #[test]
+    fn completion_and_cancellation_have_one_linearization_winner() {
+        for _ in 0..50 {
+            let turn = Turn::new(Some("session".into()));
+            turn.transition(TurnState::Running).unwrap();
+            let effects = Arc::new(AtomicUsize::new(0));
+            let barrier = Arc::new(std::sync::Barrier::new(2));
+            let t = turn.clone();
+            let e = effects.clone();
+            let b = barrier.clone();
+            let worker = std::thread::spawn(move || {
+                b.wait();
+                t.complete(|| {
+                    e.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                })
+                .is_ok()
+            });
+            barrier.wait();
+            turn.cancel();
+            let completed = worker.join().unwrap();
+            if completed {
+                assert_eq!(turn.state(), TurnState::Completed);
+                assert_eq!(effects.load(Ordering::SeqCst), 1);
+            } else {
+                assert_eq!(turn.state(), TurnState::Cancelling);
+                assert_eq!(effects.load(Ordering::SeqCst), 0);
+                turn.transition(TurnState::Cancelled).unwrap();
+            }
+            assert!(turn.state().terminal());
+            assert!(!turn.cancel());
+            assert!(turn.transition(TurnState::Failed).is_err());
+        }
+    }
+}

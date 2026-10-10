@@ -2034,6 +2034,119 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn f1b2_cancel_dispatched_tool_drains_effect_and_blocks_next_tool() {
+        use crate::backend::tool_executor::TestCreateGate;
+        use std::time::Duration;
+        let mut state = test_state().await;
+        let root = std::env::temp_dir().join(format!("kda-tool-drain-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let first = root.join("first.txt");
+        let second = root.join("second.txt");
+        let sid = state
+            .sessions
+            .lock()
+            .unwrap()
+            .create_session("drain")
+            .unwrap()
+            .id;
+        let response = format!(
+            "data: {}\n\ndata: [DONE]\n\n",
+            serde_json::json!({"choices":[{"delta":{"tool_calls":[
+            {"index":0,"id":"provider-a","function":{"name":"create_file","arguments":serde_json::json!({"path":first,"content":"effect started"}).to_string()}},
+            {"index":1,"id":"provider-b","function":{"name":"create_file","arguments":serde_json::json!({"path":second,"content":"must not execute"}).to_string()}}
+        ]},"finish_reason":"tool_calls"}]})
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        {
+            let mut cfg = state.config.write().await;
+            cfg.ai.provider = "custom".into();
+            cfg.ai.api_key = "test-fixture".into();
+            cfg.ai.base_url = format!("http://{}", listener.local_addr().unwrap());
+            cfg.ai.enable_tool_calling = true;
+            cfg.tools.create_file = true;
+            cfg.tools.confirm_sensitive = false;
+            cfg.tools.allowed_paths = vec![root.to_string_lossy().into()];
+        }
+        let provider = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                Router::new().route(
+                    "/chat/completions",
+                    post(move || {
+                        let response = response.clone();
+                        async move { response }
+                    }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+        let gate = Arc::new(TestCreateGate::default());
+        let mut tools = ToolExecutor::with_audit(state.config.clone(), state.sessions.clone());
+        tools.create_gate = Some(gate.clone());
+        state.tools = Arc::new(tools);
+        let (turn, mut rx) = start_turn(
+            state.clone(),
+            ChatRequest {
+                session_id: Some(sid.clone()),
+                message: "simulate".into(),
+            },
+            false,
+        )
+        .unwrap();
+        tokio::time::timeout(Duration::from_secs(3), gate.started.notified())
+            .await
+            .unwrap();
+        let response = chat_cancel(
+            State(state.clone()),
+            Json(ChatCancelRequest {
+                session_id: Some(sid.clone()),
+                turn_id: turn.id.clone(),
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let ack: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(ack["cancellation_effective"], false);
+        assert_eq!(turn.state(), TurnState::Cancelling);
+        assert_eq!(state.chat_tasks.active_count(), 1);
+        assert!(state.chat_tasks.reserve(Some(sid.clone())).is_err());
+        gate.release.notify_one();
+        tokio::time::timeout(Duration::from_secs(3), turn.wait_terminal())
+            .await
+            .unwrap();
+        let mut events = Vec::new();
+        while let Some(ev) = rx.recv().await {
+            events.push(ev.name);
+        }
+        assert_eq!(turn.state(), TurnState::Cancelled);
+        assert!(events.contains(&"cancelled"));
+        assert!(!events.contains(&"done"));
+        assert!(first.exists());
+        assert!(!second.exists());
+        let audit = state.sessions.lock().unwrap().list_tool_audit(10).unwrap();
+        assert_eq!(audit.len(), 1);
+        assert!(audit[0].success);
+        assert_eq!(
+            state
+                .sessions
+                .lock()
+                .unwrap()
+                .get_messages(&sid)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(state.chat_tasks.active_count(), 0);
+        provider.abort();
+        assert!(provider.await.unwrap_err().is_cancelled());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     /// F0-3: solo el bearer exacto pasa el middleware de auth.
     #[test]
     fn bearer_auth_validation() {

@@ -41,6 +41,16 @@ pub struct ToolExecutor {
     config: std::sync::Arc<tokio::sync::RwLock<Config>>,
     sessions: Option<std::sync::Arc<std::sync::Mutex<SessionManager>>>,
     memory: std::sync::Arc<std::sync::Mutex<ToolMemory>>,
+    #[cfg(test)]
+    pub(crate) create_gate: Option<std::sync::Arc<TestCreateGate>>,
+}
+
+/// Test-only barrier after SEC-01 authorization, before real private-file I/O.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct TestCreateGate {
+    pub started: tokio::sync::Notify,
+    pub release: tokio::sync::Notify,
 }
 
 #[derive(Debug, Default)]
@@ -61,6 +71,8 @@ impl ToolExecutor {
             config,
             sessions: None,
             memory: std::sync::Arc::new(std::sync::Mutex::new(ToolMemory::default())),
+            #[cfg(test)]
+            create_gate: None,
         }
     }
 
@@ -73,6 +85,8 @@ impl ToolExecutor {
             config,
             sessions: Some(sessions),
             memory: std::sync::Arc::new(std::sync::Mutex::new(ToolMemory::default())),
+            #[cfg(test)]
+            create_gate: None,
         }
     }
 
@@ -224,6 +238,11 @@ impl ToolExecutor {
         let validated = SafePath::resolve(cfg, path)?;
         let display = validated.display.clone();
         let content = content.as_bytes().to_vec();
+        #[cfg(test)]
+        if let Some(gate) = &self.create_gate {
+            gate.started.notify_one();
+            gate.release.notified().await;
+        }
         tokio::task::spawn_blocking(move || validated.create(&content)).await??;
 
         Ok(ToolResult::success(

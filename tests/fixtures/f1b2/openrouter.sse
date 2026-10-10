@@ -1,0 +1,10 @@
+: OPENROUTER PROCESSING
+
+data: {"choices":[{"index":0,"delta":{"content":"acción"},"finish_reason":null}],"provider":"fixture"}
+
+: keepalive
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+
