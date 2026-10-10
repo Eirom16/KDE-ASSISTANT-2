@@ -9,7 +9,7 @@
 //! Para el envío de acciones a la UI QML, emite señales DBus al servicio
 //! `org.kde.assistant` que el QML escucha.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rdev::{listen, Event, EventType, Key};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -328,8 +328,7 @@ fn write_hotkey_state_in(cache_dir: &std::path::Path, action: HotkeyAction) -> R
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
-        .context("calculando el timestamp de la acción UI")?
-        .as_millis();
+        .context("calculando el timestamp de la acción UI")?;
     let content = format!("{}|{}", action.as_str(), timestamp);
     std::fs::write(&path, content).context("escribiendo la acción UI")
 }
@@ -420,10 +419,9 @@ mod tests {
             .expect("escribir acción de configuración");
 
         // Then
-        let content = std::fs::read_to_string(
-            cache_home.join("kde-assistant").join("hotkey.state"),
-        )
-        .expect("leer acción de configuración");
+        let content =
+            std::fs::read_to_string(cache_home.join("kde-assistant").join("hotkey.state"))
+                .expect("leer acción de configuración");
         assert!(content.starts_with("open_settings|"));
         std::fs::remove_dir_all(cache_home).expect("limpiar fixture");
     }
