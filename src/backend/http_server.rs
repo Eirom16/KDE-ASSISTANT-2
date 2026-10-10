@@ -185,6 +185,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/tools/execute", post(execute_tool_manual))
         .route("/api/tools/approve", post(approve_tool))
         .route("/api/tools/audit", get(list_tool_audit))
+        .route("/api/tools/operations", get(list_operations))
         .route(
             "/api/memory/facts",
             get(list_facts).post(upsert_fact).delete(delete_fact),
@@ -933,7 +934,24 @@ async fn execute_tool_manual(
             Json(serde_json::json!({ "error": format!("herramienta desconocida: {name}") })),
         );
     }
+    let session_id = body
+        .session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
     if tool_registry::permission(name) == tool_registry::Permission::Red {
+        let denied = crate::models::ToolCall {
+            id: format!("manual-{}", uuid::Uuid::new_v4()),
+            name: name.to_string(),
+            arguments: Default::default(),
+        };
+        if let Err(error) = state.tools.record_denial(&denied, session_id.clone()) {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"ok":false,"error":error.to_string()})),
+            );
+        }
         return (
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({
@@ -947,12 +965,6 @@ async fn execute_tool_manual(
         serde_json::Value::String(s) => serde_json::from_str(s).unwrap_or_default(),
         _ => Default::default(),
     };
-    let session_id = body
-        .session_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string);
     let tool_call = crate::models::ToolCall {
         id: format!("manual-{}", uuid::Uuid::new_v4()),
         name: name.to_string(),
@@ -1035,7 +1047,32 @@ fn default_audit_limit() -> i64 {
     50
 }
 
-/// Historial de herramientas ejecutadas (F4-3).
+/// Metadata for recoverable operations; protected by the existing IPC middleware.
+#[derive(Deserialize)]
+struct OperationQuery {
+    session_id: Option<String>,
+    #[serde(default = "default_audit_limit")]
+    limit: i64,
+}
+async fn list_operations(
+    State(state): State<AppState>,
+    Query(query): Query<OperationQuery>,
+) -> Response {
+    match state
+        .sessions
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .list_operations(query.session_id.as_deref(), query.limit)
+    {
+        Ok(records) => Json(records).into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error":error.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
 async fn list_tool_audit(
     State(state): State<AppState>,
     Query(q): Query<ToolAuditQuery>,
@@ -1468,8 +1505,8 @@ fn start_turn(
                 .map_err(|_| anyhow::anyhow!("client_disconnected"))?;
             {
                 let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
-                sessions.create_turn(&owned.id, owned.session_id.as_deref())?;
                 if regenerate {
+                    anyhow::ensure!(sessions.regeneration_is_safe(req.session_id.as_deref().unwrap_or_default())?,"regeneration_requires_new_message: inspecciona efectos anteriores y envía un mensaje nuevo");
                     let history =
                         sessions.get_messages(req.session_id.as_deref().unwrap_or_default())?;
                     // Regeneration never replays tools which may already have effects.
@@ -1487,11 +1524,21 @@ fn start_turn(
             if regenerate {
                 messages.pop();
             } // The existing unanswered user is already in history.
-            if !regenerate {
-                if let Some(sid) = &owned.session_id {
-                    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
-                    sessions.add_turn_message(sid, &owned.id, &Message::user(&req.message))?;
-                    maybe_auto_title(&sessions, sid, &req.message);
+            {
+                let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+                let user = Message::user(&req.message);
+                if regenerate {
+                    sessions.begin_retry_turn(
+                        &owned.id,
+                        owned.session_id.as_deref().unwrap_or_default(),
+                    )?;
+                } else {
+                    sessions.begin_turn(&owned.id, owned.session_id.as_deref(), Some(&user))?;
+                }
+                if !regenerate {
+                    if let Some(sid) = &owned.session_id {
+                        maybe_auto_title(&sessions, sid, &req.message);
+                    }
                 }
             }
             owned.check()?;
@@ -1626,7 +1673,7 @@ fn start_turn(
                 .sessions
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .finish_turn(&owned.id, status)
+                .settle_turn(&owned.id, status)
             {
                 log::error!("turn persistence: {error}");
             }

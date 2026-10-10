@@ -90,28 +90,122 @@ impl ToolExecutor {
         }
     }
 
+    pub fn prepare_for_turn(&self, turn_id: &str, call: &ToolCall) -> Result<String> {
+        let sessions = self
+            .sessions
+            .as_ref()
+            .context("journal storage unavailable")?;
+        sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .prepare_operation(turn_id, &call.name)
+    }
+    pub fn journal_state(
+        &self,
+        operation: &str,
+        state: super::operation_journal::OperationState,
+        consent: &str,
+        bytes: Option<i64>,
+    ) -> Result<()> {
+        let sessions = self
+            .sessions
+            .as_ref()
+            .context("journal storage unavailable")?;
+        sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .transition_operation(operation, state, consent, bytes)
+    }
+    pub async fn execute_for_turn(
+        &self,
+        call: &ToolCall,
+        ctx: &ToolCtx,
+        turn: &std::sync::Arc<super::conversation_turn::Turn>,
+        operation: &str,
+    ) -> Result<ToolResult> {
+        use super::operation_journal::OperationState;
+        // ToolCtx describes caller consent only; execution still checks cfg/SafePath.
+        self.sessions
+            .as_ref()
+            .context("journal storage unavailable")?
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .authorize_operation(operation, &turn.id, &call.name, &ctx.decided)?;
+        turn.dispatch_recorded(
+            || self.journal_state(operation, OperationState::Dispatched, &ctx.decided, None),
+            self.execute_and_record(call, ctx, operation),
+        )
+        .await
+    }
+    async fn execute_and_record(
+        &self,
+        call: &ToolCall,
+        ctx: &ToolCtx,
+        operation: &str,
+    ) -> Result<ToolResult> {
+        let started = std::time::Instant::now();
+        let result = self.execute_raw(call).await?;
+        let sessions = self
+            .sessions
+            .as_ref()
+            .context("journal storage unavailable")?;
+        sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .record_operation_result(
+                operation,
+                &ctx.decided,
+                &result,
+                started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+            )
+            .context("operation_result_not_persisted: external outcome requires inspection")?;
+        Ok(result)
+    }
     pub async fn execute(&self, tool_call: &ToolCall, ctx: &ToolCtx) -> Result<ToolResult> {
+        let Some(sessions) = &self.sessions else {
+            // Standalone test executor has no production backend storage.
+            return self.execute_raw(tool_call).await;
+        };
+        let turn_id = uuid::Uuid::new_v4().to_string();
+        sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .begin_turn(&turn_id, ctx.session_id.as_deref(), None)?;
+        let operation = self.prepare_for_turn(&turn_id, tool_call)?;
+        use super::operation_journal::OperationState;
+        sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .authorize_operation(&operation, &turn_id, &tool_call.name, &ctx.decided)?;
+        self.journal_state(&operation, OperationState::Dispatched, &ctx.decided, None)?;
+        let result = self.execute_and_record(tool_call, ctx, &operation).await;
+        sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .settle_turn(
+                &turn_id,
+                if result.is_ok() {
+                    "completed"
+                } else {
+                    "failed"
+                },
+            )?;
+        result
+    }
+    async fn execute_raw(&self, tool_call: &ToolCall) -> Result<ToolResult> {
         let id = tool_call.id.clone();
-        let t0 = std::time::Instant::now();
         let result = match self.get_config_snapshot() {
             Ok(cfg) => self.execute_with_config(tool_call, &cfg).await,
             Err(e) => Err(e),
         };
-        let ms = t0.elapsed().as_millis() as u64;
 
-        let final_res = match result {
+        match result {
             Ok(mut r) => {
                 r.tool_call_id = id;
                 Ok(r)
             }
             Err(e) => Ok(ToolResult::error(id, e.to_string())),
-        };
-
-        // Auditoría best-effort (nunca rompe la ejecución).
-        if let Ok(r) = &final_res {
-            self.audit(tool_call, ctx, r.success, ms);
         }
-        final_res
     }
 
     // Una sola versión autoriza el flag y todas las rutas de la operación.
@@ -145,35 +239,21 @@ impl ToolExecutor {
     }
 
     /// Registra una denegación del usuario (F4-1/F4-3): no se ejecutó nada.
-    pub fn record_denial(&self, tool_call: &ToolCall, session_id: Option<String>) {
-        let ctx = ToolCtx {
-            session_id,
-            decided: "denied".to_string(),
+    pub fn record_denial(&self, tool_call: &ToolCall, session_id: Option<String>) -> Result<()> {
+        let Some(sessions) = &self.sessions else {
+            return Ok(());
         };
-        self.audit(tool_call, &ctx, false, 0);
-    }
-
-    fn audit(&self, tool_call: &ToolCall, ctx: &ToolCtx, success: bool, ms: u64) {
-        let Some(sessions) = self.sessions.clone() else {
-            return;
-        };
-        let args_json =
-            serde_json::to_string(&tool_call.arguments).unwrap_or_else(|_| "{}".to_string());
-        let permission = crate::backend::tool_registry::permission(&tool_call.name).as_str();
-        let tool = tool_call.name.clone();
-        let sid = ctx.session_id.clone();
-        let decided = ctx.decided.clone();
-        // Insert bloqueante breve (igual estilo que los handlers HTTP).
+        let turn_id = uuid::Uuid::new_v4().to_string();
         let sessions = sessions.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = sessions.record_tool_audit(
-            sid.as_deref(),
-            &tool,
-            &args_json,
-            success,
-            ms,
-            permission,
-            &decided,
-        );
+        sessions.begin_turn(&turn_id, session_id.as_deref(), None)?;
+        let operation = sessions.prepare_operation(&turn_id, &tool_call.name)?;
+        sessions.transition_operation(
+            &operation,
+            super::operation_journal::OperationState::Denied,
+            "denied",
+            None,
+        )?;
+        sessions.settle_turn(&turn_id, "completed")
     }
 
     fn arg_string<'a>(args: &'a HashMap<String, serde_json::Value>, key: &str) -> Result<&'a str> {

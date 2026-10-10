@@ -699,7 +699,11 @@ fn cancelled_turn_survives_backend_restart_without_false_reply() {
         eventually(|| request.closed.load(Ordering::SeqCst)).await;
         let sid = f.sid.clone();
         let id = a.id();
+        let previous_db = Arc::downgrade(&f.backend.sessions);
         drop(f);
+        // Aborting serve requests teardown; spawned HTTP connections also own state.
+        // A restart begins only once every owner of the old database has gone.
+        eventually(|| previous_db.upgrade().is_none()).await;
         let backend = Backend::new().await.unwrap();
         assert_eq!(
             backend

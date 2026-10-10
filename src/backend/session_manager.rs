@@ -64,7 +64,8 @@ pub struct Reminder {
 }
 
 pub struct SessionManager {
-    conn: Connection,
+    pub(crate) conn: Connection,
+    _ownership: Option<std::fs::File>,
     #[allow(dead_code)]
     db_path: PathBuf,
 }
@@ -80,12 +81,38 @@ impl SessionManager {
 
         log::info!("SQLite DB: {}", db_path.display());
 
+        Self::open_at(db_path)
+    }
+
+    /// Opens one backend database and recovers abandoned work before serving requests.
+    /// The caller must own the backend lifecycle; do not reopen a live database to recover it.
+    pub fn open_at(db_path: PathBuf) -> Result<Self> {
+        let ownership: std::fs::File = rustix::fs::open(
+            &db_path,
+            rustix::fs::OFlags::CREATE
+                | rustix::fs::OFlags::RDWR
+                | rustix::fs::OFlags::CLOEXEC
+                | rustix::fs::OFlags::NOFOLLOW,
+            rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+        )?
+        .into();
+        rustix::fs::flock(
+            &ownership,
+            rustix::fs::FlockOperation::NonBlockingLockExclusive,
+        )
+        .context("database_backend_already_running")?;
         let conn = Connection::open(&db_path).context("abriendo SQLite")?;
 
         // F0-7: WAL para no bloquear lectores durante escrituras + busy_timeout.
-        let _ = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
-        conn.execute_batch(
-            r#"
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        let mode: String = conn.query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))?;
+        anyhow::ensure!(mode == "wal", "journal requires WAL");
+        conn.execute_batch("PRAGMA synchronous=FULL;")?;
+        let synchronous: i64 = conn.query_row("PRAGMA synchronous", [], |r| r.get(0))?;
+        anyhow::ensure!(synchronous == 2, "journal requires synchronous FULL");
+        crate::backend::operation_journal::atomic(&conn, || {
+            conn.execute_batch(
+                r#"
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
@@ -140,13 +167,20 @@ impl SessionManager {
             );
             CREATE INDEX IF NOT EXISTS idx_reminders_fire ON reminders(done, fire_at);
             "#,
-        )?;
+            )?;
 
-        // F5: migración de sesiones viejas (summary para hilos largos).
-        ensure_session_summary_columns(&conn)?;
-        ensure_turn_schema(&conn)?;
-
-        Ok(Self { conn, db_path })
+            // F5: migración de sesiones viejas (summary para hilos largos).
+            ensure_session_summary_columns(&conn)?;
+            ensure_turn_schema(&conn)?;
+            crate::backend::operation_journal::migrate(&conn)?;
+            Ok(())
+        })?;
+        crate::backend::operation_journal::recover(&conn)?;
+        Ok(Self {
+            conn,
+            db_path,
+            _ownership: Some(ownership),
+        })
     }
 
     #[cfg(test)]
@@ -199,9 +233,11 @@ impl SessionManager {
             "#,
         )?;
         ensure_turn_schema(&conn)?;
+        crate::backend::operation_journal::migrate(&conn)?;
         Ok(Self {
             conn,
             db_path: PathBuf::from(":memory:"),
+            _ownership: None,
         })
     }
 
@@ -240,7 +276,7 @@ impl SessionManager {
         let mut stmt = self.conn.prepare(
             "SELECT tool, COUNT(*), SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END),
              SUM(CASE WHEN decided = 'denied' THEN 1 ELSE 0 END), AVG(duration_ms)
-             FROM tool_audit GROUP BY tool ORDER BY COUNT(*) DESC",
+             FROM tool_audit WHERE decided != 'prepared' GROUP BY tool ORDER BY COUNT(*) DESC",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(serde_json::json!({
@@ -501,6 +537,8 @@ impl SessionManager {
             self.conn.is_autocommit(),
             "publication_transaction_already_open"
         );
+        let pending: i64 = self.conn.query_row("SELECT COUNT(*) FROM operation_journal WHERE turn_id=?1 AND state IN ('prepared','authorized','dispatched','unknown_outcome')", [turn_id], |r|r.get(0))?;
+        anyhow::ensure!(pending == 0, "operation_outcome_unresolved: no publication");
         self.conn.execute_batch("SAVEPOINT publish_turn")?;
         let result = (|| {
             if let Some(sid) = session_id {
@@ -729,7 +767,7 @@ fn ensure_turn_schema(conn: &Connection) -> Result<()> {
     if !has_turn {
         conn.execute_batch("ALTER TABLE messages ADD COLUMN turn_id TEXT")?;
     }
-    conn.execute_batch("CREATE TABLE IF NOT EXISTS conversation_turns (id TEXT PRIMARY KEY, session_id TEXT, state TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_messages_turn ON messages(turn_id); UPDATE conversation_turns SET state='failed' WHERE state IN ('created','running','waiting_for_approval','cancelling')")?;
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS conversation_turns (id TEXT PRIMARY KEY, session_id TEXT, state TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_messages_turn ON messages(turn_id)")?;
     Ok(())
 }
 
@@ -787,9 +825,11 @@ mod tests {
             "#,
         )?;
         ensure_turn_schema(&conn)?;
+        crate::backend::operation_journal::migrate(&conn)?;
         Ok(SessionManager {
             conn,
             db_path: PathBuf::from(":memory:"),
+            _ownership: None,
         })
     }
 

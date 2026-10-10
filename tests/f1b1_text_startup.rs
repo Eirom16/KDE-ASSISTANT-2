@@ -952,7 +952,16 @@ fn qml_offscreen_settings_and_two_visible_turns() {
         assert_eq!(recorded.lock().unwrap().len(), 2);
         assert!(!PathBuf::from(format!("/proc/{}", child.id())).exists());
         println!("F1B1_UI_PASS; QML terminado y recogido; cuatro mensajes persistidos");
+        let previous_db = Arc::downgrade(&b.sessions);
         stop(task).await;
+        drop(b);
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while previous_db.upgrade().is_some() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
         // El ejecutable real también debe lanzar y recoger su propia UI.
         let foreign_qml = dirs::cache_dir().unwrap().join("Main.qml");
         fs::write(

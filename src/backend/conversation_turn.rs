@@ -107,6 +107,26 @@ impl Turn {
         self.check()?;
         Ok(result)
     }
+    /// Persist the dispatch marker under the same lock that arbitrates cancellation.
+    /// The callback is synchronous; no DB lock is acquired before the turn lock.
+    pub async fn dispatch_recorded<T>(
+        &self,
+        persist: impl FnOnce() -> Result<()>,
+        future: impl Future<Output = Result<T>>,
+    ) -> Result<T> {
+        {
+            let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            anyhow::ensure!(
+                inner.state == TurnState::Running,
+                "turn_cancelled: no dispatch"
+            );
+            persist()?;
+        }
+        // This future owns result persistence and must drain after dispatch.
+        let result = future.await;
+        self.check()?;
+        result
+    }
     pub async fn cancellation(&self) {
         let mut changes = self.changes.subscribe();
         loop {

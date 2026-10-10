@@ -389,6 +389,9 @@ impl AiService {
                             new_messages.push(tool_msg);
                             continue;
                         }
+                        let operation = if let Some(turn) = &turn {
+                            Some(tools_exec.prepare_for_turn(&turn.id,tc)?)
+                        } else { None };
                         // F4-1: puerta de confirmación para 🟡/🔴.
                         let level = crate::backend::tool_registry::permission(&tc.name);
                         let need_confirm = match level {
@@ -402,7 +405,11 @@ impl AiService {
                                 activity.tool(&tc.id, &tc.name, "denied");
                                 // Voz manos-libres: sin UI que confirme, denegar al
                                 // momento (las 🟡 ya van en auto por su política).
-                                tools_exec.record_denial(tc, session_id.clone());
+                                if let Some(operation) = &operation {
+                                    tools_exec.journal_state(operation,crate::backend::operation_journal::OperationState::Denied,"denied",None)?;
+                                } else {
+                                    tools_exec.record_denial(tc, session_id.clone())?;
+                                }
                                 let denial = crate::models::ToolResult::error(
                                     tc.id.clone(),
                                     "Acción sensible denegada en modo voz: requiere confirmación en el chat.",
@@ -450,7 +457,11 @@ impl AiService {
                                 decided = "approved";
                             } else {
                                 activity.tool(&tc.id, &tc.name, "denied");
-                                tools_exec.record_denial(tc, session_id.clone());
+                                if let Some(operation) = &operation {
+                                    tools_exec.journal_state(operation,crate::backend::operation_journal::OperationState::Denied,"denied",None)?;
+                                } else {
+                                    tools_exec.record_denial(tc, session_id.clone())?;
+                                }
                                 let denial = crate::models::ToolResult::error(
                                     tc.id.clone(),
                                     "El usuario denegó esta acción. Continúa sin ella o propone una alternativa.",
@@ -480,11 +491,10 @@ impl AiService {
                             turn.check()?;
                         }
                         activity.tool(&tc.id, &tc.name, "start");
-                        let execution = tools_exec.execute(tc, &ctx);
-                        let result = if let Some(turn) = &turn {
-                            turn.dispatch(execution).await?
+                        let result = if let (Some(turn),Some(operation)) = (&turn,&operation) {
+                            tools_exec.execute_for_turn(tc,&ctx,turn,operation).await
                         } else {
-                            execution.await
+                            tools_exec.execute(tc,&ctx).await
                         }?;
                         activity.tool(
                             &tc.id,
