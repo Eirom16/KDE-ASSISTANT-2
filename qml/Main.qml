@@ -163,11 +163,14 @@ ApplicationWindow {
 
         // Si no hay sesion, crearla primero y luego enviar
         if (!currentSessionId) {
+            var creationGeneration = chatRequestGeneration
+            var creationSession = currentSessionId
             var cxhr = new XMLHttpRequest()
             cxhr.open("POST", backendUrl + "/api/session")
             cxhr.setRequestHeader("Content-Type", "application/json")
             setAuth(cxhr)
             cxhr.onreadystatechange = function() {
+                if (creationGeneration !== chatRequestGeneration || creationSession !== currentSessionId) return
                 if (cxhr.readyState === XMLHttpRequest.DONE && (cxhr.status === 200 || cxhr.status === 201)) {
                     try {
                         var s = JSON.parse(cxhr.responseText)
@@ -191,22 +194,24 @@ ApplicationWindow {
         }, text)
     }
 
-    // F1-1: regenera la última respuesta (también sirve de "reintentar"
-    // tras un tool en error). No duplica el mensaje del usuario: quita los
-    // assistants locales en cola y el backend borra el trailing en DB.
+    // Repetir una acción exige un mensaje nuevo explícito, sin borrar historial.
     function regenerate() {
         if (!currentSessionId || streaming) return
-        var arr = messages.slice()
-        while (arr.length > 0 && arr[arr.length - 1].role === "assistant") arr.pop()
-        messages = arr
-        streamAgent(backendUrl + "/api/chat/regenerate", {
-            session_id: currentSessionId
-        }, null)
+        lastError = qsTr("Repetición explícita requerida")
+        lastErrorDetail = qsTr("Para repetir una respuesta o herramienta, envía un mensaje nuevo. El historial se conserva para evitar reejecutar acciones anteriores.")
+        showErrorBanner = true
     }
 
     // Motor SSE genérico: opcionalmente agrega el mensaje del usuario,
     // siempre agrega el placeholder del asistente y streamea tokens/tools.
     function streamAgent(url, bodyObj, userText) {
+        var requestGeneration = ++chatRequestGeneration
+        var requestSession = bodyObj.session_id || ""
+        activeChatTurnId = ""
+        activeChatSessionId = requestSession
+        chatCancelling = false
+        var lastSequence = 0
+        var terminalReceived = false
         if (userText !== null && userText !== undefined) {
             // Mensaje del usuario
             appendMessage({
@@ -240,13 +245,14 @@ ApplicationWindow {
         var sawError = ""
 
         function refreshUI(stillStreaming) {
+            if (requestGeneration !== chatRequestGeneration || requestSession !== currentSessionId) return
             var arr = messages.slice()
             if (assistantIdx >= 0 && assistantIdx < arr.length) {
                 var old = arr[assistantIdx]
                 arr[assistantIdx] = {
                     role: "assistant",
                     authorLabel: "KDE Assistant",
-                    content: rawText ? markdownToHtml(rawText) : (stillStreaming ? "" : "⚠ Sin respuesta del asistente"),
+                    content: chatCancelling ? qsTr("Cancelando; esperando que terminen las operaciones iniciadas…") : (rawText ? markdownToHtml(rawText) : (stillStreaming ? "" : "⚠ Sin respuesta del asistente")),
                     raw: rawText,
                     timestamp: old.timestamp,
                     isStreaming: stillStreaming,
@@ -268,6 +274,15 @@ ApplicationWindow {
             if (!ev || !dataStr) return
             var obj = null
             try { obj = JSON.parse(dataStr) } catch (e) { return }
+            if (requestGeneration !== chatRequestGeneration || requestSession !== currentSessionId) return
+            if (!obj.turn_id || (obj.session_id || "") !== requestSession || obj.sequence <= lastSequence) return
+            if (ev === "turn") {
+                if (activeChatTurnId && activeChatTurnId !== obj.turn_id) return
+                activeChatTurnId = obj.turn_id
+                if (chatCancelling) requestTurnCancellation()
+            }
+            if (activeChatTurnId !== obj.turn_id) return
+            lastSequence = obj.sequence
             if (ev === "token") {
                 if (obj && obj.content) rawText += obj.content
             } else if (ev === "tool_call") {
@@ -277,7 +292,7 @@ ApplicationWindow {
                     for (var j = 0; j < toolArr.length; j++) {
                         if (toolArr[j].id === obj.tool_call_id) {
                             var denied = obj.content && (obj.content.indexOf("El usuario denegó") === 0 || obj.content.indexOf("Acción sensible denegada") === 0)
-                            toolArr[j].status = denied ? "error" : "success"
+                            toolArr[j].status = (denied || obj.success === false) ? "error" : "success"
                             toolArr[j].result = denied ? qsTr("Denegada por ti") : (obj.content || "")
                             if (!denied && obj.image_url) toolArr[j].imageUrl = obj.image_url
                             break
@@ -289,7 +304,7 @@ ApplicationWindow {
                         if (toolArr[m].id === obj.tool_call_id) { found = true; break }
                     }
                     if (!found && obj.tool_call_id) {
-                        toolArr.push({ id: obj.tool_call_id, name: "tool", status: "success", result: obj.content || "", imageUrl: obj.image_url || "", caption: "" })
+                        toolArr.push({ id: obj.tool_call_id, name: "tool", status: obj.success === false ? "error" : "success", result: obj.content || "", imageUrl: obj.image_url || "", caption: "" })
                     }
                 }
             } else if (ev === "approval_needed") {
@@ -303,9 +318,14 @@ ApplicationWindow {
                         }
                     }
                 }
+            } else if (ev === "cancelled") {
+                terminalReceived = true
+                rawText = obj.message || qsTr("Cancelado por el usuario; los efectos iniciados pueden haber terminado.")
             } else if (ev === "done") {
+                terminalReceived = true
                 if (obj && obj.full_content && !rawText) rawText = obj.full_content
             } else if (ev === "error") {
+                terminalReceived = true
                 if (obj && obj.message) sawError = obj.message
             }
         }
@@ -316,6 +336,7 @@ ApplicationWindow {
         setAuth(xhr)
         activeChatXhr = xhr
         xhr.onreadystatechange = function() {
+            if (requestGeneration !== chatRequestGeneration || requestSession !== currentSessionId) return
             if (xhr.readyState === 3 || xhr.readyState === 4) {
                 var full = xhr.responseText || ""
                 var newPart = full.substring(processedLen)
@@ -335,6 +356,7 @@ ApplicationWindow {
                         lastErrorDetail = qsTr("Falta el token local. Reinicia kde-assistant (main.rs lo inyecta vía KDE_ASSISTANT_TOKEN).")
                         showErrorBanner = true
                         streaming = false
+                        chatCancelling = false
                         activeChatXhr = null
                         refreshUI(false)
                         return
@@ -343,13 +365,20 @@ ApplicationWindow {
                         processBlock(pending)
                         pending = ""
                     }
-                    if (sawError && !rawText) {
-                        rawText = "⚠ " + sawError
+                    if (!terminalReceived && !sawError) {
+                        try {
+                            var failure = JSON.parse(full)
+                            sawError = failure.error || failure.message || qsTr("Conexión interrumpida antes de terminar el turno")
+                        } catch (e) { sawError = qsTr("Conexión interrumpida antes de terminar el turno") }
+                    }
+                    if (sawError) {
+                        rawText += (rawText ? "\n\n" : "") + "⚠ " + sawError
                         lastError = qsTr("Error del asistente")
                         lastErrorDetail = sawError
                         showErrorBanner = true
                     }
                     streaming = false
+                    chatCancelling = false
                     // Re-chequear salud tras error (puede ser 401/429).
                     if (sawError) checkBackend()
                     activeChatXhr = null
@@ -363,10 +392,13 @@ ApplicationWindow {
 
     // Carga las sesiones del backend (o crea una si no hay)
     function loadSessions() {
+        var listGeneration = chatRequestGeneration
+        var selectedSession = currentSessionId
         var xhr = new XMLHttpRequest()
         xhr.open("GET", backendUrl + "/api/sessions")
         setAuth(xhr)
         xhr.onreadystatechange = function() {
+            if (listGeneration !== chatRequestGeneration || selectedSession !== currentSessionId) return
             if (xhr.status === 401 && xhr.readyState === XMLHttpRequest.DONE) {
                 lastError = qsTr("No autorizado")
                 lastErrorDetail = qsTr("Token local inválido. Reinicia la app.")
@@ -401,11 +433,15 @@ ApplicationWindow {
     function newSession() {
         // F0-7: cancelar streaming en curso antes de cambiar de sesión.
         cancelChat()
+        detachChat()
+        var creationGeneration = chatRequestGeneration
+        var previousSession = currentSessionId
         var xhr = new XMLHttpRequest()
         xhr.open("POST", backendUrl + "/api/session")
         xhr.setRequestHeader("Content-Type", "application/json")
         setAuth(xhr)
         xhr.onreadystatechange = function() {
+            if (creationGeneration !== chatRequestGeneration || previousSession !== currentSessionId) return
             if (xhr.readyState === XMLHttpRequest.DONE && (xhr.status === 200 || xhr.status === 201)) {
                 var s = JSON.parse(xhr.responseText)
                 currentSessionId = s.id
@@ -425,6 +461,7 @@ ApplicationWindow {
         xhr.onreadystatechange = function() {
             if (xhr.readyState === XMLHttpRequest.DONE && (xhr.status === 200 || xhr.status === 201)) {
                 if (currentSessionId === sessionId) {
+                    detachChat()
                     currentSessionId = ""
                     messages = []
                 }
@@ -446,10 +483,12 @@ ApplicationWindow {
 
     // Carga los mensajes de una sesion desde el backend
     function loadMessages(sessionId) {
+        var loadGeneration = chatRequestGeneration
         var xhr = new XMLHttpRequest()
         xhr.open("GET", backendUrl + "/api/messages?session_id=" + encodeURIComponent(sessionId))
         setAuth(xhr)
         xhr.onreadystatechange = function() {
+            if (sessionId !== currentSessionId || loadGeneration !== chatRequestGeneration) return
             if (xhr.readyState === XMLHttpRequest.DONE && (xhr.status === 200 || xhr.status === 201)) {
                 var list = JSON.parse(xhr.responseText)
                 var arr = []
@@ -524,8 +563,12 @@ ApplicationWindow {
     property int calibrationCount: 0
     property int calibrationTarget: 3
     property string calibrationHint: qsTr("Di «hey Jarvis» de forma natural")
-    // XHR del chat en curso (F0-7: para abortar en Stop / nueva sesión).
+    // SSE se conserva durante Stop y se libera al abandonar la sesión.
     property var activeChatXhr: null
+    property string activeChatTurnId: ""
+    property string activeChatSessionId: ""
+    property bool chatCancelling: false
+    property int chatRequestGeneration: 0
     // Estado backend (F0-5): se actualiza con /api/health + /api/config.
     property bool backendOnline: false
     property string backendStatus: "offline" // offline | online | nokey
@@ -606,37 +649,55 @@ ApplicationWindow {
         req.send(JSON.stringify({ tool_call_id: toolCallId, approved: approved }))
     }
 
-    // F0-7: cancela el streaming local (xhr.abort) + backend (/api/chat/cancel).
+    // Stop conserva SSE hasta el terminal: HTTP 202 sólo confirma la solicitud.
     function cancelChat() {
-        if (activeChatXhr) {
-            try { activeChatXhr.abort() } catch (e) {}
-            activeChatXhr = null
-        }
-        if (streaming) {
-            streaming = false
-            // Marcar el placeholder como cancelado si sigue en streaming.
-            var arr = messages.slice()
-            for (var i = arr.length - 1; i >= 0; i--) {
-                if (arr[i].isStreaming) {
-                    arr[i] = {
-                        role: "assistant",
-                        authorLabel: "KDE Assistant",
-                        content: qsTr("Cancelado por el usuario."),
-                        raw: "Cancelado por el usuario.",
-                        timestamp: arr[i].timestamp,
-                        isStreaming: false,
-                        toolCalls: arr[i].toolCalls || []
-                    }
-                    break
-                }
+        if (!streaming || chatCancelling) return
+        chatCancelling = true
+        var arr = messages.slice()
+        for (var i = arr.length - 1; i >= 0; i--) {
+            if (arr[i].isStreaming) {
+                var copy = Object.assign({}, arr[i])
+                copy.content = qsTr("Cancelando; esperando que terminen las operaciones iniciadas…")
+                arr[i] = copy
+                break
             }
-            messages = arr
         }
+        messages = arr
+        // Si aún falta la identidad, el primer evento turn despacha la solicitud.
+        requestTurnCancellation()
+    }
+
+    function requestTurnCancellation() {
+        if (!activeChatTurnId) return
+        var turn = activeChatTurnId
+        var session = activeChatSessionId
+        var generation = chatRequestGeneration
         var c = new XMLHttpRequest()
         c.open("POST", backendUrl + "/api/chat/cancel")
         c.setRequestHeader("Content-Type", "application/json")
         setAuth(c)
-        c.send(JSON.stringify({ session_id: currentSessionId ? currentSessionId : null }))
+        c.onreadystatechange = function() {
+            if (c.readyState !== XMLHttpRequest.DONE || generation !== chatRequestGeneration || session !== currentSessionId || turn !== activeChatTurnId || !streaming) return
+            if (c.status !== 200 && c.status !== 202) {
+                lastError = qsTr("No se pudo confirmar la solicitud de cancelación")
+                lastErrorDetail = c.responseText || qsTr("El turno sigue pendiente de un estado terminal")
+                showErrorBanner = true
+            }
+            // Incluso 200 puede corresponder a Completed/Failed. SSE decide el terminal.
+        }
+        c.send(JSON.stringify({ session_id: session || null, turn_id: turn }))
+    }
+
+    function detachChat() {
+        ++chatRequestGeneration
+        activeChatTurnId = ""
+        activeChatSessionId = ""
+        chatCancelling = false
+        streaming = false
+        if (activeChatXhr) {
+            try { activeChatXhr.abort() } catch (e) {}
+            activeChatXhr = null
+        }
     }
 
     Component.onCompleted: {
@@ -927,6 +988,7 @@ ApplicationWindow {
                 root.newSession()
             }
             onSessionSelected: function(id) {
+                if (id !== root.currentSessionId) root.detachChat()
                 root.currentSessionId = id
                 root.loadMessages(id)
                 root.drawerOpen = false
@@ -1306,6 +1368,7 @@ ApplicationWindow {
             root.raise()
         }
         onOpenSessionRequested: function(sessionId) {
+            if (sessionId !== root.currentSessionId) root.detachChat()
             root.currentSessionId = sessionId
             root.loadMessages(sessionId)
             root.show()

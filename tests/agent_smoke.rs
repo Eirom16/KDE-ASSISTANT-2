@@ -78,6 +78,7 @@ async fn chat_with_openrouter() {
                 tool_call_id,
                 content,
                 image_url,
+                ..
             } => {
                 eprintln!("\n[tool_result] {tool_call_id} -> {content} {image_url:?}");
             }

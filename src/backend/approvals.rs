@@ -52,30 +52,21 @@ impl ApprovalManager {
         }
     }
 
-    /// Registra un pedido y espera la decisión (timeout = denegado).
-    pub async fn request(&self, tool_call_id: &str, policy_note: &str) -> bool {
+    /// Registration precedes the UI event, eliminating immediate-approval races.
+    pub fn register(&self, tool_call_id: &str) -> PendingApproval<'_> {
         let (tx, rx) = oneshot::channel();
-        {
-            let mut map = self.pending.lock().unwrap_or_else(|e| e.into_inner());
-            map.insert(tool_call_id.to_string(), tx);
+        self.pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(tool_call_id.to_string(), tx);
+        PendingApproval {
+            manager: self,
+            id: tool_call_id.to_string(),
+            rx: Some(rx),
         }
-        log::info!("Approval pedido para {tool_call_id} ({policy_note}), esperando...");
-        let decided =
-            tokio::time::timeout(std::time::Duration::from_secs(APPROVE_TIMEOUT_SECS), rx)
-                .await
-                .ok()
-                .and_then(|r| r.ok())
-                .unwrap_or(false);
-        {
-            let mut map = self.pending.lock().unwrap_or_else(|e| e.into_inner());
-            map.remove(tool_call_id);
-        }
-        if decided {
-            log::info!("Approval {tool_call_id}: aprobada por el usuario");
-        } else {
-            log::info!("Approval {tool_call_id}: denegada o timeout");
-        }
-        decided
+    }
+    pub async fn request(&self, tool_call_id: &str, _policy_note: &str) -> bool {
+        self.register(tool_call_id).wait().await
     }
 
     /// Resuelve un pedido pendiente. Retorna false si ya expiró o no existe.
@@ -90,9 +81,35 @@ impl ApprovalManager {
         }
     }
 
-    #[cfg(test)]
     pub fn pending_count(&self) -> usize {
         self.pending.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+}
+
+pub struct PendingApproval<'a> {
+    manager: &'a ApprovalManager,
+    id: String,
+    rx: Option<oneshot::Receiver<bool>>,
+}
+impl PendingApproval<'_> {
+    pub async fn wait(mut self) -> bool {
+        let Some(rx) = self.rx.take() else {
+            return false;
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(APPROVE_TIMEOUT_SECS), rx)
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+            .unwrap_or(false)
+    }
+}
+impl Drop for PendingApproval<'_> {
+    fn drop(&mut self) {
+        self.manager
+            .pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.id);
     }
 }
 

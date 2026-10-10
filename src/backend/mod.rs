@@ -8,6 +8,7 @@ pub mod approvals;
 pub mod audio_capture;
 pub mod auth;
 pub mod chime_player;
+pub mod conversation_turn;
 pub mod document_suite;
 pub mod hotkey_listener;
 pub mod hotword;
@@ -18,6 +19,7 @@ pub(crate) mod private_files;
 mod safe_fs;
 pub mod session_manager;
 pub mod speech_service;
+pub mod sse_parser;
 pub mod stt;
 pub mod stt_api;
 pub mod tool_executor;
@@ -43,6 +45,7 @@ pub struct Backend {
     pub sessions: Arc<Mutex<session_manager::SessionManager>>,
     pub tools: Arc<tool_executor::ToolExecutor>,
     pub approvals: Arc<approvals::ApprovalManager>,
+    pub turns: Arc<conversation_turn::TurnRegistry>,
     pub speech: Arc<speech_service::SpeechService>,
     /// AudioCapture (cpal) no es Send/Sync en todas las plataformas. Este Arc
     /// nunca abandona el hilo del controlador: el servidor HTTP reenvia solo
@@ -104,6 +107,7 @@ impl Backend {
             sessions,
             tools,
             approvals,
+            turns: Arc::new(conversation_turn::TurnRegistry::default()),
             speech,
             audio: Arc::new(RwLock::new(None)),
             chimes,
@@ -133,9 +137,7 @@ impl Backend {
             voice: self.voice.clone(),
             agent_events: self.agent_events.clone(),
             local_token,
-            chat_tasks: std::sync::Arc::new(
-                std::sync::Mutex::new(std::collections::HashMap::new()),
-            ),
+            chat_tasks: self.turns.clone(),
             dictation_active: self.voice.dictation_flag(),
             sidecar_active: self.sidecar_active.clone(),
             voice_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),

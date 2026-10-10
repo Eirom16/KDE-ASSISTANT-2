@@ -27,13 +27,14 @@ use axum::{
     Json, Router,
 };
 use futures_util::stream::Stream;
-use futures_util::StreamExt;
+use futures_util::FutureExt;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 use crate::backend::ai_service::AiService;
+use crate::backend::conversation_turn::{ClientLease, Turn, TurnRegistry, TurnState};
 use crate::backend::session_manager::SessionManager;
 use crate::backend::tool_executor::ToolExecutor;
 use crate::backend::tool_registry;
@@ -59,7 +60,7 @@ pub struct AppState {
     pub local_token: String,
     /// Handles de agentes en curso por sesión (F0-7 cancel).
     /// Clave: session_id o "default" si no hay.
-    pub chat_tasks: Arc<Mutex<std::collections::HashMap<String, tokio::task::AbortHandle>>>,
+    pub chat_tasks: Arc<TurnRegistry>,
     /// Dictado al input (botón mic del chat): grabación sin pipeline de voz.
     pub dictation_active: Arc<std::sync::atomic::AtomicBool>,
     /// El sidecar de voz (Python/Pipecat) es dueño del mic. Los endpoints de
@@ -147,6 +148,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/chat", post(chat))
         .route("/api/chat/complete", post(chat_complete))
         .route("/api/chat/cancel", post(chat_cancel))
+        .route("/api/chat/turn", get(current_turn))
         .route("/api/chat/regenerate", post(chat_regenerate))
         .route("/api/sessions", get(list_sessions))
         .route(
@@ -195,152 +197,62 @@ pub fn router(state: AppState) -> Router {
 pub struct ChatCancelRequest {
     #[serde(default)]
     pub session_id: Option<String>,
+    pub turn_id: String,
 }
 
-/// Cancela el agente en curso para una sesión (F0-7).
-/// Aborta el task del agente; el stream SSE se cierra y no se persiste nada nuevo.
-/// El QML además hace `xhr.abort()` en local.
+#[derive(Deserialize)]
+struct CurrentTurnQuery {
+    session_id: Option<String>,
+}
+async fn current_turn(
+    State(state): State<AppState>,
+    Query(query): Query<CurrentTurnQuery>,
+) -> Response {
+    match state.chat_tasks.current(&query.session_id) {
+        Some(turn) => Json(serde_json::json!({"turn_id":turn.id,"session_id":turn.session_id,"state":turn.state()})).into_response(),
+        None => (StatusCode::NOT_FOUND,Json(serde_json::json!({"code":"turn_not_found"}))).into_response(),
+    }
+}
+
 async fn chat_cancel(
     State(state): State<AppState>,
     Json(body): Json<ChatCancelRequest>,
-) -> impl IntoResponse {
-    let key = body.session_id.unwrap_or_else(|| "default".to_string());
-    let aborted = {
-        let mut map = state.chat_tasks.lock().unwrap_or_else(|e| e.into_inner());
-        map.remove(&key).map(|h| {
-            h.abort();
-            true
-        })
+) -> Response {
+    let Some(turn) = state.chat_tasks.find(&body.session_id, &body.turn_id) else {
+        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"code":"turn_not_found","error":"El turno no pertenece a esta sesión o ya fue recogido"}))).into_response();
     };
-    // También silenciar TTS por si el turno ya estaba hablando.
-    if aborted.unwrap_or(false) {
-        state.speech.request_stop();
-        log::info!("Chat cancelado para sesión {key}");
-        (
-            StatusCode::OK,
-            Json(serde_json::json!({ "status": "cancelled" })),
-        )
-    } else {
-        (
-            StatusCode::OK,
-            Json(serde_json::json!({ "status": "nothing_to_cancel" })),
-        )
-    }
+    let requested = turn.cancel();
+    let effective = state.chat_tasks.cancel_and_wait(&turn).await;
+    (
+        if effective {
+            StatusCode::OK
+        } else {
+            StatusCode::ACCEPTED
+        },
+        Json(serde_json::json!({
+            "turn_id":turn.id,"session_id":turn.session_id,"cancellation_requested":requested,
+            "cancellation_effective":turn.state() == TurnState::Cancelled,"state":turn.state()
+        })),
+    )
+        .into_response()
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ChatRegenerateRequest {
     pub session_id: String,
 }
-
-/// Regenera la última respuesta (F1-1): borra el trailing assistant/tools
-/// posterior al último `user` y re-ejecuta el agente con ese historial.
-/// SSE igual que `/api/chat` (token/tool_call/tool_result/done/error).
-/// También sirve como "reintentar" tras un tool en error.
 async fn chat_regenerate(
     State(state): State<AppState>,
     Json(body): Json<ChatRegenerateRequest>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let sid = body.session_id.clone();
-    log::info!("Regenerate request (session={sid})");
-
-    // Validar y preparar historial. En error, el stream llevará un evento error.
-    // (Un solo punto de retorno SSE para unificar el tipo opaque.)
-    let prepared: Result<Vec<Message>, String> = {
-        let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        if sessions.get_session(&sid).ok().flatten().is_none() {
-            Err("Sesión no encontrada".to_string())
-        } else {
-            // Limpiar el intento anterior para no duplicar contexto.
-            let _ = sessions.delete_trailing_after_last_user(&sid);
-            let history = sessions.get_messages(&sid).unwrap_or_default();
-            if !history.iter().any(|m| matches!(m, Message::User { .. })) {
-                Err("No hay mensaje de usuario para regenerar".to_string())
-            } else {
-                Ok(history)
-            }
-        }
-    };
-
-    let (tx, rx) = mpsc::channel::<StreamEvent>(256);
-    match prepared {
-        Err(msg) => {
-            let _ = tx.send(StreamEvent::Error { message: msg }).await;
-            drop(tx);
-        }
-        Ok(history) => {
-            let system_prompt = state.config.read().await.ai.system_prompt.clone();
-            let mut messages = vec![Message::system(system_prompt)];
-            // Ventana como en build_messages.
-            const MAX_HISTORY: usize = 40;
-            let start = history.len().saturating_sub(MAX_HISTORY);
-            messages.extend(history.into_iter().skip(start));
-
-            let ai = state.ai.clone();
-            let tools_exec = state.tools.clone();
-            let cfg_snapshot = state.config.read().await.clone();
-            let tools = tool_registry::filtered_tools(&cfg_snapshot);
-            let approvals = state.approvals.clone();
-            let policy = agent_policy(&cfg_snapshot);
-            let sid_for_task = sid.clone();
-            let agent_task = tokio::spawn(async move {
-                ai.run_agent(
-                    messages,
-                    tools,
-                    tools_exec,
-                    approvals,
-                    policy,
-                    Some(sid_for_task),
-                    tx,
-                )
-                .await
-            });
-            let cancel_key = sid.clone();
-            register_task(&state, &cancel_key, agent_task.abort_handle());
-
-            let state2 = state.clone();
-            let sid2 = sid.clone();
-            let cancel_key2 = cancel_key.clone();
-            tokio::spawn(async move {
-                match agent_task.await {
-                    Ok(Ok(outcome)) => {
-                        unregister_if_finished(&state2, &cancel_key2);
-                        let sessions = state2.sessions.lock().unwrap_or_else(|e| e.into_inner());
-                        for m in &outcome.new_messages {
-                            let _ = sessions.add_message(&sid2, m);
-                        }
-                        if outcome.new_messages.is_empty() && !outcome.response.trim().is_empty() {
-                            let _ =
-                                sessions.add_message(&sid2, &Message::assistant(outcome.response));
-                        }
-                        drop(sessions);
-                        // F5: resumir el hilo en segundo plano si toca.
-                        maybe_summarize(&state2, &sid2);
-                    }
-                    Ok(Err(e)) => {
-                        unregister_if_finished(&state2, &cancel_key2);
-                        log::warn!("Regenerate fallo: {e}");
-                    }
-                    Err(e) => {
-                        if e.is_cancelled() {
-                            log::info!("Regenerate cancelado para {cancel_key2}");
-                        } else {
-                            log::warn!("Task regenerate fallo: {e}");
-                        }
-                        unregister_if_finished(&state2, &cancel_key2);
-                    }
-                }
-            });
-        }
-    }
-
-    let sse_stream = stream_from_receiver(rx);
-    let sse_stream = sse_stream.map(move |ev| {
-        let (event_name, data) = sse_event(ev);
-        Ok::<Event, Infallible>(Event::default().event(event_name).data(data))
-    });
-
-    Sse::new(sse_stream).keep_alive(KeepAlive::default())
+) -> Response {
+    start_stream(
+        state,
+        ChatRequest {
+            session_id: Some(body.session_id),
+            message: String::new(),
+        },
+        true,
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -1505,217 +1417,297 @@ async fn list_messages(
     }
 }
 
-/// Respuesta de `/api/chat/complete` (no streaming).
-#[derive(Debug, Serialize)]
-pub struct ChatCompleteResponse {
-    pub transcript: String,
-    pub response: String,
-    pub session_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tool_calls: Vec<serde_json::Value>,
-}
-
-/// Mapea errores crudos del proveedor a mensajes comprensibles,
-/// recortando HTML/JSON gigantes que el proveedor pueda devolver.
-fn friendly_provider_error(raw: &str) -> String {
-    let snippet: String = raw.chars().take(500).collect();
-    if snippet.contains("401") || snippet.to_lowercase().contains("unauthorized") {
-        return "No autorizado (401). Verifica tu API key en Configuración.".to_string();
-    }
-    if snippet.contains("429") || snippet.to_lowercase().contains("rate limit") {
-        return "Límite de peticiones alcanzado (429). Espera unos segundos y reintenta."
-            .to_string();
-    }
-    if snippet.contains("404")
-        || snippet.to_lowercase().contains("model") && snippet.contains("not found")
-    {
-        return "Modelo no encontrado (404). Elige otro en Configuración → Modelo.".to_string();
-    }
-    if snippet.to_lowercase().contains("timeout") || snippet.to_lowercase().contains("timed out") {
-        return "Tiempo de espera agotado. Revisa tu conexión e inténtalo de nuevo.".to_string();
-    }
-    if snippet.to_lowercase().contains("connection") || snippet.to_lowercase().contains("dns") {
-        return format!("Sin conexión con el proveedor. Detalle: {snippet}");
-    }
-    format!("Error del asistente: {snippet}")
-}
-
-/// Clave para `chat_tasks`: session o "default".
-fn task_key(session_id: &Option<String>) -> String {
-    session_id.clone().unwrap_or_else(|| "default".to_string())
-}
-
-fn register_task(state: &AppState, key: &str, handle: tokio::task::AbortHandle) {
-    let mut map = state.chat_tasks.lock().unwrap_or_else(|e| e.into_inner());
-    map.insert(key.to_string(), handle);
-}
-
-fn unregister_if_finished(state: &AppState, key: &str) {
-    let mut map = state.chat_tasks.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(h) = map.get(key) {
-        if h.is_finished() {
-            map.remove(key);
-        }
-    }
-}
-
 fn agent_policy(cfg: &Config) -> crate::backend::approvals::ApprovalPolicy {
     crate::backend::approvals::ApprovalPolicy::from_config(cfg.tools.confirm_sensitive)
 }
 
-/// Chat sin streaming: espera la respuesta completa y la devuelve como JSON.
-/// Usado por la UI QML (XMLHttpRequest no hace streaming SSE de forma fiable).
-async fn chat_complete(
-    State(state): State<AppState>,
-    Json(req): Json<ChatRequest>,
-) -> impl IntoResponse {
-    log::info!(
-        "Chat completo: '{}' (session={:?})",
-        truncate(&req.message, 60),
-        req.session_id
-    );
+#[derive(Debug)]
+struct TurnEvent {
+    name: &'static str,
+    data: serde_json::Value,
+}
 
-    // Construir historial
-    let messages = build_messages(&state, &req).await;
+fn emit(turn: &Turn, name: &'static str, data: serde_json::Value) -> TurnEvent {
+    TurnEvent {
+        name,
+        data: turn.envelope(data),
+    }
+}
 
-    // Ejecutar el agente (sin streaming al cliente). Respetar flags de config.
-    let cfg_snapshot = state.config.read().await.clone();
-    let tools = tool_registry::filtered_tools(&cfg_snapshot);
-    let (tx, mut rx) = mpsc::channel::<StreamEvent>(256);
-
-    let ai = state.ai.clone();
-    let tools_exec = state.tools.clone();
-    let msgs = messages.clone();
-    let approvals = state.approvals.clone();
-    let policy = agent_policy(&cfg_snapshot);
-    let session = req.session_id.clone();
-    let agent_task = tokio::spawn(async move {
-        ai.run_agent(msgs, tools, tools_exec, approvals, policy, session, tx)
-            .await
-    });
-    // F0-7: registrar para /api/chat/cancel.
-    let cancel_key = task_key(&req.session_id);
-    register_task(&state, &cancel_key, agent_task.abort_handle());
-
-    // Consumir eventos (para no bloquear el canal) y capturar la respuesta
-    let mut full_response = String::new();
-    // Capturar toolCalls para devolverlos al cliente (la UI los muestra).
-    let mut tool_calls_out: Vec<serde_json::Value> = Vec::new();
-    while let Some(ev) = rx.recv().await {
-        match &ev {
-            StreamEvent::Token { content } => full_response.push_str(content),
-            StreamEvent::ToolCall { tool } => {
-                tool_calls_out.push(serde_json::json!({
-                    "id": tool.id, "name": tool.name, "arguments": tool.arguments
-                }));
+/// All resources are owned by this one supervisor (retained JoinHandle in registry).
+/// The client only holds a lease: disconnect requests cancellation, never aborts
+/// a supervisor which may be draining an already dispatched blocking tool.
+fn start_turn(
+    state: AppState,
+    mut req: ChatRequest,
+    regenerate: bool,
+) -> Result<(Arc<Turn>, mpsc::Receiver<TurnEvent>)> {
+    if let Some(sid) = &req.session_id {
+        anyhow::ensure!(
+            state
+                .sessions
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get_session(sid)?
+                .is_some(),
+            "session_not_found"
+        );
+    }
+    let turn = state.chat_tasks.reserve(req.session_id.clone())?;
+    let (out_tx, out_rx) = mpsc::channel::<TurnEvent>(256);
+    let owned = turn.clone();
+    let registry = state.chat_tasks.clone();
+    let task = tokio::spawn(async move {
+        // Reserve delivery space for exactly one terminal event before data.
+        let terminal_permit = out_tx.clone().reserve_owned().await.ok();
+        let work = async {
+            owned.transition(TurnState::Running)?;
+            out_tx
+                .send(emit(&owned, "turn", serde_json::json!({})))
+                .await
+                .map_err(|_| anyhow::anyhow!("client_disconnected"))?;
+            {
+                let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+                sessions.create_turn(&owned.id, owned.session_id.as_deref())?;
+                if regenerate {
+                    let history =
+                        sessions.get_messages(req.session_id.as_deref().unwrap_or_default())?;
+                    // Regeneration never replays tools which may already have effects.
+                    anyhow::ensure!(history.last().is_some_and(|m|matches!(m,Message::User{..})),"regeneration_requires_unanswered_user: crea un nuevo mensaje para repetir una acción");
+                    if let Some(Message::User { content }) = history.last() {
+                        req.message = content.clone();
+                    }
+                }
             }
+            let mut messages = crate::backend::conversation_turn::cancellable(
+                Some(&owned),
+                build_messages(&state, &req),
+            )
+            .await?;
+            if regenerate {
+                messages.pop();
+            } // The existing unanswered user is already in history.
+            if !regenerate {
+                if let Some(sid) = &owned.session_id {
+                    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+                    sessions.add_turn_message(sid, &owned.id, &Message::user(&req.message))?;
+                    maybe_auto_title(&sessions, sid, &req.message);
+                }
+            }
+            owned.check()?;
+            let cfg = crate::backend::conversation_turn::cancellable(Some(&owned), async {
+                Ok(state.config.read().await.clone())
+            })
+            .await?;
+            let (tx, mut rx) = mpsc::channel::<StreamEvent>(256);
+            let agent = state.ai.run_agent_for_turn(
+                messages,
+                tool_registry::filtered_tools(&cfg),
+                state.tools.clone(),
+                state.approvals.clone(),
+                agent_policy(&cfg),
+                owned.session_id.clone(),
+                tx,
+                Some(owned.clone()),
+            );
+            let forward = async {
+                while let Some(ev) = rx.recv().await {
+                    if matches!(ev, StreamEvent::Done { .. } | StreamEvent::Error { .. }) {
+                        continue;
+                    }
+                    if owned.state() == TurnState::Cancelling {
+                        continue;
+                    }
+                    let (name, data) = sse_event(ev);
+                    let data = serde_json::from_str(&data)?;
+                    // Backpressure can't prevent cancellation. During tools keep draining.
+                    tokio::select! {biased;
+                        _ = owned.cancellation() => {},
+                        result = out_tx.send(emit(&owned,name,data)) => {
+                            if result.is_err() {owned.cancel();}
+                        }
+                    }
+                }
+                Ok::<_, anyhow::Error>(())
+            };
+            let (outcome, ()) = tokio::try_join!(agent, forward)?;
+            // Optional post-processing stays inside this supervisor. Cancellation
+            // drops summary HTTP; already started speech is drained like a tool.
+            if cfg.memory.auto_summarize {
+                let should = {
+                    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some(sid) = &owned.session_id {
+                        let count = sessions.count_messages(sid)?;
+                        let (_, summarized) = sessions.get_summary(sid)?;
+                        crate::backend::session_manager::should_summarize(count, summarized)
+                    } else {
+                        false
+                    }
+                };
+                if should {
+                    if let Some(sid) = &owned.session_id {
+                        // Maintenance failure doesn't falsify the successfully parsed chat.
+                        let summary = crate::backend::conversation_turn::cancellable(
+                            Some(&owned),
+                            summarize_session(&state, sid),
+                        )
+                        .await;
+                        owned.check()?;
+                        if let Err(error) = summary {
+                            log::warn!("Resumen automático: {error}");
+                        }
+                    }
+                }
+            }
+            if cfg.speech.auto_speak
+                && state
+                    .voice_enabled
+                    .load(std::sync::atomic::Ordering::Relaxed)
+                && !outcome.response.trim().is_empty()
+            {
+                let speech = owned
+                    .dispatch(state.speech.speak(&outcome.response))
+                    .await?;
+                if let Err(error) = speech {
+                    log::warn!("TTS de respuesta escrita: {error}");
+                }
+            }
+            owned.complete(|| {
+                state
+                    .sessions
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .publish_turn(
+                        owned.session_id.as_deref(),
+                        &owned.id,
+                        &outcome.new_messages,
+                    )
+            })?;
+            Ok::<_, anyhow::Error>(outcome.response)
+        };
+        // A closed HTTP body cancels even before provider headers/first token.
+        // Do not drop work here: a dispatched tool must finish before terminal.
+        let disconnect = async {
+            out_tx.closed().await;
+            owned.cancel();
+            std::future::pending::<()>().await
+        };
+        let result = tokio::select! {
+            result = std::panic::AssertUnwindSafe(work).catch_unwind() => result.unwrap_or_else(|_|Err(anyhow::anyhow!("supervisor_panic"))),
+            _ = disconnect => unreachable!(),
+        };
+        let terminal = if owned.state() == TurnState::Cancelling {
+            let _ = owned.transition(TurnState::Cancelled);
+            emit(
+                &owned,
+                "cancelled",
+                serde_json::json!({"message":"Cancelado por el usuario; efectos iniciados pueden haber terminado"}),
+            )
+        } else {
+            match result {
+                Ok(response) => emit(&owned, "done", serde_json::json!({"full_content":response})),
+                Err(error) => {
+                    let _ = owned.transition(TurnState::Failed);
+                    emit(
+                        &owned,
+                        "error",
+                        serde_json::json!({"code":error_code(&error),"message":format!("{error:#}").chars().take(700).collect::<String>(),"retryable":false}),
+                    )
+                }
+            }
+        };
+        if owned.state() != TurnState::Completed {
+            let status = if owned.state() == TurnState::Cancelled {
+                "cancelled"
+            } else {
+                "failed"
+            };
+            if let Err(error) = state
+                .sessions
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .finish_turn(&owned.id, status)
+            {
+                log::error!("turn persistence: {error}");
+            }
+        }
+        // No terminal event is lost behind buffered tokens; no await retains resources.
+        if let Some(permit) = terminal_permit {
+            permit.send(terminal);
+        }
+    });
+    registry.supervise(&turn, task);
+    Ok((turn, out_rx))
+}
+
+fn error_code(error: &anyhow::Error) -> &'static str {
+    let detail = format!("{error:#}");
+    if detail.contains("sse_") || detail.contains("malformed_tool") {
+        "invalid_provider_stream"
+    } else if detail.contains("timed out") || detail.contains("timeout") {
+        "provider_timeout"
+    } else if detail.contains("transport:") {
+        "provider_transport"
+    } else if detail.contains("provider_") {
+        "provider_error"
+    } else {
+        "turn_failed"
+    }
+}
+fn start_error(error: anyhow::Error) -> Response {
+    let message = error.to_string();
+    let status = if message.starts_with("session_busy") {
+        StatusCode::CONFLICT
+    } else {
+        StatusCode::BAD_REQUEST
+    };
+    (status,Json(serde_json::json!({"code":if status == StatusCode::CONFLICT {"session_busy"} else {"invalid_session"},"error":message}))).into_response()
+}
+async fn chat_complete(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> Response {
+    let transcript = req.message.clone();
+    let (turn, mut rx) = match start_turn(state, req, false) {
+        Ok(v) => v,
+        Err(e) => return start_error(e),
+    };
+    let _lease = ClientLease(turn.clone());
+    let mut tools = Vec::new();
+    while let Some(event) = rx.recv().await {
+        match event.name {
+            "tool_call" => tools.push(event.data),
+            "done" => return Json(serde_json::json!({"transcript":transcript,"response":event.data["full_content"],"tool_calls":tools,"turn_id":turn.id,"session_id":turn.session_id,"state":turn.state()})).into_response(),
+            "cancelled" => return (StatusCode::CONFLICT,Json(event.data)).into_response(),
+            "error" => return (StatusCode::BAD_GATEWAY,Json(event.data)).into_response(),
             _ => {}
         }
     }
-
-    let outcome = match agent_task.await {
-        Ok(Ok(o)) => {
-            unregister_if_finished(&state, &cancel_key);
-            o
-        }
-        Ok(Err(e)) => {
-            unregister_if_finished(&state, &cancel_key);
-            log::warn!("Agente fallo: {e}");
-            // Devolver el error como respuesta para que la UI lo muestre.
-            // No persistir tools parciales en este caso.
-            let body = ChatCompleteResponse {
-                transcript: req.message.clone(),
-                response: friendly_provider_error(&e.to_string()),
-                session_id: req.session_id.clone(),
-                tool_calls: tool_calls_out,
-            };
-            return (StatusCode::OK, Json(body));
-        }
-        Err(e) => {
-            // F0-7: cancelado vía /api/chat/cancel → persistir solo usuario.
-            if e.is_cancelled() {
-                log::info!("Chat complete cancelado para {cancel_key}");
-                if let Some(sid) = &req.session_id {
-                    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
-                    let _ = sessions.add_message(sid, &Message::user(req.message.clone()));
-                }
-                let body = ChatCompleteResponse {
-                    transcript: req.message.clone(),
-                    response: "Cancelado por el usuario.".to_string(),
-                    session_id: req.session_id.clone(),
-                    tool_calls: tool_calls_out,
-                };
-                return (StatusCode::OK, Json(body));
-            }
-            unregister_if_finished(&state, &cancel_key);
-            log::warn!("Task agente fallo: {e}");
-            let body = ChatCompleteResponse {
-                transcript: req.message.clone(),
-                response: format!("Error interno: {e}"),
-                session_id: req.session_id.clone(),
-                tool_calls: tool_calls_out,
-            };
-            return (StatusCode::OK, Json(body));
-        }
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({"code":"supervisor_ended","turn_id":turn.id})),
+    )
+        .into_response()
+}
+fn start_stream(state: AppState, req: ChatRequest, regenerate: bool) -> Response {
+    let (turn, rx) = match start_turn(state, req, regenerate) {
+        Ok(v) => v,
+        Err(e) => return start_error(e),
     };
-
-    // Si el agente retorno vacio (por ejemplo tool calls sin texto final),
-    // usamos lo capturado en el stream.
-    let mut response = if outcome.response.is_empty() {
-        full_response
-    } else {
-        outcome.response.clone()
-    };
-    if response.trim().is_empty() && !outcome.new_messages.is_empty() {
-        // Turno solo-tools sin texto: resumir para que el chat no quede vacío.
-        response = format!(
-            "He ejecutado {} herramienta(s). Revisa los detalles en el chat.",
-            outcome.new_messages.len()
-        );
-    }
-
-    // Persistir usuario + historial nuevo del turno (assistant+tools+final).
-    if let Some(sid) = &req.session_id {
-        let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = sessions.add_message(sid, &Message::user(req.message.clone()));
-        maybe_auto_title(&sessions, sid, &req.message);
-        for m in &outcome.new_messages {
-            let _ = sessions.add_message(sid, m);
-        }
-        // Si por alguna razón no hubo mensajes nuevos pero sí texto, guardar final.
-        if outcome.new_messages.is_empty() && !response.trim().is_empty() {
-            let _ = sessions.add_message(sid, &Message::assistant(response.clone()));
-        }
-        drop(sessions);
-        // F5: resumir el hilo en segundo plano si toca.
-        maybe_summarize(&state, sid);
-    }
-
-    // Regla voz/texto: el chat escrito solo habla si auto_speak esta activo
-    // (las respuestas por voz siempre hablan, ver voice_pipeline).
-    let auto_speak = state.config.read().await.speech.auto_speak;
-    if state
-        .voice_enabled
-        .load(std::sync::atomic::Ordering::Relaxed)
-        && auto_speak
-        && !response.trim().is_empty()
-    {
-        let speech = state.speech.clone();
-        let resp = response.clone();
-        tokio::spawn(async move {
-            if let Err(e) = speech.speak(&resp).await {
-                log::warn!("TTS de respuesta escrita fallo: {e}");
-            }
+    let stream =
+        futures_util::stream::unfold((rx, ClientLease(turn)), |(mut rx, lease)| async move {
+            rx.recv().await.map(|ev| {
+                (
+                    Ok::<Event, Infallible>(
+                        Event::default()
+                            .event(ev.name)
+                            .id(ev.data["sequence"].to_string())
+                            .data(ev.data.to_string()),
+                    ),
+                    (rx, lease),
+                )
+            })
         });
-    }
-
-    let body = ChatCompleteResponse {
-        transcript: req.message.clone(),
-        response,
-        session_id: req.session_id.clone(),
-        tool_calls: tool_calls_out,
-    };
-    (StatusCode::OK, Json(body))
+    Sse::new(stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
 }
 
 /// Arranca el servidor HTTP en `127.0.0.1:port`.
@@ -1782,96 +1774,8 @@ async fn create_session(
     }
 }
 
-/// Maneja el chat: envia el mensaje al agente y streamea la respuesta (SSE).
-async fn chat(
-    State(state): State<AppState>,
-    Json(req): Json<ChatRequest>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    log::info!(
-        "Chat request: '{}' (session={:?})",
-        truncate(&req.message, 60),
-        req.session_id
-    );
-
-    // Construir historial de mensajes
-    let messages = build_messages(&state, &req).await;
-    let _ = state.agent_events.send("processing".to_string());
-
-    // Canal de stream events
-    let (tx, rx) = mpsc::channel::<StreamEvent>(256);
-
-    // Ejecutar el agente en un task (respetar flags de config).
-    let ai = state.ai.clone();
-    let tools_exec = state.tools.clone();
-    let cfg_snapshot = state.config.read().await.clone();
-    let tools = tool_registry::filtered_tools(&cfg_snapshot);
-    let msgs = messages.clone();
-    let approvals = state.approvals.clone();
-    let policy = agent_policy(&cfg_snapshot);
-    let session = req.session_id.clone();
-    let agent_task = tokio::spawn(async move {
-        ai.run_agent(msgs, tools, tools_exec, approvals, policy, session, tx)
-            .await
-    });
-    // F0-7: registrar para /api/chat/cancel.
-    let cancel_key = task_key(&req.session_id);
-    register_task(&state, &cancel_key, agent_task.abort_handle());
-
-    // Persistir el mensaje del usuario
-    if let Some(sid) = &req.session_id {
-        let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = sessions.add_message(sid, &Message::user(req.message.clone()));
-        maybe_auto_title(&sessions, sid, &req.message);
-    }
-
-    // Convertir el receiver a stream SSE
-    let sse_stream = stream_from_receiver(rx);
-
-    // Task que espera el resultado y persiste la respuesta
-    let state2 = state.clone();
-    let sid2 = req.session_id.clone();
-    let cancel_key2 = cancel_key.clone();
-    let sse_stream = sse_stream.map(move |ev| {
-        let (event_name, data) = sse_event(ev);
-        Ok::<Event, Infallible>(Event::default().event(event_name).data(data))
-    });
-
-    // Persistir el historial nuevo del turno (assistant+tools+final) cuando termina.
-    tokio::spawn(async move {
-        match agent_task.await {
-            Ok(Ok(outcome)) => {
-                unregister_if_finished(&state2, &cancel_key2);
-                if let Some(sid) = &sid2 {
-                    let sessions = state2.sessions.lock().unwrap_or_else(|e| e.into_inner());
-                    for m in &outcome.new_messages {
-                        let _ = sessions.add_message(sid, m);
-                    }
-                    if outcome.new_messages.is_empty() && !outcome.response.trim().is_empty() {
-                        let _ = sessions.add_message(sid, &Message::assistant(outcome.response));
-                    }
-                    drop(sessions);
-                    // F5: resumir el hilo en segundo plano si toca.
-                    maybe_summarize(&state2, sid);
-                }
-            }
-            Ok(Err(e)) => {
-                unregister_if_finished(&state2, &cancel_key2);
-                log::warn!("Agente SSE fallo: {e}");
-            }
-            Err(e) => {
-                if e.is_cancelled() {
-                    log::info!("Chat SSE cancelado para {cancel_key2}");
-                } else {
-                    log::warn!("Task agente SSE fallo: {e}");
-                }
-                // Limpiar solo si el handle almacenado ya terminó.
-                unregister_if_finished(&state2, &cancel_key2);
-            }
-        }
-        let _ = state2.agent_events.send("idle".to_string());
-    });
-
-    Sse::new(sse_stream).keep_alive(KeepAlive::default())
+async fn chat(State(state): State<AppState>, Json(req): Json<ChatRequest>) -> Response {
+    start_stream(state, req, false)
 }
 
 /// Si la sesion aun tiene el titulo por defecto, lo reemplaza por el
@@ -1904,7 +1808,7 @@ fn maybe_auto_title(
     }
 }
 
-async fn build_messages(state: &AppState, req: &ChatRequest) -> Vec<Message> {
+async fn build_messages(state: &AppState, req: &ChatRequest) -> Result<Vec<Message>> {
     let cfg = state.config.read().await.clone();
     let mut system_prompt = cfg.ai.system_prompt.clone();
     // F5: facts del usuario (solo si hay y está habilitado).
@@ -1939,7 +1843,8 @@ async fn build_messages(state: &AppState, req: &ChatRequest) -> Vec<Message> {
                 )));
             }
         }
-        if let Ok(history) = sessions.get_messages(sid) {
+        {
+            let history = sessions.get_messages(sid)?;
             // Inyectar historial (sin el system prompt duplicado)
             let start = history.len().saturating_sub(MAX_HISTORY);
             messages.extend(history.into_iter().skip(start));
@@ -1947,7 +1852,7 @@ async fn build_messages(state: &AppState, req: &ChatRequest) -> Vec<Message> {
     }
 
     messages.push(Message::user(req.message.clone()));
-    messages
+    Ok(messages)
 }
 
 /// Revisa si toca resumir el hilo y lo lanza en segundo plano (F5).
@@ -2056,12 +1961,13 @@ fn sse_event(ev: StreamEvent) -> (&'static str, String) {
             serde_json::to_string(&tool).unwrap_or_default(),
         ),
         StreamEvent::ToolResult {
+            success,
             tool_call_id,
             content,
             image_url,
         } => (
             "tool_result",
-            serde_json::json!({ "tool_call_id": tool_call_id, "content": content, "image_url": image_url }).to_string(),
+            serde_json::json!({ "success": success, "tool_call_id": tool_call_id, "content": content, "image_url": image_url }).to_string(),
         ),
         StreamEvent::ToolApprovalNeeded {
             tool_call_id,
@@ -2083,29 +1989,12 @@ fn sse_event(ev: StreamEvent) -> (&'static str, String) {
     }
 }
 
-/// Convierte un mpsc::Receiver en un Stream.
-fn stream_from_receiver(rx: mpsc::Receiver<StreamEvent>) -> impl Stream<Item = StreamEvent> {
-    futures_util::stream::unfold(
-        rx,
-        |mut rx| async move { rx.recv().await.map(|ev| (ev, rx)) },
-    )
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
-    } else {
-        let mut t: String = s.chars().take(max).collect();
-        t.push_str("...");
-        t
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::backend::ai_service::AiService;
     use crate::backend::chime_player::ChimePlayer;
+    use crate::backend::conversation_turn::TurnRegistry;
     use crate::backend::session_manager::SessionManager;
     use crate::backend::speech_service::SpeechService;
     use crate::backend::tool_executor::ToolExecutor;
@@ -2139,7 +2028,7 @@ mod tests {
             voice,
             agent_events: tokio::sync::broadcast::channel(8).0,
             local_token: "test-token".into(),
-            chat_tasks: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            chat_tasks: Arc::new(TurnRegistry::default()),
             dictation_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             sidecar_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }

@@ -144,6 +144,7 @@ impl SessionManager {
 
         // F5: migración de sesiones viejas (summary para hilos largos).
         ensure_session_summary_columns(&conn)?;
+        ensure_turn_schema(&conn)?;
 
         Ok(Self { conn, db_path })
     }
@@ -197,6 +198,7 @@ impl SessionManager {
             );
             "#,
         )?;
+        ensure_turn_schema(&conn)?;
         Ok(Self {
             conn,
             db_path: PathBuf::from(":memory:"),
@@ -465,7 +467,73 @@ impl SessionManager {
         Ok(())
     }
 
+    pub fn create_turn(&self, turn_id: &str, session_id: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO conversation_turns (id,session_id,state) VALUES (?1,?2,'running')",
+            params![turn_id, session_id],
+        )?;
+        Ok(())
+    }
+    pub fn finish_turn(&self, turn_id: &str, state: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE conversation_turns SET state=?2 WHERE id=?1",
+            params![turn_id, state],
+        )?;
+        Ok(())
+    }
+    pub fn add_turn_message(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+        message: &Message,
+    ) -> Result<i64> {
+        self.add_message_impl(session_id, Some(turn_id), message)
+    }
+
+    /// Minimal atomic publication of successful output; no action journal/replay.
+    pub fn publish_turn(
+        &self,
+        session_id: Option<&str>,
+        turn_id: &str,
+        messages: &[Message],
+    ) -> Result<()> {
+        anyhow::ensure!(
+            self.conn.is_autocommit(),
+            "publication_transaction_already_open"
+        );
+        self.conn.execute_batch("SAVEPOINT publish_turn")?;
+        let result = (|| {
+            if let Some(sid) = session_id {
+                for message in messages {
+                    self.add_turn_message(sid, turn_id, message)?;
+                }
+            }
+            self.finish_turn(turn_id, "completed")?;
+            // RELEASE commits this outermost savepoint and can itself fail.
+            self.conn.execute_batch("RELEASE publish_turn")?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            // RAISE(ROLLBACK) and some SQLite errors already end the transaction.
+            if !self.conn.is_autocommit() {
+                if let Err(cleanup) = self.conn.execute_batch("ROLLBACK") {
+                    return Err(error).context(format!("publication rollback failed: {cleanup}"));
+                }
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
     pub fn add_message(&self, session_id: &str, message: &Message) -> Result<i64> {
+        self.add_message_impl(session_id, None, message)
+    }
+    fn add_message_impl(
+        &self,
+        session_id: &str,
+        turn_id: Option<&str>,
+        message: &Message,
+    ) -> Result<i64> {
         let (role, content, tool_call_id, tool_result, image_url) = match message {
             Message::System { content } => ("system", content.clone(), None, None, None),
             Message::User { content } => ("user", content.clone(), None, None, None),
@@ -498,8 +566,8 @@ impl SessionManager {
         let now = Utc::now().to_rfc3339();
 
         self.conn.execute(
-            "INSERT INTO messages (session_id, role, content, tool_call_id, tool_result, image_url, timestamp)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO messages (session_id, role, content, tool_call_id, tool_result, image_url, timestamp, turn_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 session_id,
                 role,
@@ -507,7 +575,8 @@ impl SessionManager {
                 tool_call_id,
                 tool_result,
                 image_url,
-                now
+                now,
+                turn_id
             ],
         )?;
 
@@ -649,6 +718,21 @@ pub fn should_summarize(count: i64, summary_count: i64) -> bool {
     count >= 60 && count - summary_count >= 40
 }
 
+fn ensure_turn_schema(conn: &Connection) -> Result<()> {
+    let has_turn = {
+        let mut stmt = conn.prepare("PRAGMA table_info(messages)")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+            .iter()
+            .any(|name| name == "turn_id")
+    };
+    if !has_turn {
+        conn.execute_batch("ALTER TABLE messages ADD COLUMN turn_id TEXT")?;
+    }
+    conn.execute_batch("CREATE TABLE IF NOT EXISTS conversation_turns (id TEXT PRIMARY KEY, session_id TEXT, state TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_messages_turn ON messages(turn_id); UPDATE conversation_turns SET state='failed' WHERE state IN ('created','running','waiting_for_approval','cancelling')")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -702,6 +786,7 @@ mod tests {
             );
             "#,
         )?;
+        ensure_turn_schema(&conn)?;
         Ok(SessionManager {
             conn,
             db_path: PathBuf::from(":memory:"),

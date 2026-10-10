@@ -280,6 +280,7 @@ impl ToolExecutor {
         let query = Self::arg_string(&tc.arguments, "query")?;
 
         let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
             .user_agent("Mozilla/5.0 KDE-Assistant/2.0")
             .build()?;
         let url = format!(
