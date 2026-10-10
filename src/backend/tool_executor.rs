@@ -15,6 +15,7 @@ use std::process::{Command, Stdio};
 use tokio::fs;
 
 use crate::backend::document_suite;
+use crate::backend::safe_fs::SafePath;
 use crate::backend::session_manager::SessionManager;
 use crate::models::{Config, ToolCall, ToolResult};
 
@@ -78,31 +79,9 @@ impl ToolExecutor {
     pub async fn execute(&self, tool_call: &ToolCall, ctx: &ToolCtx) -> Result<ToolResult> {
         let id = tool_call.id.clone();
         let t0 = std::time::Instant::now();
-        let result = match tool_call.name.as_str() {
-            "open_app" => self.open_app(tool_call).await,
-            "create_file" => self.create_file(tool_call).await,
-            "edit_file" => self.edit_file(tool_call).await,
-            "read_file" => self.read_file(tool_call).await,
-            "web_search" => self.web_search(tool_call).await,
-            "show_image" => self.show_image(tool_call).await,
-            "find_file" => self.find_file(tool_call).await,
-            "find_document" => self.find_document(tool_call).await,
-            "preview_document" => self.preview_document(tool_call).await,
-            "open_file" => self.open_file(tool_call).await,
-            "copy_file" => self.copy_file(tool_call).await,
-            "open_url" => self.open_url(tool_call).await,
-            "list_open_apps" => self.list_open_apps(tool_call).await,
-            "focus_app" => self.focus_app(tool_call).await,
-            "close_app" => self.close_app(tool_call).await,
-            "system_info" => self.system_info(tool_call).await,
-            "notify" => self.notify(tool_call).await,
-            "media" => self.media(tool_call).await,
-            "volume" => self.volume(tool_call).await,
-            "brightness" => self.brightness(tool_call).await,
-            "network_status" => self.network_status(tool_call).await,
-            "remind_in" => self.remind_in(tool_call).await,
-            "kdeconnect" => self.kdeconnect(tool_call).await,
-            other => Err(anyhow!("Herramienta desconocida: {other}")),
+        let result = match self.get_config_snapshot() {
+            Ok(cfg) => self.execute_with_config(tool_call, &cfg).await,
+            Err(e) => Err(e),
         };
         let ms = t0.elapsed().as_millis() as u64;
 
@@ -119,6 +98,36 @@ impl ToolExecutor {
             self.audit(tool_call, ctx, r.success, ms);
         }
         final_res
+    }
+
+    // Una sola versión autoriza el flag y todas las rutas de la operación.
+    async fn execute_with_config(&self, tool_call: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+        match tool_call.name.as_str() {
+            "open_app" => self.open_app(tool_call, cfg).await,
+            "create_file" => self.create_file(tool_call, cfg).await,
+            "edit_file" => self.edit_file(tool_call, cfg).await,
+            "read_file" => self.read_file(tool_call, cfg).await,
+            "web_search" => self.web_search(tool_call, cfg).await,
+            "show_image" => self.show_image(tool_call, cfg).await,
+            "find_file" => self.find_file(tool_call, cfg).await,
+            "find_document" => self.find_document(tool_call, cfg).await,
+            "preview_document" => self.preview_document(tool_call, cfg).await,
+            "open_file" => self.open_file(tool_call, cfg).await,
+            "copy_file" => self.copy_file(tool_call, cfg).await,
+            "open_url" => self.open_url(tool_call, cfg).await,
+            "list_open_apps" => self.list_open_apps(tool_call, cfg).await,
+            "focus_app" => self.focus_app(tool_call, cfg).await,
+            "close_app" => self.close_app(tool_call, cfg).await,
+            "system_info" => self.system_info(tool_call, cfg).await,
+            "notify" => self.notify(tool_call, cfg).await,
+            "media" => self.media(tool_call, cfg).await,
+            "volume" => self.volume(tool_call, cfg).await,
+            "brightness" => self.brightness(tool_call, cfg).await,
+            "network_status" => self.network_status(tool_call, cfg).await,
+            "remind_in" => self.remind_in(tool_call, cfg).await,
+            "kdeconnect" => self.kdeconnect(tool_call, cfg).await,
+            other => Err(anyhow!("Herramienta desconocida: {other}")),
+        }
     }
 
     /// Registra una denegación del usuario (F4-1/F4-3): no se ejecutó nada.
@@ -169,90 +178,15 @@ impl ToolExecutor {
             .filter(|s| !s.is_empty())
     }
 
-    fn get_config_snapshot(&self) -> Config {
+    fn get_config_snapshot(&self) -> Result<Config> {
         self.config
             .try_read()
             .map(|c| c.clone())
-            .unwrap_or_default()
-    }
-
-    /// Valida que un path este dentro de los paths permitidos.
-    /// Expande `~`, `$HOME`, canonicaliza y deniega symlinks que escapen.
-    fn validate_path(&self, path: &str) -> Result<PathBuf> {
-        let cfg = self.get_config_snapshot();
-        if !cfg.tools.fs_enabled() {
-            bail!("Acceso al sistema de archivos deshabilitado en la configuracion");
-        }
-        if path.trim().is_empty() {
-            bail!("Path vacío no permitido");
-        }
-
-        // Expandir ~ y $HOME en el path pedido.
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
-        let expanded_str = expand_home(path, &home);
-        let path_buf = PathBuf::from(&expanded_str);
-
-        // Rechazar NUL y paths absurdamente largos.
-        if expanded_str.contains('\0') || expanded_str.len() > 4096 {
-            bail!("Path inválido");
-        }
-
-        let canonical = if path_buf.exists() {
-            std::fs::canonicalize(&path_buf).context("resolviendo path")?
-        } else {
-            // Para creación: canonicalizar el ancestro existente más cercano
-            // y unir el resto sin permitir `..` que escape.
-            let mut cur = path_buf.as_path();
-            let mut suffix: Vec<std::ffi::OsString> = Vec::new();
-            while !cur.exists() {
-                match (cur.file_name(), cur.parent()) {
-                    (Some(name), Some(parent)) => {
-                        if name == ".." {
-                            bail!("Path con '..' fuera de zona permitida");
-                        }
-                        suffix.push(name.to_os_string());
-                        cur = parent;
-                    }
-                    _ => break,
-                }
-            }
-            let base = if cur.as_os_str().is_empty() {
-                PathBuf::from("/")
-            } else if cur.exists() {
-                std::fs::canonicalize(cur).context("resolviendo padre")?
-            } else {
-                PathBuf::from(cur)
-            };
-            let mut out = base;
-            for comp in suffix.iter().rev() {
-                out.push(comp);
-            }
-            out
-        };
-
-        // Expandir ~/$HOME en allowed_paths y canonicalizar lo que exista.
-        for allowed in &cfg.tools.allowed_paths {
-            let allowed_expanded_str = expand_home(allowed, &home);
-            let allowed_path = PathBuf::from(&allowed_expanded_str);
-            let allowed_canon = if allowed_path.exists() {
-                std::fs::canonicalize(&allowed_path).unwrap_or(allowed_path)
-            } else {
-                allowed_path
-            };
-            if canonical.starts_with(&allowed_canon) {
-                return Ok(canonical);
-            }
-        }
-
-        bail!(format!(
-            "Path no permitido: {} (debe estar dentro de allowed_paths)",
-            canonical.display()
-        ))
+            .context("configuracion no disponible; operacion denegada")
     }
 
     // === open_app ===
-    async fn open_app(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn open_app(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.open_app {
             bail!("open_app deshabilitado en configuracion");
         }
@@ -280,86 +214,51 @@ impl ToolExecutor {
     }
 
     // === create_file ===
-    async fn create_file(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn create_file(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.create_file {
             bail!("create_file deshabilitado en configuracion");
         }
         let path = Self::arg_string(&tc.arguments, "path")?;
         let content = Self::arg_string(&tc.arguments, "content")?;
 
-        let validated = self.validate_path(path)?;
-        if validated.exists() {
-            bail!(format!("El archivo ya existe: {}", validated.display()));
-        }
-        if let Some(parent) = validated.parent() {
-            fs::create_dir_all(parent)
-                .await
-                .context("creando directorios padre")?;
-        }
-        fs::write(&validated, content)
-            .await
-            .context("escribiendo archivo")?;
+        let validated = SafePath::resolve(cfg, path)?;
+        let display = validated.display.clone();
+        let content = content.as_bytes().to_vec();
+        tokio::task::spawn_blocking(move || validated.create(&content)).await??;
 
         Ok(ToolResult::success(
             tc.id.clone(),
-            format!("Archivo creado: {}", validated.display()),
+            format!("Archivo creado: {}", display.display()),
         ))
     }
 
     // === edit_file ===
-    async fn edit_file(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn edit_file(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.edit_file {
             bail!("edit_file deshabilitado en configuracion");
         }
         let raw = serde_json::to_string(&tc.arguments)?;
         let args: EditArgs = serde_json::from_str(&raw)?;
 
-        let validated = self.validate_path(&args.path)?;
-        if !validated.exists() {
-            bail!(format!("El archivo no existe: {}", validated.display()));
-        }
-
-        let final_content = match args.mode.as_str() {
-            "overwrite" => args.content,
-            "append" => {
-                let existing = fs::read_to_string(&validated).await.unwrap_or_default();
-                format!("{existing}{}", args.content)
-            }
-            other => bail!(format!("Modo no soportado: {other}")),
-        };
-
-        // Backup antes de overwrite (permite deshacer desde el sistema).
-        if args.mode == "overwrite" {
-            let bak = validated.with_extension("bak");
-            // No fallar si el backup falla; solo avisar.
-            if let Err(e) = fs::copy(&validated, &bak).await {
-                log::warn!("No se pudo crear backup de {}: {e}", validated.display());
-            }
-        }
-        fs::write(&validated, final_content).await?;
+        let validated = SafePath::resolve(cfg, &args.path)?;
+        let display = validated.display.clone();
+        let mode = args.mode.clone();
+        tokio::task::spawn_blocking(move || validated.edit(&args.mode, &args.content)).await??;
         Ok(ToolResult::success(
             tc.id.clone(),
-            format!(
-                "Archivo editado: {} (mode={})",
-                validated.display(),
-                args.mode
-            ),
+            format!("Archivo editado: {} (mode={})", display.display(), mode),
         ))
     }
 
     // === read_file ===
-    async fn read_file(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn read_file(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.read_file {
             bail!("read_file deshabilitado en configuracion");
         }
         let path = Self::arg_string(&tc.arguments, "path")?;
-        let validated = self.validate_path(path)?;
-        let content = fs::read_to_string(&validated)
-            .await
-            .with_context(|| format!("leyendo {}", validated.display()))?;
+        let validated = SafePath::resolve(cfg, path)?;
+        let bytes = tokio::task::spawn_blocking(move || validated.read()).await??;
+        let content = String::from_utf8(bytes).context("archivo no es UTF-8 válido")?;
 
         // Limitar a ~32k chars (no bytes) para no romper UTF-8 ni saturar contexto.
         const MAX_CHARS: usize = 32_000;
@@ -374,8 +273,7 @@ impl ToolExecutor {
     }
 
     // === web_search (DuckDuckGo Lite) ===
-    async fn web_search(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn web_search(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.web_search {
             bail!("web_search deshabilitado en configuracion");
         }
@@ -431,8 +329,7 @@ impl ToolExecutor {
     }
 
     // === show_image ===
-    async fn show_image(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn show_image(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.show_image {
             bail!("show_image deshabilitado en configuracion");
         }
@@ -446,10 +343,7 @@ impl ToolExecutor {
         let local_path = if source.starts_with("http://") || source.starts_with("https://") {
             // Descargar a cache con límites (10MB, timeout 15s, solo imágenes).
             const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
-            let cache_dir = dirs::cache_dir()
-                .ok_or_else(|| anyhow!("sin cache_dir"))?
-                .join("kde-assistant/images");
-            fs::create_dir_all(&cache_dir).await?;
+            let cache_dir = crate::backend::safe_fs::private_workspace()?.0;
 
             let ext = sanitize_image_ext(source);
             let file_name = format!("{}.{}", chrono::Utc::now().timestamp_millis(), ext);
@@ -482,17 +376,13 @@ impl ToolExecutor {
             }
             fs::write(&dest, &bytes).await?;
             dest.to_string_lossy().to_string()
-        } else if let Some(stripped) = source.strip_prefix("file://") {
-            // file:// también debe respetar allowed_paths (antes era bypass).
-            if stripped.trim().is_empty() {
-                bail!("file:// vacío no permitido");
-            }
-            let validated = self.validate_path(stripped)?;
-            validated.to_string_lossy().to_string()
         } else {
-            // Path local
-            let validated = self.validate_path(source)?;
-            validated.to_string_lossy().to_string()
+            let path = source.strip_prefix("file://").unwrap_or(source);
+            let validated = SafePath::resolve(cfg, path)?;
+            tokio::task::spawn_blocking(move || validated.snapshot())
+                .await??
+                .to_string_lossy()
+                .to_string()
         };
 
         let msg = if caption.is_empty() {
@@ -504,8 +394,7 @@ impl ToolExecutor {
     }
 
     // === find_file (F2-2) ===
-    async fn find_file(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn find_file(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.find_file {
             bail!("find_file deshabilitado en configuracion");
         }
@@ -513,31 +402,13 @@ impl ToolExecutor {
         if query.trim().is_empty() {
             bail!("Argumento 'query' vacío");
         }
-        // Directorio base opcional (por defecto, todos los allowed_paths).
-        let base: Option<PathBuf> = match tc.arguments.get("dir").and_then(|v| v.as_str()) {
-            Some(d) if !d.trim().is_empty() => Some(self.validate_path(d)?),
-            _ => None,
-        };
-        let roots: Vec<PathBuf> = match base {
-            Some(b) => vec![b],
-            None => {
-                let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
-                cfg.tools
-                    .allowed_paths
-                    .iter()
-                    .map(|a| PathBuf::from(expand_home(a, &home)))
-                    .filter(|p| p.exists())
-                    .collect()
-            }
-        };
-        if roots.is_empty() {
-            bail!("No hay directorios permitidos para buscar");
-        }
-        let q = query.to_lowercase();
-        // Walk bloqueante en spawn_blocking (I/O síncrono).
-        let results = tokio::task::spawn_blocking(move || find_files_sync(&roots, &q))
-            .await
-            .context("búsqueda de archivos")??;
+        let results = search_authorized(
+            cfg,
+            Self::opt_arg_string(&tc.arguments, "dir"),
+            query,
+            false,
+        )
+        .await?;
         if results.is_empty() {
             return Ok(ToolResult::success(
                 tc.id.clone(),
@@ -552,8 +423,7 @@ impl ToolExecutor {
     }
 
     // === find_document ===
-    async fn find_document(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn find_document(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.find_document {
             bail!("find_document deshabilitado en configuracion");
         }
@@ -561,18 +431,8 @@ impl ToolExecutor {
         if query.trim().is_empty() {
             bail!("Argumento 'query' vacío");
         }
-        let base: Option<PathBuf> = match Self::opt_arg_string(&tc.arguments, "dir") {
-            Some(d) => Some(self.validate_path(d)?),
-            None => None,
-        };
-        let roots = allowed_roots(&cfg, base);
-        if roots.is_empty() {
-            bail!("No hay directorios permitidos para buscar documentos");
-        }
-        let q = query.to_lowercase();
-        let results = tokio::task::spawn_blocking(move || find_documents_sync(&roots, &q))
-            .await
-            .context("búsqueda de documentos")??;
+        let results =
+            search_authorized(cfg, Self::opt_arg_string(&tc.arguments, "dir"), query, true).await?;
         if results.is_empty() {
             return Ok(ToolResult::success(
                 tc.id.clone(),
@@ -587,31 +447,29 @@ impl ToolExecutor {
     }
 
     // === preview_document ===
-    async fn preview_document(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn preview_document(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.preview_document {
             bail!("preview_document deshabilitado en configuracion");
         }
         let path = Self::arg_string(&tc.arguments, "path")?;
-        let validated = self.validate_path(path)?;
-        if !validated.exists() {
-            bail!(format!("No existe: {}", validated.display()));
-        }
-        if validated.is_dir() {
-            bail!("preview_document necesita un archivo, no un directorio");
-        }
+        let validated = SafePath::resolve(cfg, path)?;
+        let display = validated.display.clone();
         let page = tc
             .arguments
             .get("page")
             .and_then(|v| v.as_u64())
             .unwrap_or(1)
             .clamp(1, 999) as u32;
-        let preview_path = preview_document_sync(&validated, page)?;
+        let preview_path = tokio::task::spawn_blocking(move || {
+            let snapshot = validated.snapshot()?;
+            preview_document_sync(&snapshot, page)
+        })
+        .await??;
         Ok(ToolResult::success(
             tc.id.clone(),
             format!(
                 "Vista previa de {}{}",
-                validated.display(),
+                display.display(),
                 if page > 1 {
                     format!(" (página {page})")
                 } else {
@@ -623,66 +481,16 @@ impl ToolExecutor {
     }
 
     // === open_file (F2-2) ===
-    async fn open_file(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn open_file(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.open_file {
             bail!("open_file deshabilitado en configuracion");
         }
-        let path = Self::arg_string(&tc.arguments, "path")?;
-        let validated = self.validate_path(path)?;
-        if !validated.exists() {
-            bail!(format!("No existe: {}", validated.display()));
-        }
-        let reveal = tc
-            .arguments
-            .get("reveal")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        // REGLA: nunca sh -c, siempre Command con args.
-        if reveal {
-            // Mostrar en Dolphin (seleccionado); fallback a abrir el padre.
-            match Command::new("dolphin")
-                .arg("--select")
-                .arg(&validated)
-                .spawn()
-            {
-                Ok(_) => Ok(ToolResult::success(
-                    tc.id.clone(),
-                    format!("Mostrando en Dolphin: {}", validated.display()),
-                )),
-                Err(_) => {
-                    let parent = validated
-                        .parent()
-                        .map(|p| p.to_path_buf())
-                        .unwrap_or(validated.clone());
-                    Command::new("xdg-open")
-                        .arg(&parent)
-                        .spawn()
-                        .with_context(|| "abriendo carpeta padre")?;
-                    Ok(ToolResult::success(
-                        tc.id.clone(),
-                        format!(
-                            "Dolphin no disponible; carpeta abierta: {}",
-                            parent.display()
-                        ),
-                    ))
-                }
-            }
-        } else {
-            Command::new("xdg-open")
-                .arg(&validated)
-                .spawn()
-                .with_context(|| format!("abriendo {}", validated.display()))?;
-            Ok(ToolResult::success(
-                tc.id.clone(),
-                format!("Abierto: {}", validated.display()),
-            ))
-        }
+        let _ = tc;
+        bail!("open_file bloqueado hasta F2: delegación por pathname sin capacidad segura")
     }
 
     // === copy_file ===
-    async fn copy_file(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn copy_file(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.copy_file {
             bail!("copy_file deshabilitado en configuracion");
         }
@@ -693,44 +501,23 @@ impl ToolExecutor {
             .get("overwrite")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let src = self.validate_path(source)?;
-        let mut dst = self.validate_path(destination)?;
-        if !src.exists() {
-            bail!("No existe el origen: {}", src.display());
-        }
-        if src.is_dir() {
-            bail!("copy_file copia archivos, no directorios");
-        }
-        if dst.exists() && dst.is_dir() {
-            let name = src
-                .file_name()
-                .context("origen sin nombre de archivo")?
-                .to_os_string();
-            dst.push(name);
-        }
-        if dst.exists() && !overwrite {
-            bail!(
-                "El destino ya existe: {}. Usa overwrite=true si quieres reemplazarlo.",
-                dst.display()
-            );
-        }
-        if let Some(parent) = dst.parent() {
-            fs::create_dir_all(parent)
-                .await
-                .with_context(|| format!("creando carpeta destino {}", parent.display()))?;
-        }
-        fs::copy(&src, &dst)
-            .await
-            .with_context(|| format!("copiando {} a {}", src.display(), dst.display()))?;
+        let src = SafePath::resolve(cfg, source)?;
+        let dst = SafePath::resolve(cfg, destination)?;
+        let display = src.display.clone();
+        let destination =
+            tokio::task::spawn_blocking(move || src.copy_to(dst, overwrite)).await??;
         Ok(ToolResult::success(
             tc.id.clone(),
-            format!("Copiado: {} -> {}", src.display(), dst.display()),
+            format!(
+                "Copiado: {} -> {}",
+                display.display(),
+                destination.display()
+            ),
         ))
     }
 
     // === open_url (F2-2) ===
-    async fn open_url(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn open_url(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.open_url {
             bail!("open_url deshabilitado en configuracion");
         }
@@ -757,8 +544,7 @@ impl ToolExecutor {
     }
 
     // === list_open_apps ===
-    async fn list_open_apps(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn list_open_apps(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.list_open_apps {
             bail!("list_open_apps deshabilitado en configuracion");
         }
@@ -785,8 +571,7 @@ impl ToolExecutor {
     }
 
     // === focus_app ===
-    async fn focus_app(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn focus_app(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.focus_app {
             bail!("focus_app deshabilitado en configuracion");
         }
@@ -802,8 +587,7 @@ impl ToolExecutor {
     }
 
     // === close_app ===
-    async fn close_app(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn close_app(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.close_app {
             bail!("close_app deshabilitado en configuracion");
         }
@@ -846,8 +630,7 @@ impl ToolExecutor {
     }
 
     // === system_info (F2-3, solo lectura) ===
-    async fn system_info(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn system_info(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.system_info {
             bail!("system_info deshabilitado en configuracion");
         }
@@ -858,8 +641,7 @@ impl ToolExecutor {
     }
 
     // === notify (F2-3) ===
-    async fn notify(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn notify(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.notify {
             bail!("notify deshabilitado en configuracion");
         }
@@ -902,8 +684,7 @@ impl ToolExecutor {
     }
 
     // === media (F4-2, playerctl) ===
-    async fn media(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn media(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.media {
             bail!("media deshabilitado en configuracion");
         }
@@ -934,8 +715,7 @@ impl ToolExecutor {
     }
 
     // === volume (F4-2, wpctl con fallback pactl) ===
-    async fn volume(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn volume(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.volume {
             bail!("volume deshabilitado en configuracion");
         }
@@ -991,8 +771,7 @@ impl ToolExecutor {
     }
 
     // === brightness (F4-2, brightnessctl) ===
-    async fn brightness(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn brightness(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.brightness {
             bail!("brightness deshabilitado en configuracion");
         }
@@ -1030,8 +809,7 @@ impl ToolExecutor {
     }
 
     // === network_status (F4-2, solo lectura) ===
-    async fn network_status(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn network_status(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.network_status {
             bail!("network_status deshabilitado en configuracion");
         }
@@ -1078,8 +856,7 @@ impl ToolExecutor {
     }
 
     // === kdeconnect (F6) ===
-    async fn kdeconnect(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn kdeconnect(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.kdeconnect {
             bail!("kdeconnect deshabilitado en configuracion");
         }
@@ -1140,27 +917,7 @@ impl ToolExecutor {
                 ))
             }
             "share_file" | "compartir_archivo" => {
-                let dev = device.ok_or_else(|| anyhow!("Falta 'device' (id del móvil)"))?;
-                let path = Self::arg_string(&tc.arguments, "path")?;
-                let validated = self.validate_path(path)?;
-                if !validated.exists() {
-                    bail!(format!("No existe: {}", validated.display()));
-                }
-                run_cmd(
-                    &[
-                        "kdeconnect-cli",
-                        "-d",
-                        dev,
-                        "--share",
-                        &validated.to_string_lossy(),
-                    ],
-                    20,
-                )
-                .await?;
-                Ok(ToolResult::success(
-                    tc.id.clone(),
-                    format!("Archivo compartido con {dev}: {}", validated.display()),
-                ))
+                bail!("kdeconnect share_file bloqueado hasta F2: delegación por pathname")
             }
             "sms" => {
                 let dev = device.ok_or_else(|| anyhow!("Falta 'device' (id del móvil)"))?;
@@ -1202,8 +959,7 @@ impl ToolExecutor {
     }
 
     // === remind_in (F4-2, persistente en F6) ===
-    async fn remind_in(&self, tc: &ToolCall) -> Result<ToolResult> {
-        let cfg = self.get_config_snapshot();
+    async fn remind_in(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
         if !cfg.tools.remind_in {
             bail!("remind_in deshabilitado en configuracion");
         }
@@ -1760,24 +1516,48 @@ fn battery_summary() -> Option<String> {
     None
 }
 
-fn allowed_roots(cfg: &Config, base: Option<PathBuf>) -> Vec<PathBuf> {
-    match base {
-        Some(b) => vec![b],
+async fn search_authorized(
+    cfg: &Config,
+    base: Option<&str>,
+    query: &str,
+    documents: bool,
+) -> Result<Vec<PathBuf>> {
+    let paths = match base {
+        Some(path) => vec![SafePath::resolve(cfg, path)?],
         None => {
-            let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
-            cfg.tools
-                .allowed_paths
-                .iter()
-                .map(|a| PathBuf::from(expand_home(a, &home)))
-                .filter(|p| p.exists())
-                .collect()
+            let mut paths = Vec::new();
+            for path in &cfg.tools.allowed_paths {
+                if let Some(root) = SafePath::search_root(cfg, path)? {
+                    paths.push(root);
+                }
+            }
+            paths
         }
+    };
+    if paths.is_empty() {
+        bail!("No hay ninguna raíz utilizable para buscar en allowed_paths");
     }
+    let query = query.to_lowercase();
+    tokio::task::spawn_blocking(move || {
+        let mut found = Vec::new();
+        for path in paths {
+            found.extend(path.find(&query)?);
+        }
+        if documents {
+            found.retain(|path| is_document_like(path));
+        }
+        found.sort();
+        found.dedup();
+        found.truncate(20);
+        Ok(found)
+    })
+    .await?
 }
 
 /// Búsqueda síncrona de archivos por subcadena (case-insensitive).
 /// Límites: profundidad 6, 2000 entradas visitadas, 20 resultados.
 /// Salta `.git`, `node_modules`, `target` y directorios ocultos.
+#[cfg(test)]
 fn find_files_sync(roots: &[PathBuf], query_lower: &str) -> Result<Vec<PathBuf>> {
     const MAX_DEPTH: usize = 6;
     const MAX_VISITED: usize = 2000;
@@ -1819,6 +1599,7 @@ fn find_files_sync(roots: &[PathBuf], query_lower: &str) -> Result<Vec<PathBuf>>
     Ok(results)
 }
 
+#[cfg(test)]
 fn find_documents_sync(roots: &[PathBuf], query_lower: &str) -> Result<Vec<PathBuf>> {
     let docs = find_files_sync(roots, query_lower)?;
     Ok(docs
@@ -1906,21 +1687,7 @@ fn render_pdf_preview(path: &Path, page: u32, cache_dir: &Path, stem: &str) -> R
 }
 
 fn writable_preview_cache_dir() -> Result<PathBuf> {
-    let preferred = dirs::cache_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("kde-assistant/previews");
-    match std::fs::create_dir_all(&preferred) {
-        Ok(_) => Ok(preferred),
-        Err(e) => {
-            log::warn!(
-                "No se pudo usar cache de previews en {}: {e}",
-                preferred.display()
-            );
-            let fallback = std::env::temp_dir().join("kde-assistant/previews");
-            std::fs::create_dir_all(&fallback)?;
-            Ok(fallback)
-        }
-    }
+    Ok(crate::backend::safe_fs::private_workspace()?.0)
 }
 
 fn render_text_preview(path: &Path, cache_dir: &Path, stem: &str) -> Result<PathBuf> {
@@ -2090,7 +1857,7 @@ fn xml_escape(s: &str) -> String {
 }
 
 /// Expande `~`, `~/` y `$HOME`/`~user` básico al home real.
-fn expand_home(input: &str, home: &Path) -> String {
+pub(super) fn expand_home(input: &str, home: &Path) -> String {
     if input == "~" {
         return home.to_string_lossy().to_string();
     }
@@ -2589,6 +2356,43 @@ mod tests {
             name: name.into(),
             arguments: args,
         }
+    }
+
+    #[tokio::test]
+    async fn f1a_snapshot_stays_coherent_after_config_update() {
+        use std::os::unix::fs::DirBuilderExt;
+        let root = std::env::temp_dir().join(format!("kda-snapshot-{}", uuid::Uuid::new_v4()));
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&root)
+            .unwrap();
+        let mut cfg = Config::default();
+        cfg.tools.allowed_paths = vec![root.display().to_string()];
+        let shared = Arc::new(RwLock::new(cfg));
+        let executor = ToolExecutor::new(shared.clone());
+        let snapshot = executor.get_config_snapshot().unwrap();
+        let mut guard = shared.write().await;
+        guard.tools.create_file = false;
+        guard.tools.allowed_paths.clear();
+        let call = tc("create_file", serde_json::from_value(serde_json::json!({"path": root.join("fixture.txt"), "content": "snapshot fixture"})).unwrap());
+        let result = executor
+            .execute_with_config(&call, &snapshot)
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert_eq!(
+            std::fs::read_to_string(root.join("fixture.txt")).unwrap(),
+            "snapshot fixture"
+        );
+        drop(guard);
+        assert!(
+            !executor
+                .execute(&call, &ToolCtx::auto(None))
+                .await
+                .unwrap()
+                .success
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

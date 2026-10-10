@@ -128,10 +128,11 @@ impl AiService {
             .timeout(std::time::Duration::from_secs(120))
             .user_agent("KDE-Assistant/2.0")
             .build()?;
-        let provider = config
-            .try_read()
-            .map(|c| crate::models::AiConfig::provider_name(c.ai.provider_id()).to_string())
-            .unwrap_or_else(|_| "OpenRouter".to_string());
+        let provider = {
+            let cfg = config.try_read().context("configuracion no disponible")?;
+            cfg.ai.validate_provider()?;
+            crate::models::AiConfig::provider_name(cfg.ai.provider_id()).to_string()
+        };
         log::info!("AiService: cliente {provider} listo");
         Ok(Self {
             config,
@@ -140,11 +141,14 @@ impl AiService {
         })
     }
 
-    fn snapshot(&self) -> Config {
-        self.config
+    fn snapshot(&self) -> Result<Config> {
+        let cfg = self
+            .config
             .try_read()
-            .map(|c| c.clone())
-            .unwrap_or_default()
+            .context("configuracion no disponible; solicitud denegada")?
+            .clone();
+        cfg.ai.validate_provider()?;
+        Ok(cfg)
     }
 
     /// Completion simple sin tools (F5: resúmenes). No streamea al exterior:
@@ -155,6 +159,7 @@ impl AiService {
         user: &str,
         max_tokens: u32,
     ) -> Result<String> {
+        let cfg = self.snapshot()?;
         let handle = self.clone_handle()?;
         let messages = vec![
             Message::system(system.to_string()),
@@ -163,7 +168,7 @@ impl AiService {
         let (tx, mut rx) = mpsc::channel::<StreamEvent>(64);
         let task = tokio::spawn(async move {
             handle
-                .call_once(&messages, &[], Some(max_tokens), &tx)
+                .call_once(&cfg, &messages, &[], Some(max_tokens), &tx)
                 .await
         });
         let mut out = String::new();
@@ -240,12 +245,12 @@ impl AiService {
     /// `ToolCall` acumulados.
     async fn call_once(
         &self,
+        cfg: &Config,
         messages: &[Message],
         tools: &[Tool],
         max_tokens: Option<u32>,
         tx: &mpsc::Sender<StreamEvent>,
     ) -> Result<String> {
-        let cfg = self.snapshot();
         let provider_id = cfg.ai.provider_id().to_string();
         let provider_name = crate::models::AiConfig::provider_name(&provider_id);
         let api_key = cfg.ai.effective_api_key();
@@ -402,7 +407,7 @@ impl AiService {
         session_id: Option<String>,
         tx: mpsc::Sender<StreamEvent>,
     ) -> Result<AgentOutcome> {
-        let cfg = self.snapshot();
+        let cfg = self.snapshot()?;
         let mut activity = self.activity.begin(&cfg.ai.model, !policy.interactive);
         let max_iter = if cfg.ai.max_tool_iterations == 0 {
             MAX_ITERATIONS_DEFAULT
@@ -426,8 +431,11 @@ impl AiService {
             let svc_handle = self.clone_handle()?;
             let msgs = messages.clone();
             let tools_c = tools.clone();
+            let request_cfg = cfg.clone();
             let call_task = tokio::spawn(async move {
-                svc_handle.call_once(&msgs, &tools_c, None, &inner_tx).await
+                svc_handle
+                    .call_once(&request_cfg, &msgs, &tools_c, None, &inner_tx)
+                    .await
             });
 
             // Procesar eventos: recoger texto y tool_calls
@@ -698,6 +706,39 @@ fn collect_tool_calls(acc: &mut HashMap<usize, (String, String, String)>) -> Vec
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn f1a_ai_contention_fails_before_any_request() {
+        let mut cfg = Config::default();
+        cfg.ai.provider = "custom".into();
+        cfg.ai.base_url = "http://synthetic.invalid".into();
+        cfg.ai.model = "synthetic-model".into();
+        let config = Arc::new(RwLock::new(cfg));
+        let service = AiService::new(config.clone()).await.unwrap();
+        let snapshot = service.snapshot().unwrap();
+        assert_eq!(snapshot.ai.provider, "custom");
+        let guard = config.write().await;
+        assert!(service.snapshot().is_err());
+        assert!(AiService::new(config.clone()).await.is_err());
+        let error = service
+            .simple_completion("synthetic", "fixture", 1)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("configuracion no disponible"));
+        drop(guard);
+        config.write().await.ai.provider = "groq".into();
+        assert_eq!(snapshot.ai.provider, "custom");
+        assert_eq!(service.snapshot().unwrap().ai.provider, "groq");
+    }
+
+    #[tokio::test]
+    async fn f1a_unknown_provider_never_falls_back_to_openrouter() {
+        let config = Arc::new(RwLock::new(Config::default()));
+        let service = AiService::new(config.clone()).await.unwrap();
+        config.write().await.ai.provider = "corrupt-fixture".into();
+        assert!(service.snapshot().is_err());
+        assert!(AiService::new(config).await.is_err());
+    }
 
     #[test]
     fn parse_retry_after_extrae_el_delay_de_groq() {

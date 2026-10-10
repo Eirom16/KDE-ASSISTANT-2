@@ -14,6 +14,7 @@ pub mod hotword;
 pub mod http_server;
 pub mod kde_integration;
 pub mod model_downloader;
+mod safe_fs;
 pub mod session_manager;
 pub mod speech_service;
 pub mod stt;

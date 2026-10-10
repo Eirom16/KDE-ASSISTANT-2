@@ -1,6 +1,6 @@
 //! Configuracion persistida en ~/.config/kde-assistant/config.json
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -31,7 +31,6 @@ pub struct AiConfig {
     /// Proveedor: "openrouter" | "groq" | "openai" | "custom".
     /// Solo afecta a headers extra y a la variable de entorno de fallback.
     /// La URL siempre sale de `base_url`.
-    #[serde(default = "default_provider")]
     pub provider: String,
     pub base_url: String,
     #[serde(default)]
@@ -54,7 +53,7 @@ pub struct AiConfig {
     pub max_tokens: u32,
     #[serde(default = "default_system_prompt")]
     pub system_prompt: String,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub enable_tool_calling: bool,
     #[serde(default = "default_max_iterations")]
     pub max_tool_iterations: u32,
@@ -81,6 +80,33 @@ fn default_max_iterations() -> u32 {
 }
 
 impl AiConfig {
+    pub(crate) fn validate_provider(&self) -> Result<()> {
+        if !matches!(
+            self.provider.trim().to_lowercase().as_str(),
+            "openrouter"
+                | "groq"
+                | "openai"
+                | "deepseek"
+                | "mistral"
+                | "xai"
+                | "grok"
+                | "together"
+                | "togetherai"
+                | "fireworks"
+                | "fireworksai"
+                | "cerebras"
+                | "sambanova"
+                | "lmstudio"
+                | "lm-studio"
+                | "ollama"
+                | "custom"
+                | "personalizado"
+        ) {
+            anyhow::bail!("Proveedor inválido; solicitud denegada");
+        }
+        Ok(())
+    }
+
     /// Normaliza el proveedor ("", mayusculas, etc.) a un id conocido.
     pub fn provider_id(&self) -> &str {
         Self::normalize_provider_id(&self.provider)
@@ -354,71 +380,71 @@ fn default_window_h() -> u32 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolsConfig {
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub open_app: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub create_file: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub edit_file: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub read_file: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub web_search: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub show_image: bool,
     /// F2-2: buscar archivos por nombre (solo dentro de allowed_paths).
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub find_file: bool,
     /// F2-2: abrir archivos/carpetas con la app por defecto (xdg-open).
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub open_file: bool,
     /// Copiar archivos/documentos dentro de allowed_paths.
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub copy_file: bool,
     /// F2-2: abrir URLs https? en el navegador (xdg-open).
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub open_url: bool,
     /// Control de ventanas/apps: listar, enfocar y cerrar.
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub list_open_apps: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub focus_app: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub close_app: bool,
     /// Buscar/previsualizar documentos dentro de allowed_paths.
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub find_document: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub preview_document: bool,
     /// F2-3: información del sistema (solo lectura: OS, CPU, RAM, disco, batería).
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub system_info: bool,
     /// F2-3: enviar notificaciones nativas KDE.
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub notify: bool,
     /// F4-1: pedir confirmación para tools 🟡 (las 🔴 siempre preguntan).
     /// En false, las 🟡 se ejecutan solas (modo potencia).
     #[serde(default = "default_true")]
     pub confirm_sensitive: bool,
     /// F4-2: control multimedia (playerctl).
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub media: bool,
     /// F4-2: volumen (wpctl/pactl).
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub volume: bool,
     /// F4-2: brillo (brightnessctl).
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub brightness: bool,
     /// F4-2: estado de red (nmcli/bluetoothctl, solo lectura).
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub network_status: bool,
     /// F4-2: recordatorios en memoria.
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub remind_in: bool,
     /// F6: KDE Connect (kdeconnect-cli).
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub kdeconnect: bool,
-    #[serde(default = "default_allowed_paths")]
+    #[serde(default)]
     pub allowed_paths: Vec<String>,
 }
 
@@ -556,24 +582,12 @@ impl Config {
         &self.speech
     }
 
-    /// Carga la configuracion desde ~/.config/kde-assistant/config.json
-    /// Si no existe, crea una con valores por defecto.
-    /// Tolerante a campos faltantes: rellena con defaults via serde.
+    /// Ausencia/corrupción bloquea el arranque antes de inicializar capacidades.
+    /// Los defaults explícitos siguen disponibles para crear configuración;
+    /// no son una política de recuperación de errores.
     pub async fn load() -> Result<Self> {
         let path = Self::config_path()?;
-
-        if !path.exists() {
-            log::info!("No existe config.json, creando uno por defecto");
-            let config = Self::default();
-            config.save().await?;
-            return Ok(config);
-        }
-
-        let content = tokio::fs::read_to_string(&path).await?;
-        let mut config: Config = serde_json::from_str(&content).unwrap_or_else(|e| {
-            log::warn!("Error parseando config.json: {e}. Usando defaults.");
-            Self::default()
-        });
+        let mut config = Self::load_from(&path).await?;
         // Migra modelos retirados por el proveedor (ej. Groq apagó los llama
         // el 16/08/2026: sin esto todo el chat da 404 para siempre).
         if let Some(replacement) = retired_model_replacement(&config.ai.provider, &config.ai.model)
@@ -589,6 +603,16 @@ impl Config {
             }
         }
         log::info!("Config cargada desde {}", path.display());
+        Ok(config)
+    }
+
+    async fn load_from(path: &std::path::Path) -> Result<Self> {
+        let content = tokio::fs::read_to_string(path)
+            .await
+            .context("configuracion ausente o ilegible; capacidades bloqueadas")?;
+        let config: Self = serde_json::from_str(&content)
+            .context("configuracion inválida; capacidades bloqueadas")?;
+        config.ai.validate_provider()?;
         Ok(config)
     }
 
@@ -727,6 +751,50 @@ pub fn retired_model_replacement(provider: &str, model: &str) -> Option<&'static
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn f1a_missing_security_fields_do_not_enable_capabilities() {
+        let mut value = serde_json::to_value(Config::default()).unwrap();
+        value["ai"]
+            .as_object_mut()
+            .unwrap()
+            .remove("enable_tool_calling");
+        value["tools"] = serde_json::json!({});
+        let cfg: Config = serde_json::from_value(value).unwrap();
+        assert!(!cfg.ai.enable_tool_calling);
+        assert!(!cfg.tools.fs_enabled());
+        assert!(cfg.tools.allowed_paths.is_empty());
+        assert!(cfg.tools.confirm_sensitive);
+        // Ignorar un campo mal escrito tampoco habilita la capacidad real.
+        let cfg: ToolsConfig =
+            serde_json::from_value(serde_json::json!({"readFile": true})).unwrap();
+        assert!(!cfg.read_file);
+    }
+
+    #[tokio::test]
+    async fn f1a_absent_corrupt_and_invalid_config_are_errors() {
+        use std::os::unix::fs::DirBuilderExt;
+        let base = std::env::temp_dir().join(format!("kda-config-{}", uuid::Uuid::new_v4()));
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&base)
+            .unwrap();
+        let path = base.join("config.json");
+        assert!(Config::load_from(&path).await.is_err());
+        assert!(!path.exists());
+        for content in ["{invalid", "{}", r#"{"tools":{"read_file":"false"}}"#] {
+            std::fs::write(&path, content).unwrap();
+            assert!(Config::load_from(&path).await.is_err());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
+        }
+        let mut cfg = Config::default();
+        cfg.tools.read_file = false;
+        cfg.tools.allowed_paths.clear();
+        std::fs::write(&path, serde_json::to_vec(&cfg).unwrap()).unwrap();
+        let loaded = Config::load_from(&path).await.unwrap();
+        assert!(!loaded.tools.read_file && loaded.tools.allowed_paths.is_empty());
+        std::fs::remove_dir_all(base).unwrap();
+    }
 
     #[test]
     fn migrates_retired_groq_models() {
