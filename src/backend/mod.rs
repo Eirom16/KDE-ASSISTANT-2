@@ -78,7 +78,11 @@ impl Backend {
         log::info!("Config cargada desde ~/.config/kde-assistant/config.json");
 
         let ai = Arc::new(ai_service::AiService::new(config.clone()).await?);
-        let sessions = Arc::new(Mutex::new(session_manager::SessionManager::new().await?));
+        let manager = session_manager::SessionManager::new().await?;
+        if let Err(error) = resource_cache::startup(&manager) {
+            log::warn!("Owned cache maintenance unavailable: {error}");
+        }
+        let sessions = Arc::new(Mutex::new(manager));
         // F4-3: el executor audita en SQLite.
         let tools = Arc::new(tool_executor::ToolExecutor::with_audit(
             config.clone(),
@@ -240,3 +244,7 @@ impl Backend {
         self.voice.process_utterance(&audio, None).await
     }
 }
+
+pub mod history_context;
+pub mod resource_cache;
+pub mod storage_retention;

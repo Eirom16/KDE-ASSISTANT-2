@@ -602,9 +602,12 @@ fn legacy_migration_preserves_messages_and_explicit_storage_settings() {
             "wal"
         );
         assert_eq!(
-            sql.query_row("SELECT COUNT(*) FROM recovery_migrations", [], |r| r
-                .get::<_, i64>(0))
-                .unwrap(),
+            sql.query_row(
+                "SELECT COUNT(*) FROM recovery_migrations WHERE version=3",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
             1
         );
     }

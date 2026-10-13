@@ -16,3 +16,4 @@ WelcomeScreen 1.0 components/WelcomeScreen.qml
 ToolDetailDialog 1.0 components/ToolDetailDialog.qml
 AuditDialog 1.0 components/AuditDialog.qml
 Main 1.0 Main.qml
+RecoveryHistory 1.0 components/RecoveryHistory.qml

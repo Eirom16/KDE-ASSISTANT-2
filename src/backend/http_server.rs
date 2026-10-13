@@ -16,7 +16,7 @@
 //! - event: done,       data: {"full_content":"..."}
 //! - event: error,      data: {"message":"..."}
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::{
     extract::{Query, Request, State},
     http::StatusCode,
@@ -186,6 +186,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/tools/approve", post(approve_tool))
         .route("/api/tools/audit", get(list_tool_audit))
         .route("/api/tools/operations", get(list_operations))
+        .route("/api/storage", get(storage_diagnostics))
         .route(
             "/api/memory/facts",
             get(list_facts).post(upsert_fact).delete(delete_fact),
@@ -1051,6 +1052,9 @@ fn default_audit_limit() -> i64 {
 #[derive(Deserialize)]
 struct OperationQuery {
     session_id: Option<String>,
+    #[serde(default)]
+    recovery_only: bool,
+    before: Option<i64>,
     #[serde(default = "default_audit_limit")]
     limit: i64,
 }
@@ -1062,8 +1066,12 @@ async fn list_operations(
         .sessions
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .list_operations(query.session_id.as_deref(), query.limit)
-    {
+        .operation_page(
+            query.session_id.as_deref(),
+            query.limit,
+            query.recovery_only,
+            query.before,
+        ) {
         Ok(records) => Json(records).into_response(),
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1079,7 +1087,13 @@ async fn list_tool_audit(
 ) -> impl IntoResponse {
     let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
     match sessions.list_tool_audit(q.limit) {
-        Ok(rows) => Json(rows).into_response(),
+        Ok(mut rows) => {
+            // Redaction at the API boundary does not rewrite historical SQLite evidence.
+            for row in &mut rows {
+                row.args = "[redacted]".into();
+            }
+            Json(rows).into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": e.to_string() })),
@@ -1346,6 +1360,8 @@ async fn list_ai_models(
 #[derive(Debug, Deserialize)]
 pub struct DeleteSessionQuery {
     pub session_id: String,
+    #[serde(default)]
+    pub erase_uncertain_evidence: bool,
 }
 
 /// Renombra una sesion (F1-2). Body: {"id": "...", "title": "..."}.
@@ -1382,12 +1398,50 @@ async fn delete_session(
     State(state): State<AppState>,
     Query(q): Query<DeleteSessionQuery>,
 ) -> impl IntoResponse {
-    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
-    match sessions.delete_session(&q.session_id) {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "status": "ok" }))),
-        Err(e) => (
+    let result = tokio::task::spawn_blocking(move || {
+        state.chat_tasks.while_session_idle(&q.session_id, || {
+            state
+                .sessions
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .delete_session_confirmed(&q.session_id, q.erase_uncertain_evidence)
+        })
+    })
+    .await;
+    match result {
+        Ok(Ok(())) => (StatusCode::OK, Json(serde_json::json!({"status":"ok"}))),
+        Ok(Err(e)) => {
+            let error = e.to_string();
+            let status =
+                if error.contains("session_busy") || error.contains("confirmation_required") {
+                    StatusCode::CONFLICT
+                } else if error == "session_not_found" {
+                    StatusCode::NOT_FOUND
+                } else {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                };
+            (status, Json(serde_json::json!({"error":error})))
+        }
+        Err(_) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
+            Json(serde_json::json!({"error":"storage_worker_failed"})),
+        ),
+    }
+}
+async fn storage_diagnostics(State(state): State<AppState>) -> impl IntoResponse {
+    match tokio::task::spawn_blocking(move || {
+        state
+            .sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .storage_diagnostics()
+    })
+    .await
+    {
+        Ok(Ok(data)) => (StatusCode::OK, Json(data)),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error":"storage_diagnostics_unavailable"})),
         ),
     }
 }
@@ -1507,23 +1561,22 @@ fn start_turn(
                 let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
                 if regenerate {
                     anyhow::ensure!(sessions.regeneration_is_safe(req.session_id.as_deref().unwrap_or_default())?,"regeneration_requires_new_message: inspecciona efectos anteriores y envía un mensaje nuevo");
-                    let history =
-                        sessions.get_messages(req.session_id.as_deref().unwrap_or_default())?;
-                    // Regeneration never replays tools which may already have effects.
-                    anyhow::ensure!(history.last().is_some_and(|m|matches!(m,Message::User{..})),"regeneration_requires_unanswered_user: crea un nuevo mensaje para repetir una acción");
-                    if let Some(Message::User { content }) = history.last() {
-                        req.message = content.clone();
-                    }
+                    let cap = state
+                        .config
+                        .try_read()
+                        .context("config unavailable")?
+                        .ai
+                        .max_context_bytes;
+                    req.message =
+                        sessions.retry_input(req.session_id.as_deref().unwrap_or_default(), cap)?;
                 }
             }
-            let mut messages = crate::backend::conversation_turn::cancellable(
+            let messages = crate::backend::conversation_turn::cancellable(
                 Some(&owned),
-                build_messages(&state, &req),
+                build_messages(&state, &req, regenerate),
             )
             .await?;
-            if regenerate {
-                messages.pop();
-            } // The existing unanswered user is already in history.
+
             {
                 let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
                 let user = Message::user(&req.message);
@@ -1689,7 +1742,11 @@ fn start_turn(
 
 fn error_code(error: &anyhow::Error) -> &'static str {
     let detail = format!("{error:#}");
-    if detail.contains("sse_") || detail.contains("malformed_tool") {
+    if detail.contains("context_invalid") {
+        "context_invalid"
+    } else if detail.contains("context_budget") {
+        "context_budget_exceeded"
+    } else if detail.contains("sse_") || detail.contains("malformed_tool") {
         "invalid_provider_stream"
     } else if detail.contains("timed out") || detail.contains("timeout") {
         "provider_timeout"
@@ -1855,55 +1912,46 @@ fn maybe_auto_title(
     }
 }
 
-async fn build_messages(state: &AppState, req: &ChatRequest) -> Result<Vec<Message>> {
+async fn build_messages(
+    state: &AppState,
+    req: &ChatRequest,
+    regenerate: bool,
+) -> Result<Vec<Message>> {
     let cfg = state.config.read().await.clone();
     let mut system_prompt = cfg.ai.system_prompt.clone();
-    // F5: facts del usuario (solo si hay y está habilitado).
-    if cfg.memory.enabled {
-        let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        if let Ok(facts) = sessions.list_facts() {
+    let sessions = state.sessions.clone();
+    let sid = req.session_id.clone();
+    let current = if regenerate {
+        None
+    } else {
+        Some(Message::user(req.message.clone()))
+    };
+    tokio::task::spawn_blocking(move || {
+        let sessions = sessions.lock().unwrap_or_else(|e| e.into_inner());
+        if cfg.memory.enabled {
+            let facts = sessions.context_facts(cfg.ai.max_context_bytes)?;
             if !facts.is_empty() {
-                let mut block = String::from(
+                system_prompt.push_str(
                     "\n\nDatos del usuario (recordados localmente, pueden estar desactualizados):",
                 );
-                for f in &facts {
-                    block.push_str(&format!("\n- {}: {}", f.key, f.value));
+                for fact in facts {
+                    system_prompt.push_str(&format!("\n- {}: {}", fact.key, fact.value));
                 }
-                system_prompt.push_str(&block);
             }
         }
-    }
-    let mut messages = Vec::new();
-    messages.push(Message::system(system_prompt));
-
-    // Cargar historial si hay session_id (ventana deslizante: últimos 40
-    // para no saturar contexto ni superar max_tokens del proveedor).
-    const MAX_HISTORY: usize = 40;
-    if let Some(sid) = &req.session_id {
-        let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        // F5: resumen del hilo largo (contexto más allá de la ventana).
-        if let Ok((summary, _)) = sessions.get_summary(sid) {
-            if !summary.trim().is_empty() {
-                let short: String = summary.chars().take(1500).collect();
-                messages.push(Message::system(format!(
-                    "Resumen de la conversación anterior en esta sesión:\n{short}"
-                )));
-            }
-        }
-        {
-            let history = sessions.get_messages(sid)?;
-            // Inyectar historial (sin el system prompt duplicado)
-            let start = history.len().saturating_sub(MAX_HISTORY);
-            messages.extend(history.into_iter().skip(start));
-        }
-    }
-
-    messages.push(Message::user(req.message.clone()));
-    Ok(messages)
+        sessions.select_context(
+            sid.as_deref(),
+            vec![Message::system(system_prompt)],
+            current,
+            &cfg.ai,
+            &tool_registry::filtered_tools(&cfg),
+        )
+    })
+    .await?
 }
 
 /// Revisa si toca resumir el hilo y lo lanza en segundo plano (F5).
-/// No bloquea la respuesta: el resumen estará en el siguiente turno.
+/// Artefacto legacy opcional; nunca sustituye el contexto conversacional.
 fn maybe_summarize(state: &AppState, session_id: &str) {
     let enabled = state
         .config
@@ -1938,28 +1986,7 @@ fn maybe_summarize(state: &AppState, session_id: &str) {
 async fn summarize_session(state: &AppState, session_id: &str) -> anyhow::Result<()> {
     let (prev_summary, prev_count, chunk) = {
         let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        let (prev, prev_count) = sessions.get_summary(session_id).unwrap_or_default();
-        let all = sessions.get_messages(session_id).unwrap_or_default();
-        // Dejar los últimos 20 mensajes fuera del resumen (contexto fresco).
-        let end = all.len().saturating_sub(20);
-        let start = (prev_count as usize).min(end);
-        let mut text = String::new();
-        for m in &all[start..end] {
-            let (role, content) = match m {
-                Message::System { content } => ("sistema", content.as_str()),
-                Message::User { content } => ("usuario", content.as_str()),
-                Message::Assistant { content, .. } => ("asistente", content.as_str()),
-                Message::Tool { content, .. } => ("herramienta", content.as_str()),
-            };
-            // Envolver outputs (ya vienen envueltos) y recortar por mensaje.
-            let short: String = content.chars().take(600).collect();
-            text.push_str(&format!("[{role}] {short}\n"));
-            if text.len() > 12000 {
-                text.push_str("…[truncado]");
-                break;
-            }
-        }
-        (prev, prev_count, text)
+        sessions.summary_excerpt(session_id)?
     };
     if chunk.trim().is_empty() {
         return Ok(());

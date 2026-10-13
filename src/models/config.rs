@@ -51,6 +51,10 @@ pub struct AiConfig {
     pub temperature: f32,
     #[serde(default = "default_max_tokens")]
     pub max_tokens: u32,
+    #[serde(default = "default_context_tokens")]
+    pub context_window_tokens: u32,
+    #[serde(default = "default_context_bytes")]
+    pub max_context_bytes: usize,
     #[serde(default = "default_system_prompt")]
     pub system_prompt: String,
     #[serde(default)]
@@ -65,6 +69,12 @@ fn default_provider() -> String {
 
 fn default_temperature() -> f32 {
     0.7
+}
+fn default_context_tokens() -> u32 {
+    32768
+}
+fn default_context_bytes() -> usize {
+    1024 * 1024
 }
 fn default_max_tokens() -> u32 {
     2048
@@ -724,6 +734,8 @@ impl Config {
                 model: "openrouter/z-ai/glm-5.2:free".to_string(),
                 temperature: default_temperature(),
                 max_tokens: default_max_tokens(),
+                context_window_tokens: default_context_tokens(),
+                max_context_bytes: default_context_bytes(),
                 system_prompt: default_system_prompt(),
                 enable_tool_calling: true,
                 max_tool_iterations: default_max_iterations(),
@@ -899,6 +911,8 @@ mod tests {
             model: "openrouter/test".to_string(),
             temperature: default_temperature(),
             max_tokens: default_max_tokens(),
+            context_window_tokens: default_context_tokens(),
+            max_context_bytes: default_context_bytes(),
             system_prompt: default_system_prompt(),
             enable_tool_calling: true,
             max_tool_iterations: default_max_iterations(),

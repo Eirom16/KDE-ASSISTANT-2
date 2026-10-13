@@ -8,11 +8,11 @@
 //! - show_image descarga o copia a cache local
 
 use anyhow::{anyhow, bail, Context, Result};
+use futures_util::StreamExt;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use tokio::fs;
 
 use crate::backend::document_suite;
 use crate::backend::safe_fs::SafePath;
@@ -444,6 +444,7 @@ impl ToolExecutor {
             // Descargar a cache con límites (10MB, timeout 15s, solo imágenes).
             const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
             let cache_dir = crate::backend::safe_fs::private_workspace()?.0;
+            let pending = crate::backend::resource_cache::PendingResource::new(&cache_dir);
 
             let ext = sanitize_image_ext(source);
             let file_name = format!("{}.{}", chrono::Utc::now().timestamp_millis(), ext);
@@ -466,15 +467,27 @@ impl ToolExecutor {
                     bail!("Imagen demasiado grande ({} bytes, máx 10MB)", len);
                 }
             }
-            let bytes = resp.bytes().await?;
-            if bytes.len() > MAX_IMAGE_BYTES {
-                bail!("Imagen demasiado grande ({} bytes, máx 10MB)", bytes.len());
+            let mut stream = resp.bytes_stream();
+            let mut bytes = Vec::new();
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk?;
+                anyhow::ensure!(
+                    bytes.len().saturating_add(chunk.len()) <= MAX_IMAGE_BYTES,
+                    "Imagen demasiado grande (máx 10MB)"
+                );
+                bytes.extend_from_slice(&chunk);
             }
             // Verificación mínima de firma (JPEG/PNG/GIF/WebP/BMP).
             if !looks_like_image(&bytes) {
                 log::warn!("show_image: la descarga no parece imagen conocida, se guarda igual");
             }
-            fs::write(&dest, &bytes).await?;
+            let write_path = dest.clone();
+            tokio::task::spawn_blocking(move || {
+                crate::backend::resource_cache::write_resource(&write_path, &bytes)
+            })
+            .await??;
+            crate::backend::resource_cache::publish_resource(&dest)?;
+            pending.keep();
             dest.to_string_lossy().to_string()
         } else {
             let path = source.strip_prefix("file://").unwrap_or(source);
@@ -562,7 +575,18 @@ impl ToolExecutor {
             .clamp(1, 999) as u32;
         let preview_path = tokio::task::spawn_blocking(move || {
             let snapshot = validated.snapshot()?;
-            preview_document_sync(&snapshot, page)
+            let result = preview_document_sync(&snapshot, page);
+            // Image inputs are already a private display resource, not a render source.
+            if !result.as_ref().is_ok_and(|preview| preview == &snapshot) {
+                if let Err(error) =
+                    crate::backend::resource_cache::release_private_snapshot(&snapshot)
+                {
+                    log::warn!("Private snapshot cleanup pending: {error}");
+                }
+            }
+            let preview = result?;
+            crate::backend::resource_cache::check_resource(&preview)?;
+            Ok::<_, anyhow::Error>(preview)
         })
         .await??;
         Ok(ToolResult::success(
@@ -1749,6 +1773,7 @@ fn preview_document_sync(path: &Path, page: u32) -> Result<PathBuf> {
         return Ok(path.to_path_buf());
     }
     let cache_dir = writable_preview_cache_dir()?;
+    let pending = crate::backend::resource_cache::PendingResource::new(&cache_dir);
     let clean_stem = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -1758,28 +1783,31 @@ fn preview_document_sync(path: &Path, page: u32) -> Result<PathBuf> {
         .take(40)
         .collect::<String>();
     let stem = format!("{}_{}", chrono::Utc::now().timestamp_millis(), clean_stem);
-    match ext.as_str() {
+    let preview = match ext.as_str() {
         "pdf" => render_pdf_preview(path, page, &cache_dir, &stem),
         "txt" | "md" | "markdown" | "log" | "csv" => render_text_preview(path, &cache_dir, &stem),
         "docx" | "odt" | "ods" | "xlsx" => {
             render_office_placeholder_preview(path, &cache_dir, &stem)
         }
         other => bail!("Tipo de documento no soportado para preview: {other}"),
-    }
+    }?;
+    crate::backend::resource_cache::publish_resource(&preview)?;
+    pending.keep();
+    Ok(preview)
 }
 
 fn render_pdf_preview(path: &Path, page: u32, cache_dir: &Path, stem: &str) -> Result<PathBuf> {
-    let prefix = cache_dir.join(stem);
+    let out = cache_dir.join(format!("{stem}.png"));
+    let output = crate::backend::resource_cache::create_resource(&out)?;
     let status = Command::new("pdftoppm")
         .args(["-f", &page.to_string(), "-singlefile", "-png", "-r", "144"])
         .arg(path)
-        .arg(&prefix)
+        .stdout(output)
         .status()
         .context("ejecutando pdftoppm")?;
     if !status.success() {
         bail!("pdftoppm no pudo renderizar {}", path.display());
     }
-    let out = prefix.with_extension("png");
     if !out.exists() {
         bail!("pdftoppm no generó la imagen esperada");
     }
@@ -1837,7 +1865,7 @@ fn render_text_preview(path: &Path, cache_dir: &Path, stem: &str) -> Result<Path
         title = xml_escape(title)
     );
     let out = cache_dir.join(format!("{stem}.svg"));
-    std::fs::write(&out, svg)?;
+    crate::backend::resource_cache::write_resource(&out, svg.as_bytes())?;
     Ok(out)
 }
 
@@ -1930,7 +1958,7 @@ fn render_office_placeholder_preview(path: &Path, cache_dir: &Path, stem: &str) 
         body = body
     );
     let out = cache_dir.join(format!("{stem}.svg"));
-    std::fs::write(&out, svg)?;
+    crate::backend::resource_cache::write_resource(&out, svg.as_bytes())?;
     Ok(out)
 }
 
@@ -2664,7 +2692,8 @@ mod tests {
         std::fs::create_dir_all(&base).unwrap();
         let doc = base.join("nota.md");
         std::fs::write(&doc, "# Hola\nLinea <segura> & limpia").unwrap();
-        let out = render_text_preview(&doc, &base, "nota").unwrap();
+        let (cache, _) = crate::backend::resource_cache::allocate_at(&base).unwrap();
+        let out = render_text_preview(&doc, &cache, "nota").unwrap();
         let svg = std::fs::read_to_string(&out).unwrap();
         assert!(svg.contains("<svg"));
         assert!(svg.contains("&lt;segura&gt; &amp; limpia"));
@@ -2678,7 +2707,8 @@ mod tests {
         std::fs::create_dir_all(&base).unwrap();
         let doc = base.join("contrato.docx");
         std::fs::write(&doc, "placeholder").unwrap();
-        let out = render_office_placeholder_preview(&doc, &base, "contrato").unwrap();
+        let (cache, _) = crate::backend::resource_cache::allocate_at(&base).unwrap();
+        let out = render_office_placeholder_preview(&doc, &cache, "contrato").unwrap();
         let svg = std::fs::read_to_string(&out).unwrap();
         assert!(svg.contains("<svg"));
         assert!(svg.contains("contrato.docx"));

@@ -140,27 +140,41 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Ventana de historial para voz (turnos que van al LLM). Más chica que la
-/// del chat de texto: la voz es ráfaga, y cada turno refactura el historial
-/// completo (con 40 mensajes se agotaba el TPM de Groq → 429).
-const MAX_VOICE_HISTORY: usize = 12;
-
-/// Recorta el historial a los últimos `max` mensajes, sin dejar pares
-/// tool rotos: nada de `tool` huérfano al inicio ni `assistant` con
-/// tool_calls sin sus respuestas al final (Groq los rechaza con 400).
-fn trim_voice_history(history: Vec<Message>, max: usize) -> Vec<Message> {
-    let start = history.len().saturating_sub(max);
-    let mut slice: Vec<Message> = history.into_iter().skip(start).collect();
-    while matches!(slice.first(), Some(Message::Tool { .. })) {
-        slice.remove(0);
+/// Shares storage selection with text; no changes to audio or turn supervision.
+fn voice_context(
+    sessions: &crate::backend::session_manager::SessionManager,
+    cfg: &Config,
+    mut system: String,
+    text: String,
+    selected: Option<String>,
+) -> Result<(String, Vec<Message>)> {
+    let session = selected
+        .map(|id| sessions.get_session(&id))
+        .transpose()?
+        .flatten();
+    let session = match session {
+        Some(session) => session,
+        None => sessions.get_or_create_voice_session()?,
+    };
+    if cfg.memory.enabled {
+        let facts = sessions.context_facts(cfg.ai.max_context_bytes)?;
+        if !facts.is_empty() {
+            system.push_str(
+                "\n\nDatos del usuario (recordados localmente, pueden estar desactualizados):",
+            );
+            for fact in facts {
+                system.push_str(&format!("\n- {}: {}", fact.key, fact.value));
+            }
+        }
     }
-    while matches!(
-        slice.last(),
-        Some(Message::Assistant { tool_calls, .. }) if !tool_calls.is_empty()
-    ) {
-        slice.pop();
-    }
-    slice
+    let messages = sessions.select_context(
+        Some(&session.id),
+        vec![Message::system(system)],
+        Some(Message::user(text)),
+        &cfg.ai,
+        &tool_registry::filtered_tools(cfg),
+    )?;
+    Ok((session.id, messages))
 }
 
 fn is_wake_only_transcript(text: &str) -> bool {
@@ -973,46 +987,26 @@ impl VoicePipeline {
                  - No describas la puntuación ni el formato de tu respuesta.",
             );
         }
-        if cfg.memory.enabled {
-            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-            if let Ok(facts) = sessions.list_facts() {
-                if !facts.is_empty() {
-                    system_prompt.push_str(
-                        "\n\nDatos del usuario (recordados localmente, pueden estar desactualizados):",
-                    );
-                    for f in &facts {
-                        system_prompt.push_str(&format!("\n- {}: {}", f.key, f.value));
-                    }
-                }
-            }
-        }
-        let mut messages = vec![Message::system(system_prompt)];
-        // Contexto de voz: mismo hilo canonico "Conversacion por voz".
-        // Ventana de 12 (era 40): cada turno de voz pega el historial entero
-        // en el prompt, y con 40 mensajes reventaba el TPM de Groq (429s).
-        let mut voice_session_id: Option<String> = None;
-        {
-            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-            let selected = self
-                .active_session
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone();
-            let session = selected
-                .filter(|id| sessions.get_session(id).ok().flatten().is_some())
-                .and_then(|id| sessions.get_session(&id).ok().flatten())
-                .or_else(|| sessions.get_or_create_voice_session().ok());
-            if let Some(vs) = session {
-                if let Ok(history) = sessions.get_messages(&vs.id) {
-                    messages.extend(trim_voice_history(history, MAX_VOICE_HISTORY));
-                }
-                voice_session_id = Some(vs.id);
-            }
-        }
-        messages.push(Message::user(text.to_string()));
-        // NOTA F0-1: la voz ahora inyecta historial (hecho).
-        // Respetar los flags de tools para no llamar tools deshabilitadas.
         let tools = tool_registry::filtered_tools(&cfg);
+        let sessions = self.sessions.clone();
+        let selected = self
+            .active_session
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let context_cfg = cfg.clone();
+        let text = text.to_owned();
+        let (voice_session_id, messages) = tokio::task::spawn_blocking(move || {
+            voice_context(
+                &sessions.lock().unwrap_or_else(|e| e.into_inner()),
+                &context_cfg,
+                system_prompt,
+                text,
+                selected,
+            )
+        })
+        .await??;
+        let voice_session_id = Some(voice_session_id);
 
         let (stream_tx, mut stream_rx) = tokio::sync::mpsc::channel::<StreamEvent>(256);
 
@@ -1221,57 +1215,75 @@ mod tests {
     }
 
     #[test]
-    fn trim_voice_history_limita_y_no_rompe_tools() {
-        use crate::models::ToolCall;
-        let mk_tool_pair = |i: usize| {
-            let tc = ToolCall {
-                id: format!("call_{i}"),
-                name: "t".to_string(),
-                arguments: Default::default(),
-            };
-            vec![
-                Message::assistant_with_tools("déjame ver", vec![tc]),
-                Message::tool(format!("call_{i}"), "ok"),
-            ]
-        };
-        let mut hist = vec![Message::user("h0")];
-        for i in 1..=20 {
-            hist.extend(mk_tool_pair(i));
-            hist.push(Message::user(format!("h{i}")));
-            hist.push(Message::assistant(format!("r{i}")));
+    fn voice_context_preserves_complete_tool_units() {
+        let sessions =
+            crate::backend::session_manager::SessionManager::in_memory_for_tests().unwrap();
+        let sid = sessions.create_session("fixture").unwrap().id;
+        for i in 0..50 {
+            for message in [
+                Message::user(format!("input {i}")),
+                Message::assistant_with_tools(
+                    "",
+                    vec![crate::models::ToolCall {
+                        id: format!("tool{i}"),
+                        name: "system_info".into(),
+                        arguments: Default::default(),
+                    }],
+                ),
+                Message::tool(format!("tool{i}"), "result"),
+                Message::assistant("final"),
+            ] {
+                sessions.add_message(&sid, &message).unwrap();
+            }
         }
-        let out = trim_voice_history(hist, MAX_VOICE_HISTORY);
-        assert!(out.len() <= MAX_VOICE_HISTORY);
-        // Sin tool huérfano al inicio.
-        assert!(!matches!(out.first(), Some(Message::Tool { .. })));
-        // Sin assistant con tool_calls colgando al final.
-        assert!(!matches!(
-            out.last(),
-            Some(Message::Assistant { tool_calls, .. }) if !tool_calls.is_empty()
-        ));
+        let mut cfg = Config::first_run();
+        cfg.ai.context_window_tokens = 4000;
+        cfg.ai.max_tokens = 1000;
+        let (selected, messages) = voice_context(
+            &sessions,
+            &cfg,
+            "voice instructions".into(),
+            "new input".into(),
+            Some(sid.clone()),
+        )
+        .unwrap();
+        assert_eq!(selected, sid);
+        crate::backend::history_context::validate_groups(&messages).unwrap();
+        let wire = serde_json::to_string(&messages).unwrap();
+        assert!(wire.contains("input 49"));
+        assert!(!wire.contains("input 0\""));
     }
-
     #[test]
-    fn trim_voice_history_corta_el_par_cuando_cae_al_borde() {
-        use crate::models::ToolCall;
-        // [user, assistant+tool, tool, user] con max=2 → quedaria [tool, user]:
-        // el tool huérfano debe desaparecer.
-        let hist = vec![
-            Message::user("a"),
-            Message::assistant_with_tools(
-                "",
-                vec![ToolCall {
-                    id: "c1".to_string(),
-                    name: "t".to_string(),
-                    arguments: Default::default(),
-                }],
-            ),
-            Message::tool("c1", "ok"),
-            Message::user("b"),
-        ];
-        let out = trim_voice_history(hist, 2);
-        assert_eq!(out.len(), 1);
-        assert!(matches!(out.first(), Some(Message::User { .. })));
+    fn voice_context_rejects_incomplete_legacy_group() {
+        let sessions =
+            crate::backend::session_manager::SessionManager::in_memory_for_tests().unwrap();
+        let sid = sessions.create_session("fixture").unwrap().id;
+        sessions
+            .add_message(&sid, &Message::user("legacy"))
+            .unwrap();
+        sessions
+            .add_message(
+                &sid,
+                &Message::assistant_with_tools(
+                    "",
+                    vec![crate::models::ToolCall {
+                        id: "missing".into(),
+                        name: "system_info".into(),
+                        arguments: Default::default(),
+                    }],
+                ),
+            )
+            .unwrap();
+        assert!(voice_context(
+            &sessions,
+            &Config::first_run(),
+            "essential".into(),
+            "new".into(),
+            Some(sid)
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("incomplete"));
     }
 
     #[test]

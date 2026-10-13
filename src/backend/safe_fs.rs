@@ -76,8 +76,15 @@ impl SafePath {
     }
 
     pub fn snapshot(&self) -> Result<PathBuf> {
-        let bytes = self.read()?;
+        let mut source = self.open(OFlags::RDONLY | OFlags::NONBLOCK)?;
+        check_regular(&source)?;
+        let mut bytes = Vec::new();
+        std::io::Read::by_ref(&mut source)
+            .take(32 * 1024 * 1024 + 1)
+            .read_to_end(&mut bytes)?;
+        anyhow::ensure!(bytes.len() <= 32 * 1024 * 1024, "cache_resource_limit");
         let (directory, root) = private_workspace()?;
+        let pending = super::resource_cache::PendingResource::new(&directory);
         let name = self.relative.file_name().context("archivo sin nombre")?;
         let snapshot = Self {
             root,
@@ -85,6 +92,8 @@ impl SafePath {
             display: directory.join(name),
         };
         snapshot.create(&bytes)?;
+        super::resource_cache::publish_resource(&snapshot.display)?;
+        pending.keep();
         Ok(snapshot.display)
     }
 
@@ -367,22 +376,5 @@ fn checked_absolute(path: &str) -> Result<PathBuf> {
 
 // Cache de vistas: nombre impredecible y 0700 desde mkdirat; sin fallback compartido.
 pub(super) fn private_workspace() -> Result<(PathBuf, File)> {
-    let base = std::env::temp_dir();
-    let root = fs::openat2(
-        CWD,
-        &base,
-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-        Mode::empty(),
-        ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_MAGICLINKS,
-    )?;
-    let name = format!("kda-view-{}", uuid::Uuid::new_v4());
-    fs::mkdirat(&root, &name, Mode::RUSR | Mode::WUSR | Mode::XUSR)?;
-    let dir = fs::openat2(
-        &root,
-        &name,
-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-        Mode::empty(),
-        RESOLVE,
-    )?;
-    Ok((base.join(name), dir.into()))
+    super::resource_cache::allocate()
 }

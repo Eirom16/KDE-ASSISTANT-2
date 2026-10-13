@@ -201,6 +201,12 @@ impl AiService {
         max_tokens: Option<u32>,
         tx: &mpsc::Sender<StreamEvent>,
     ) -> Result<String> {
+        crate::backend::history_context::validate_request(
+            &cfg.ai,
+            messages,
+            tools,
+            max_tokens.unwrap_or(cfg.ai.max_tokens),
+        )?;
         let provider_id = cfg.ai.provider_id().to_string();
         let provider_name = crate::models::AiConfig::provider_name(&provider_id);
         let api_key = cfg.ai.effective_api_key();

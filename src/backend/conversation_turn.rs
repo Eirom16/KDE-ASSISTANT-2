@@ -241,6 +241,20 @@ impl TurnRegistry {
             entry.task = Some(task);
         }
     }
+    pub fn while_session_idle<T>(
+        &self,
+        session: &str,
+        work: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(entry) = entries.get(&Some(session.to_owned())) {
+            anyhow::ensure!(
+                entry.task.as_ref().is_some_and(JoinHandle::is_finished),
+                "session_busy: supervisor still owns session"
+            );
+        }
+        work()
+    }
     pub fn current(&self, session: &Option<String>) -> Option<Arc<Turn>> {
         self.entries
             .lock()

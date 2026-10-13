@@ -79,6 +79,7 @@ pub(crate) fn atomic<T>(conn: &Connection, work: impl FnOnce() -> Result<T>) -> 
 
 pub(crate) fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(include_str!("../../migrations/003_operation_journal.sql"))?;
+    conn.execute_batch(include_str!("../../migrations/004_storage_retention.sql"))?;
     #[cfg(test)]
     crash_checkpoint("migration");
     Ok(())
@@ -254,22 +255,34 @@ impl SessionManager {
     }
     /// Bounded, newest-first metadata; never returns tool arguments or output text.
     pub fn list_operations(&self, session: Option<&str>, limit: i64) -> Result<Vec<Operation>> {
-        let mut stmt = self.conn.prepare("SELECT id,turn_id,session_id,kind,tool,state,prepared_at,updated_at,consent,audit_id,result_bytes FROM operation_journal WHERE (?1 IS NULL OR session_id=?1) ORDER BY prepared_at DESC,id DESC LIMIT ?2")?;
-        let rows = stmt.query_map(params![session, limit.clamp(1, 500)], |r| {
-            Ok(Operation {
-                id: r.get(0)?,
-                turn_id: r.get(1)?,
-                session_id: r.get(2)?,
-                kind: r.get(3)?,
-                tool: r.get(4)?,
-                state: r.get(5)?,
-                prepared_at: r.get(6)?,
-                updated_at: r.get(7)?,
-                consent: r.get(8)?,
-                audit_id: r.get(9)?,
-                result_bytes: r.get(10)?,
-            })
-        })?;
+        self.operation_page(session, limit, false, None)
+    }
+    pub fn operation_page(
+        &self,
+        session: Option<&str>,
+        limit: i64,
+        recovery_only: bool,
+        before: Option<i64>,
+    ) -> Result<Vec<Operation>> {
+        let mut stmt = self.conn.prepare("SELECT id,turn_id,session_id,kind,tool,state,prepared_at,updated_at,consent,audit_id,result_bytes FROM operation_journal WHERE (?1 IS NULL OR session_id=?1) AND (?3=0 OR state IN ('unknown_outcome','failed','abandoned')) AND (?4 IS NULL OR audit_id<?4) ORDER BY audit_id DESC LIMIT ?2")?;
+        let rows = stmt.query_map(
+            params![session, limit.clamp(1, 500), recovery_only, before],
+            |r| {
+                Ok(Operation {
+                    id: r.get(0)?,
+                    turn_id: r.get(1)?,
+                    session_id: r.get(2)?,
+                    kind: r.get(3)?,
+                    tool: r.get(4)?,
+                    state: r.get(5)?,
+                    prepared_at: r.get(6)?,
+                    updated_at: r.get(7)?,
+                    consent: r.get(8)?,
+                    audit_id: r.get(9)?,
+                    result_bytes: r.get(10)?,
+                })
+            },
+        )?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
     pub fn authorize_operation(

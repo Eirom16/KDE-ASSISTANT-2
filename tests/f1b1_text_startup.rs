@@ -692,8 +692,16 @@ fn two_turns_with_mock_and_persistence_after_backend_restart() {
             persisted(&c, &base, &token, sid, (i + 1) * 2).await;
         }
         let before = persisted(&c, &base, &token, sid, 4).await;
+        let previous_db = Arc::downgrade(&b.sessions);
         stop(task).await;
         drop(b);
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while previous_db.upgrade().is_some() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
         let restarted = Backend::new().await.unwrap();
         let state = restarted.http_state().unwrap();
         assert_eq!(state.local_token, token);

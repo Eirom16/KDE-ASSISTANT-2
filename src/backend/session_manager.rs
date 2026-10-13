@@ -373,11 +373,13 @@ impl SessionManager {
     }
 
     pub fn delete_session(&self, id: &str) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM messages WHERE session_id = ?1", params![id])?;
-        self.conn
-            .execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
-        Ok(())
+        self.delete_session_confirmed(id, false)
+    }
+
+    pub(crate) fn db_file_bytes(&self, suffix: &str) -> u64 {
+        let mut path = self.db_path.as_os_str().to_os_string();
+        path.push(suffix);
+        std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
     }
 
     pub fn touch_session(&self, id: &str) -> Result<()> {

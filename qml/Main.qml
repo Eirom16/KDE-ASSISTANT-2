@@ -454,12 +454,23 @@ ApplicationWindow {
     }
 
     // Elimina una sesion en el backend y refresca la lista
-    function deleteSession(sessionId) {
+    function deleteSession(sessionId, eraseEvidence) {
         var xhr = new XMLHttpRequest()
-        xhr.open("DELETE", backendUrl + "/api/session?session_id=" + encodeURIComponent(sessionId))
+        xhr.open("DELETE", backendUrl + "/api/session?session_id=" + encodeURIComponent(sessionId) + (eraseEvidence ? "&erase_uncertain_evidence=true" : ""))
         setAuth(xhr)
         xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE && (xhr.status === 200 || xhr.status === 201)) {
+            if (xhr.readyState !== XMLHttpRequest.DONE) return
+            if (xhr.status === 409 && xhr.responseText.indexOf("uncertain_evidence_confirmation_required") >= 0) {
+                recoveryHistory.confirmDeletion(sessionId)
+                return
+            }
+            if (xhr.status !== 200 && xhr.status !== 201) {
+                lastError = qsTr("No se pudo eliminar la conversación")
+                lastErrorDetail = xhr.status === 409 ? qsTr("Hay un turno u operación en curso. Espera a que termine.") : qsTr("El backend no confirmó el borrado; el historial se conserva.")
+                showErrorBanner = true
+                return
+            }
+            if (xhr.status === 200 || xhr.status === 201) {
                 if (currentSessionId === sessionId) {
                     detachChat()
                     currentSessionId = ""
@@ -1000,7 +1011,7 @@ ApplicationWindow {
                 root.renameSession(id, title)
             }
             onAuditRequested: {
-                auditDialog.show()
+                recoveryHistory.show("")
             }
             onSettingsClicked: {
                 root.drawerOpen = false
@@ -1114,6 +1125,17 @@ ApplicationWindow {
                     accessibleName: qsTr("Actividad de agentes")
                     onClicked: agentDashboard.open()
                 }
+            }
+
+            PillButton {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.spacingMd
+                Layout.rightMargin: Theme.spacingMd
+                visible: root.recoveryCount > 0 || root.recoveryStatus === "unavailable"
+                text: root.recoveryStatus === "unavailable" ? qsTr("Recuperación no disponible · Consultar historial") : qsTr("Hay operaciones inciertas, fallidas o abandonadas · Revisar")
+                elideText: true
+                iconName: "history-16"
+                onClicked: recoveryHistory.show(root.currentSessionId)
             }
 
             // === Error banner (F0-5: antes muerto, ahora cableado) ===
@@ -1254,11 +1276,39 @@ ApplicationWindow {
         backendUrl: root.backendUrl
     }
 
-    AuditDialog {
-        id: auditDialog
+    RecoveryHistory {
+        id: recoveryHistory
         anchors.fill: parent
-        open_: false
         backendUrl: root.backendUrl
+        authToken: root.authToken
+        onEraseConfirmed: function(sessionId) { root.deleteSession(sessionId, true) }
+    }
+
+    property string recoveryStatus: "idle"
+    property int recoveryCount: 0
+    property int recoveryGeneration: 0
+    onCurrentSessionIdChanged: refreshRecovery()
+    onStreamingChanged: { if (!streaming) refreshRecovery() }
+    function refreshRecovery() {
+        var session = currentSessionId
+        var generation = ++recoveryGeneration
+        recoveryCount = 0
+        recoveryStatus = "idle"
+        if (!session) return
+        var xhr = new XMLHttpRequest()
+        xhr.open("GET", backendUrl + "/api/tools/operations?recovery_only=true&limit=1&session_id=" + encodeURIComponent(session))
+        setAuth(xhr)
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== XMLHttpRequest.DONE || generation !== recoveryGeneration || session !== currentSessionId) return
+            if (xhr.status !== 200) { recoveryStatus = "unavailable"; return }
+            try {
+                var rows = JSON.parse(xhr.responseText)
+                if (!Array.isArray(rows)) throw new Error("invalid operations")
+                recoveryCount = rows.length
+                recoveryStatus = rows.length ? "attention" : "empty"
+            } catch (e) { recoveryStatus = "unavailable" }
+        }
+        xhr.send()
     }
 
     // === Settings dialog (overlay) ===
