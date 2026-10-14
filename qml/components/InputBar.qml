@@ -13,7 +13,7 @@ Item {
     // === Props ===
     property alias text: input.text
     property bool recording: false
-    property bool voiceEnabled: true
+    property bool voiceEnabled: false
     property bool canSend: text.trim().length > 0 && !streaming
 
     property bool streaming: false   // Mientras el LLM esta respondiendo, no se puede enviar
@@ -163,6 +163,8 @@ Item {
             // Durante streaming se deshabilita: solo el boton enviar hace stop.
             IconButton {
                 Layout.alignment: Qt.AlignVCenter
+                visible: root.voiceEnabled
+                objectName: "dictationButton"
                 iconName: root.recording ? "stop-16" : "microphone-16"
                 iconSize: Theme.iconSizeMd
                 buttonSize: Theme.buttonIconSize
@@ -172,7 +174,7 @@ Item {
                 active: root.recording && !root.streaming
                 activeColor: Theme.error
                 opacity: root.streaming ? 0.4 : 1.0
-                enabled: !root.streaming
+                enabled: root.voiceEnabled && !root.streaming
                 onClicked: {
                     // Toggle: el padre (Main) decide si empezar o parar el dictado.
                     root.micClicked()

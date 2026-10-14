@@ -15,6 +15,25 @@ Item {
     // === Props ===
     property var messages: []   // Array de {role, authorLabel, content, timestamp, isStreaming, toolCalls}
     property bool showWelcome: messages.length === 0
+    property var previousMessages: []
+
+    // Main reemplaza el array al recibir cada delta. Mantener estable el modelo
+    // evita destruir todas las burbujas visibles por un cambio en la última.
+    ListModel { id: messageRows; dynamicRoles: true }
+    onMessagesChanged: syncMessages()
+    Component.onCompleted: syncMessages()
+    function syncMessages() {
+        var next = messages || []
+        if (next.length < messageRows.count) messageRows.clear()
+        var common = Math.min(next.length, messageRows.count)
+        for (var i = 0; i < common; i++) {
+            if (previousMessages[i] !== next[i])
+                messageRows.setProperty(i, "modelData", next[i])
+        }
+        for (var j = common; j < next.length; j++)
+            messageRows.append({ modelData: next[j] })
+        previousMessages = next
+    }
 
     signal suggestionClicked(string text)
     signal imageClicked(string url, string caption)
@@ -55,6 +74,7 @@ Item {
         // Lista virtualizada (visible cuando hay mensajes)
         ListView {
             id: list
+            objectName: "messageList"
             anchors.fill: parent
             anchors.leftMargin: Theme.spacingMd
             // ScrollBar pegado a la esquina (6px del borde ventana).
@@ -65,7 +85,7 @@ Item {
             anchors.bottomMargin: Theme.spacingLg
             visible: !chatRoot.showWelcome
             clip: true
-            model: chatRoot.messages
+            model: messageRows
             spacing: Theme.spacingLg
             cacheBuffer: 800
             boundsBehavior: Flickable.StopAtBounds

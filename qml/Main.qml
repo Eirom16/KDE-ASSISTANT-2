@@ -58,6 +58,7 @@ ApplicationWindow {
     property string currentSessionId: ""
 
     property var messages: []          // [{role, authorLabel, content, timestamp, isStreaming, toolCalls}]
+    property bool voiceAvailable: false
 
     // === Helpers ===
     function nowTime() {
@@ -647,8 +648,13 @@ ApplicationWindow {
             var tcs = arr[i].toolCalls || []
             for (var j = 0; j < tcs.length; j++) {
                 if (tcs[j].id === toolCallId && tcs[j].status === "confirm") {
-                    tcs[j].status = approved ? "running" : "error"
-                    tcs[j].result = approved ? qsTr("Aprobada, ejecutando…") : qsTr("Denegada por ti")
+                    var updatedCalls = tcs.slice()
+                    updatedCalls[j] = Object.assign({}, tcs[j], {
+                        status: approved ? "running" : "error",
+                        result: approved ? qsTr("Aprobada, ejecutando…") : qsTr("Denegada por ti")
+                    })
+                    arr[i] = Object.assign({}, arr[i], { toolCalls: updatedCalls })
+                    break
                 }
             }
         }
@@ -872,6 +878,7 @@ ApplicationWindow {
                             if (c.status !== 200) return
                             try {
                                 var cfg = JSON.parse(c.responseText)
+                                voiceAvailable = !!(cfg.capabilities && cfg.capabilities.voice === "active")
                                 var key = (cfg.ai && cfg.ai.has_api_key === true) ? "configured" : ""
                                 var model = (cfg.ai && cfg.ai.model) ? String(cfg.ai.model) : ""
                                 lastModel = model
@@ -1235,6 +1242,7 @@ ApplicationWindow {
                 Layout.margins: Theme.spacingSm
                 Layout.preferredHeight: implicitHeight
                 streaming: root.streaming
+                voiceEnabled: root.voiceAvailable
                 // El mic del chat refleja SOLO el dictado al input; la
                 // conversación por voz (wake word / PTT) es del avatar y
                 // no debe pintar este botón como si estuviera dictando.
@@ -1386,17 +1394,20 @@ ApplicationWindow {
     // === System Tray (KDE Plasma) ===
     TrayMenu {
         id: tray
-        windowVisible: root.visible
+        windowVisible: root.visible && root.active && root.visibility !== Window.Minimized
+        voiceEnabled: root.voiceAvailable
         alwaysOnTop: root.alwaysOnTop
         pttShortcut: root.pttShortcut
         backendUrl: root.backendUrl
         onShowRequested: {
-            root.show()
+            if ((root.visible && !root.active) || root.visibility === Window.Minimized) root.showNormal()
+            else root.show()
             root.raise()
             root.requestActivate()
         }
         onHideRequested: root.hide()
         onDictateRequested: {
+            if (!root.voiceAvailable) return
             // Abre la ventana con el input listo; el dictado es el PTT global.
             root.prefill("")
         }

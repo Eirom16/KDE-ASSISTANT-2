@@ -17,6 +17,7 @@ Item {
 
     // === Props (reexpuestas para Main) ===
     property bool windowVisible: true
+    property bool voiceEnabled: false
     property bool alwaysOnTop: true
     property string pttShortcut: "Super+Shift+V"
     property var recentSessions: []   // [{id, title}]
@@ -89,7 +90,8 @@ Item {
     function rebuildRows() {
         var r = []
         r.push(newRow({ label: root.windowVisible ? qsTr("Ocultar ventana") : qsTr("Mostrar ventana"), icon: "eye-16", act: "toggle" }))
-        r.push(newRow({ label: qsTr("Dictar"), icon: "unmute-16", hint: root.pttShortcut, act: "dictate" }))
+        if (root.voiceEnabled)
+            r.push(newRow({ label: qsTr("Dictar"), icon: "unmute-16", hint: root.pttShortcut, act: "dictate" }))
         r.push(newRow({ sep: true }))
         r.push(newRow({ label: qsTr("Nueva sesión"), icon: "plus-16", act: "new" }))
         for (var i = 0; i < Math.min(root.recentSessions.length, 5); i++) {
@@ -117,7 +119,7 @@ Item {
             if (root.windowVisible) root.hideRequested()
             else root.showRequested()
         } else if (act === "dictate") {
-            root.dictateRequested()
+            if (root.voiceEnabled) root.dictateRequested()
         } else if (act === "new") {
             root.newSessionRequested()
         } else if (act === "open") {
@@ -203,8 +205,10 @@ Item {
                 }
             }
             MenuItem {
+                visible: root.voiceEnabled
+                enabled: root.voiceEnabled
                 text: qsTr("Dictar") + "  (" + root.pttShortcut + ")"
-                onTriggered: root.dictateRequested()
+                onTriggered: { if (root.voiceEnabled) root.dictateRequested() }
             }
             MenuSeparator { }
             MenuItem {
