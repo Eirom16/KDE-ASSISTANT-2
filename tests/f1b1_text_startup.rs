@@ -546,6 +546,8 @@ fn redacted_updates_preserve_legacy_and_provider_credentials() {
                 "fixture-explicit-replacement"
             );
             stop(task).await;
+            drop(c);
+            drop(b);
         }
     });
 }

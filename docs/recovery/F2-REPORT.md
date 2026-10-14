@@ -1,0 +1,35 @@
+# F2 — Informe de implementación
+
+**Estado técnico: CONSOLIDATED para el catálogo reducido de F2.** Rama `recovery/f2-permission-engine`, baseline `991f5c78dddf0b4f208bf5683604db2cb5c51112`. Los documentos históricos sin seguimiento se conservaron. La fase no activa nuevas capacidades de voz, KDE overlay, WebEngine ni modelos. El dictamen sólo cubre las cuatro herramientas habilitadas; las otras 19 siguen bloqueadas.
+
+## F2-1 — Inventario y autoridad
+
+Se trazaron 23 herramientas y tres orígenes reales (chat, voz, ejecución manual HTTP), además de rutas HTTP directas, scheduler, model downloader y auxiliares de escritorio. [F2-TOOL-MATRIX.md](F2-TOOL-MATRIX.md) enumera operación, efecto, origen, permiso previo, evasión, dependencia, cancelación, efecto parcial y exposición de cada herramienta. Antes de F2, `ToolCtx.decided` era texto del caller; `tools.confirm_sensitive=false` y la ruta manual convertían Yellow en ejecución automática, `read_file` era Green, y el catálogo anunciaba adaptadores sin límites de SSRF/proceso suficientes. El journal registraba la declaración de consentimiento, pero no podía verificar una capacidad específica.
+
+La autoridad nueva es `permission_engine::plan` + `permission_requests` SQLite + `SessionManager::dispatch_permission`. La clasificación usa herramienta, argumentos, efecto e identidad de recurso. Sólo `system_info` (Green), `read_file` y `create_file` (Yellow) y `edit_file` (Red) están expuestas al LLM; las otras 19 quedan deshabilitadas antes del ejecutor productivo. No hay grant universal o persistente. El catálogo HTTP marca deshabilitadas las mismas 19.
+
+## F2-2 — Consentimiento y efecto
+
+- Se crea Operation ID y Consent ID separados. El consentimiento contiene Tool Call ID local, Turn/Session owner, principal local, origen, riesgo, digest de argumentos/identidad, expiración de 120 segundos y estado persistido. El token no contiene argumentos ni contenido.
+- QML muestra acción concreta, recurso, riesgo, alcance, consecuencia de cancelación y, para escrituras, tamaño y SHA-256 del contenido. Aprobar/Denegar son controles de teclado de Qt; cerrar el diálogo deniega. La respuesta se admite sólo con bearer local, turno vivo en espera e IDs coincidentes. Doble clic y replay fallan.
+- `dispatch_permission` consume la aprobación y escribe `Authorized` y `Dispatched` en una transacción SQLite antes del I/O, bajo el mutex de despacho del turno. No se mantiene transacción durante espera o ejecución. Fallos previos al marcador impiden el efecto; fallos posteriores se registran o recuperan como UnknownOutcome sin replay.
+- Las operaciones de archivo activas verifican raíz, padre e inode/ausencia tanto al preparar como al despachar; la lectura/edición comprueba el descriptor efectivamente usado. La creación escribe en un temporal `CREATE|EXCL` dentro del padre aprobado y publica con `renameat2(NOREPLACE)`; un fallo previo no deja destino parcial. `edit_file` modifica el inode aprobado y crea `.bak` exclusiva. Un fallo tras iniciar esa edición se registra como `UnknownOutcome`, nunca como éxito ni como permiso reutilizable; la UI informa que se debe inspeccionar el archivo y el respaldo.
+- Se impone un semáforo de cuatro despachos por executor, espera máxima de 10 segundos, tamaño de argumentos 256 KiB, lectura/escritura 1 MiB y salida visible 32 000 caracteres. `system_info` no ejecuta `df`, y tiene timeout de 2 segundos.
+- La reproducción automática de recordatorios legacy se suspende; sus filas SQLite se conservan. Reanudarlos exigiría consentimientos verificables o una acción directa nueva del usuario.
+
+## F2-3 — Endurecimiento y regresión
+
+Se añadieron fixtures de archivos sintéticos y SQLite privado para Green/Yellow/Red, falsificación de `decided`, cambio de argumentos/inode, expiración, replay, doble respuesta, IDs cruzados, cancelación, reinicio, fallo SQLite, UnknownOutcome, prompt injection, resultado grande, borrado de sesión y aislamiento. Una prueba HTTP comprueba el evento de aprobación contra turno/call/consentimiento; QML offscreen comprueba descripción, cierre y cambio de sesión; una prueba loopback verifica que herramientas de red/proceso deshabilitadas no contactan el servidor. La revisión independiente añadió pruebas de las 19 herramientas con flags habilitados, argumentos inesperados, colisiones de destino/respaldo y resultado incierto. Las pruebas F1B-2 y F1B-3A que asumían autoejecución Yellow se adaptaron para aprobar mediante el flujo F2; no se relajó la política. El fixture F1B-1 que abre dos backends sucesivos ahora suelta explícitamente cliente y backend antes de repetir, respetando el lock SQLite. El fixture GATE-W1R espera a que termine el layout de Qt antes de simular que el lector se desplaza; `ChatView` y `ListModel` productivos permanecen intactos.
+
+## Archivos y migración
+
+- Rust: `src/backend/permission_engine.rs`, `safe_fs.rs`, `operation_journal.rs`, `tool_executor.rs`, `tool_registry.rs`, `ai_service.rs`, `http_server.rs`, `approvals.rs`, `storage_retention.rs`, `mod.rs`, `src/models/message.rs`, `src/models/tool_call.rs`, `src/main.rs`.
+- SQLite: `migrations/005_permission_engine.sql`, aditiva, idempotente y ejecutada dentro de la transacción de arranque; tabla `permission_requests` con índice de pendientes. No reescribe mensajes ni journal histórico. Recuperación revoca aprobaciones no despachadas; eliminación de sesión borra sus filas F2 en la transacción F1B-3B.
+- UI/pruebas: `qml/Main.qml`, `tests/f2_permissions.rs`, `tests/qml/tst_f2_consent.qml`, `scripts/validate_f2.py` y ajustes contractuales de `tests/f1b2_conversation.rs`, `tests/f1b3a_persistence.rs`, `tests/qml/tst_gate_w1r.qml`. `Cargo.toml` ofrece `legacy-fixtures` sólo como opt-in; los runners F1 que usan adaptadores heredados seleccionan esa feature explícitamente.
+- Documentos: este informe, [resultados](F2-RESULTS.md), [contrato](F2-PERMISSION-CONTRACT.md), [matriz](F2-TOOL-MATRIX.md) y [threat model](F2-THREAT-MODEL.md).
+
+## Límites de revisión
+
+La decisión de habilitar sólo cuatro herramientas es deliberada: red/SSRF, comandos y procesos, preview, búsqueda, copia y caché de imagen no tienen todavía adaptadores con binding/límites completos. Se eliminó `ToolExecutor::new`: el constructor sin journal `legacy_fixture` se compila sólo en unit tests o con la feature no predeterminada `legacy-fixtures`; el `execute` normal rechaza ausencia de journal. **Ninguna ruta productiva instancia el arnés**. La misma cuenta Linux con control del bearer o capacidad de mover directorios puede superar los supuestos de confianza; F2 no es un sandbox de UID. No se probó proveedor real, micrófono, modelos ni rutas externas. El uso de `/api/config` y `/api/facts` sigue siendo una acción directa del cliente local autenticado, no una capacidad del modelo.
+
+Los gates se ejecutaron sobre el árbol de trabajo y sobre archivos Git de los árboles staged antes de crear cada commit. Los hashes, recibos y la reproducción del parche se documentan en `F2-CLOSURE.md` y `F2-COMMIT-VALIDATION.md`, que permanecen sin versionar para evitar autorreferencia. No iniciar F3/F4.
