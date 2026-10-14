@@ -93,13 +93,8 @@ fn main() -> Result<()> {
         Ok::<_, anyhow::Error>(Arc::new(b))
     })?;
 
-    // F6: disparar recordatorios pendientes de sesiones anteriores.
-    {
-        let sessions = backend.sessions.clone();
-        runtime.spawn(async move {
-            kde_assistant_lib::backend::tool_executor::fire_pending_reminders(sessions).await;
-        });
-    }
+    // F2: los recordatorios legacy no tienen consentimiento verificable.
+    // Se conservan en SQLite, pero no se disparan al arrancar.
 
     let http_state = backend.http_state()?;
     let local_token = http_state.local_token.clone();

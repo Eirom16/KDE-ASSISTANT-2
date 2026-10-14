@@ -31,7 +31,7 @@ impl Fixture {
         let mut config = Config::default();
         config.tools.allowed_paths = vec![allowed.display().to_string()];
         let config = Arc::new(RwLock::new(config));
-        let executor = ToolExecutor::new(config.clone());
+        let executor = ToolExecutor::legacy_fixture(config.clone());
         Self {
             base,
             allowed,

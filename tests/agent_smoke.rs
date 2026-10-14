@@ -34,7 +34,7 @@ async fn chat_with_openrouter() {
 
     let cfg_arc = Arc::new(RwLock::new(cfg));
     let svc = AiService::new(cfg_arc.clone()).await.expect("AiService");
-    let tools_exec = Arc::new(ToolExecutor::new(cfg_arc.clone()));
+    let tools_exec = Arc::new(ToolExecutor::legacy_fixture(cfg_arc.clone()));
 
     let messages = vec![
         Message::system("Responde en espanol en una sola oracion corta."),

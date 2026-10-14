@@ -64,13 +64,13 @@ def main():
         ("fmt", ["cargo", "fmt", "--check"]),
         ("check", ["cargo", "check", "--locked", "--all-targets"]),
         ("clippy", ["cargo", "clippy", "--locked", "--all-targets", "--", "-D", "warnings"]),
-        ("security", ["cargo", "test", "--locked", "--test", "f1a_security"]),
+        ("security", ["cargo", "test", "--locked", "--features", "legacy-fixtures", "--test", "f1a_security"]),
         ("unit-safe", ["cargo", "test", "--locked", "--lib", "--", "--test-threads=1"] + skips),
         ("app-paths", ["cargo", "test", "--locked", "--test", "app_paths"]),
     ]
     if args.mounts:
         commands.append(("mounts", [
-            "cargo", "test", "--locked", "--test", "f1a_security", "--", "--exact",
+            "cargo", "test", "--locked", "--features", "legacy-fixtures", "--test", "f1a_security", "--", "--exact",
             "search_mount_boundaries_remain_closed", "--ignored", "--nocapture",
         ]))
     if args.piper_inherited:

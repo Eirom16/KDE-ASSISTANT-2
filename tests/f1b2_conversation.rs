@@ -291,9 +291,12 @@ impl Reader {
         self.events[0].1["turn_id"].as_str().unwrap().into()
     }
     async fn until(&mut self, event: &str) {
+        self.until_count(event, 1).await;
+    }
+    async fn until_count(&mut self, event: &str, count: usize) {
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                if self.events.iter().any(|(name, _)| name == event) {
+                if self.events.iter().filter(|(name, _)| name == event).count() >= count {
                     return;
                 }
                 let bytes = self.stream.next().await.expect("missing event").unwrap();
@@ -786,7 +789,14 @@ fn interleaved_tools_execute_once_with_matching_local_ids() {
         let mut m=mock(vec![Plan::reply(first.into_bytes()),Plan::reply(complete("herramientas listas"))]).await;
         let f=Fixture::new(&m.url,Duration::from_secs(4)).await;
         {let mut cfg=f.backend.config.write().await;cfg.ai.enable_tool_calling=true;cfg.tools.read_file=true;cfg.tools.allowed_paths=vec![root.to_string_lossy().into()];}
-        let mut a=f.begin(&f.sid).await;seen(&mut m).await;let second=seen(&mut m).await;a.until("done").await;a.end().await;
+        let mut a=f.begin(&f.sid).await;seen(&mut m).await;
+        for count in 1..=2 {
+            a.until_count("approval_needed",count).await;
+            let approval=&a.events.iter().filter(|(name,_)|name=="approval_needed").nth(count-1).unwrap().1;
+            let decision=json!({"tool_call_id":approval["tool_call_id"],"consent_id":approval["consent_id"],"turn_id":approval["turn_id"],"session_id":approval["session_id"],"approved":true});
+            assert_eq!(f.post("/api/tools/approve",decision).send().await.unwrap().status(),200);
+        }
+        let second=seen(&mut m).await;a.until("done").await;a.end().await;
         let assistant=second.request["messages"].as_array().unwrap().iter().find(|m|m["role"]=="assistant").unwrap();
         let calls=assistant["tool_calls"].as_array().unwrap();assert_eq!(calls.len(),2);
         let outputs=second.request["messages"].as_array().unwrap().iter().filter(|m|m["role"]=="tool").collect::<Vec<_>>();assert_eq!(outputs.len(),2);

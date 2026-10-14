@@ -15,6 +15,10 @@ const RESOLVE: ResolveFlags = ResolveFlags::BENEATH
     .union(ResolveFlags::NO_MAGICLINKS)
     .union(ResolveFlags::NO_XDEV);
 
+#[derive(Debug, thiserror::Error)]
+#[error("edit_outcome_uncertain: el archivo puede estar parcial; revisar el original y su respaldo .bak antes de reintentar ({0})")]
+pub(super) struct UncertainEdit(pub String);
+
 pub(super) struct SafePath {
     root: File,
     relative: PathBuf,
@@ -22,6 +26,165 @@ pub(super) struct SafePath {
 }
 
 impl SafePath {
+    /// Bind consent to the opened root, parent, and existing inode. A new file
+    /// must keep its approved parent and remain absent at dispatch.
+    pub fn consent_identity(&self, create: bool) -> Result<String> {
+        let root = self.root.metadata()?;
+        let (parent, _) = self.parent(false)?;
+        let parent = parent.metadata()?;
+        if create {
+            anyhow::ensure!(
+                self.open_optional()?.is_none(),
+                "consent_destination_exists"
+            );
+            Ok(format!(
+                "{}:{}:{}:{}:absent",
+                root.dev(),
+                root.ino(),
+                parent.dev(),
+                parent.ino()
+            ))
+        } else {
+            let file = self.open(OFlags::RDONLY | OFlags::NONBLOCK)?;
+            let meta = file.metadata()?;
+            anyhow::ensure!(meta.is_file() || meta.is_dir(), "consent_resource_type");
+            Ok(format!(
+                "{}:{}:{}:{}:{}:{}",
+                root.dev(),
+                root.ino(),
+                parent.dev(),
+                parent.ino(),
+                meta.dev(),
+                meta.ino()
+            ))
+        }
+    }
+
+    fn bound_parent(&self, expected: &str) -> Result<(File, OsString)> {
+        let (parent, name) = self.parent(false)?;
+        let root = self.root.metadata()?;
+        let dir = parent.metadata()?;
+        anyhow::ensure!(
+            expected.starts_with(&format!(
+                "{}:{}:{}:{}:",
+                root.dev(),
+                root.ino(),
+                dir.dev(),
+                dir.ino()
+            )),
+            "consent_parent_changed"
+        );
+        Ok((parent, name))
+    }
+
+    pub fn read_bound(&self, expected: &str) -> Result<Vec<u8>> {
+        let (_parent, _) = self.bound_parent(expected)?;
+        let file = self.open(OFlags::RDONLY | OFlags::NONBLOCK)?;
+        check_regular(&file)?;
+        let meta = file.metadata()?;
+        anyhow::ensure!(
+            expected.ends_with(&format!(":{}:{}", meta.dev(), meta.ino())),
+            "consent_inode_changed"
+        );
+        let mut bytes = Vec::new();
+        file.take(1024 * 1024 + 1).read_to_end(&mut bytes)?;
+        anyhow::ensure!(bytes.len() <= 1024 * 1024, "consent_read_limit");
+        Ok(bytes)
+    }
+
+    pub fn create_bound(&self, expected: &str, content: &[u8]) -> Result<()> {
+        anyhow::ensure!(content.len() <= 1024 * 1024, "consent_write_limit");
+        let (parent, name) = self.bound_parent(expected)?;
+        anyhow::ensure!(expected.ends_with(":absent"), "consent_create_identity");
+        let temporary = format!(".kda-{}", uuid::Uuid::new_v4());
+        let fd = fs::openat2(
+            &parent,
+            temporary.as_str(),
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::CLOEXEC,
+            Mode::RUSR | Mode::WUSR,
+            RESOLVE,
+        )?;
+        let mut file = File::from(fd);
+        let result = (|| -> Result<()> {
+            file.write_all(content)?;
+            file.sync_all()?;
+            fs::renameat_with(
+                &parent,
+                temporary.as_str(),
+                &parent,
+                &name,
+                RenameFlags::NOREPLACE,
+            )?;
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = fs::unlinkat(&parent, temporary.as_str(), AtFlags::empty());
+        }
+        result
+    }
+
+    pub fn edit_bound(&self, expected: &str, mode: &str, content: &str) -> Result<()> {
+        use std::io::{Seek, SeekFrom};
+        anyhow::ensure!(matches!(mode, "overwrite" | "append"), "invalid_edit_mode");
+        anyhow::ensure!(content.len() <= 1024 * 1024, "consent_write_limit");
+        let (parent, name) = self.bound_parent(expected)?;
+        let fd = fs::openat2(
+            &parent,
+            &name,
+            OFlags::RDWR | OFlags::CLOEXEC,
+            Mode::empty(),
+            RESOLVE,
+        )?;
+        let mut file = File::from(fd);
+        check_regular(&file)?;
+        let meta = file.metadata()?;
+        anyhow::ensure!(
+            expected.ends_with(&format!(":{}:{}", meta.dev(), meta.ino())),
+            "consent_inode_changed"
+        );
+        anyhow::ensure!(meta.len() <= 1024 * 1024, "consent_read_limit");
+        let mut original = Vec::new();
+        std::io::Read::by_ref(&mut file)
+            .take(1024 * 1024 + 1)
+            .read_to_end(&mut original)?;
+        anyhow::ensure!(original.len() <= 1024 * 1024, "consent_read_limit");
+        if mode == "append" {
+            anyhow::ensure!(
+                original.len() + content.len() <= 1024 * 1024,
+                "consent_write_limit"
+            );
+        }
+        let backup_name = self
+            .relative
+            .with_extension("bak")
+            .file_name()
+            .context("backup_name")?
+            .to_os_string();
+        anyhow::ensure!(backup_name != name, "backup_name_collision");
+        let backup_fd = fs::openat2(
+            &parent,
+            &backup_name,
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::CLOEXEC,
+            Mode::RUSR | Mode::WUSR,
+            RESOLVE,
+        )
+        .context("backup already exists or unsafe")?;
+        let mut backup = File::from(backup_fd);
+        backup.write_all(&original)?;
+        backup.sync_all()?;
+        (|| -> Result<()> {
+            if mode == "overwrite" {
+                file.set_len(0)?;
+                file.seek(SeekFrom::Start(0))?;
+            } else {
+                file.seek(SeekFrom::End(0))?;
+            }
+            file.write_all(content.as_bytes())?;
+            file.sync_all()?;
+            Ok(())
+        })()
+        .map_err(|error| UncertainEdit(error.to_string()).into())
+    }
     pub fn resolve(cfg: &Config, path: &str) -> Result<Self> {
         if !cfg.tools.fs_enabled() {
             bail!("Acceso al sistema de archivos deshabilitado");

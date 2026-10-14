@@ -20,6 +20,7 @@ impl SessionManager {
             let inconsistent: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM operation_journal j JOIN conversation_turns t ON t.id=j.turn_id WHERE (j.session_id=?1 OR t.session_id=?1) AND j.session_id IS NOT t.session_id) OR EXISTS(SELECT 1 FROM turn_inputs i JOIN conversation_turns t ON t.id=i.turn_id JOIN messages m ON m.id=i.user_message_id WHERE (t.session_id=?1 OR m.session_id=?1) AND t.session_id IS NOT m.session_id) OR EXISTS(SELECT 1 FROM operation_journal j JOIN tool_audit a ON a.id=j.audit_id WHERE (j.session_id=?1 OR a.session_id=?1) AND j.session_id IS NOT a.session_id)",[id],|r|r.get(0))?;
             ensure!(!inconsistent, "storage_ownership_inconsistent");
             self.conn.execute("DELETE FROM operation_events WHERE operation_id IN (SELECT id FROM operation_journal WHERE session_id=?1)",[id])?;
+            self.conn.execute("DELETE FROM permission_requests WHERE operation_id IN (SELECT id FROM operation_journal WHERE session_id=?1)",[id])?;
             self.conn
                 .execute("DELETE FROM operation_journal WHERE session_id=?1", [id])?;
             self.conn.execute("DELETE FROM turn_recovery WHERE turn_id IN (SELECT id FROM conversation_turns WHERE session_id=?1)",[id])?;

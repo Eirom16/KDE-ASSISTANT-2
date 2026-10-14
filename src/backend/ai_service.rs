@@ -395,24 +395,35 @@ impl AiService {
                             new_messages.push(tool_msg);
                             continue;
                         }
-                        let operation = if let Some(turn) = &turn {
-                            Some(tools_exec.prepare_for_turn(&turn.id,tc)?)
-                        } else { None };
-                        // F4-1: puerta de confirmación para 🟡/🔴.
-                        let level = crate::backend::tool_registry::permission(&tc.name);
-                        let need_confirm = match level {
-                            crate::backend::tool_registry::Permission::Green => false,
-                            crate::backend::tool_registry::Permission::Yellow => policy.confirm_yellow,
-                            crate::backend::tool_registry::Permission::Red => policy.confirm_red,
+                        let plan = match tools_exec.permission_plan(tc) {
+                            Ok(plan) => plan,
+                            Err(_error) => {
+                                log::warn!("F2 denied tool {} by policy",tc.name);
+                                if let Some(turn)=&turn {tools_exec.record_policy_denial_for_turn(&turn.id,tc)?;}
+                                else {tools_exec.record_denial(tc,session_id.clone())?;}
+                                activity.tool(&tc.id,&tc.name,"denied");
+                                let denial=crate::models::ToolResult::error(tc.id.clone(),"Herramienta bloqueada por la política de seguridad F2");
+                                let _=tx.send(StreamEvent::ToolResult{success:false,tool_call_id:tc.id.clone(),content:denial.content.clone(),image_url:None}).await;
+                                let wrapped=wrap_tool_output(&tc.name,&denial.content,false);
+                                let message=Message::tool_with_image(tc.id.clone(),wrapped,None);
+                                messages.push(message.clone());new_messages.push(message);
+                                continue;
+                            }
                         };
+                        let operation = if let Some(turn) = &turn {
+                            Some(tools_exec.prepare_for_turn_with_consent(&turn.id,tc,if policy.interactive {"chat"} else {"voice"})?)
+                        } else { None };
+                        // F2: la política central prevalece sobre el modo potencia heredado.
+                        let level = plan.risk;
+                        let need_confirm = level != crate::backend::permission_engine::Risk::Green;
                         let mut decided = "auto";
                         if need_confirm {
                             if !policy.interactive {
                                 activity.tool(&tc.id, &tc.name, "denied");
-                                // Voz manos-libres: sin UI que confirme, denegar al
-                                // momento (las 🟡 ya van en auto por su política).
-                                if let Some(operation) = &operation {
-                                    tools_exec.journal_state(operation,crate::backend::operation_journal::OperationState::Denied,"denied",None)?;
+                                // Voz manos-libres: sin UI que confirme, denegar
+                                // Yellow y Red al momento.
+                                if let Some((operation,_)) = &operation {
+                                    tools_exec.deny_permission(operation)?;
                                 } else {
                                     tools_exec.record_denial(tc, session_id.clone())?;
                                 }
@@ -442,12 +453,18 @@ impl AiService {
                                     crate::backend::conversation_turn::TurnState::WaitingForApproval,
                                 )?;
                             }
-                            let approval = approvals.register(&tc.id);
+                            let consent_id = operation.as_ref().and_then(|(_,id)|id.clone()).ok_or_else(||anyhow::anyhow!("consent_storage_unavailable"))?;
+                            let approval = approvals.register(&consent_id);
                             let _ = tx
                                 .send(StreamEvent::ToolApprovalNeeded {
                                     tool_call_id: tc.id.clone(),
+                                    consent_id,
+                                    turn_id: turn.as_ref().map(|t|t.id.clone()).unwrap_or_default(),
+                                    session_id: session_id.clone(),
                                     name: tc.name.clone(),
-                                    arguments: tc.arguments.clone(),
+                                    effect: plan.effect.clone(),
+                                    resource: plan.resource.clone(),
+                                    detail: plan.detail.clone(),
                                     permission: level.as_str().to_string(),
                                 })
                                 .await;
@@ -463,8 +480,8 @@ impl AiService {
                                 decided = "approved";
                             } else {
                                 activity.tool(&tc.id, &tc.name, "denied");
-                                if let Some(operation) = &operation {
-                                    tools_exec.journal_state(operation,crate::backend::operation_journal::OperationState::Denied,"denied",None)?;
+                                if let Some((operation,_)) = &operation {
+                                    tools_exec.deny_permission(operation)?;
                                 } else {
                                     tools_exec.record_denial(tc, session_id.clone())?;
                                 }
@@ -497,7 +514,7 @@ impl AiService {
                             turn.check()?;
                         }
                         activity.tool(&tc.id, &tc.name, "start");
-                        let result = if let (Some(turn),Some(operation)) = (&turn,&operation) {
+                        let result = if let (Some(turn),Some((operation,_))) = (&turn,&operation) {
                             tools_exec.execute_for_turn(tc,&ctx,turn,operation).await
                         } else {
                             tools_exec.execute(tc,&ctx).await

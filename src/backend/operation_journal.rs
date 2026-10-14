@@ -80,6 +80,7 @@ pub(crate) fn atomic<T>(conn: &Connection, work: impl FnOnce() -> Result<T>) -> 
 pub(crate) fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(include_str!("../../migrations/003_operation_journal.sql"))?;
     conn.execute_batch(include_str!("../../migrations/004_storage_retention.sql"))?;
+    conn.execute_batch(include_str!("../../migrations/005_permission_engine.sql"))?;
     #[cfg(test)]
     crash_checkpoint("migration");
     Ok(())
@@ -201,6 +202,7 @@ pub(crate) fn recover(conn: &Connection) -> Result<()> {
                 None,
             )?;
         }
+        conn.execute("UPDATE permission_requests SET state='revoked' WHERE state IN ('pending','approved') AND operation_id IN (SELECT id FROM operation_journal WHERE state='abandoned')",[])?;
         #[cfg(test)]
         crash_checkpoint("recovery");
         conn.execute_batch("INSERT OR IGNORE INTO turn_recovery(turn_id,previous_state,recovered_at)
@@ -212,6 +214,139 @@ pub(crate) fn recover(conn: &Connection) -> Result<()> {
 }
 
 impl SessionManager {
+    pub fn prepare_permission(
+        &self,
+        turn_id: &str,
+        call: &crate::models::ToolCall,
+        plan: &super::permission_engine::Plan,
+        origin: &str,
+    ) -> Result<(String, Option<String>)> {
+        ensure!(
+            matches!(origin, "chat" | "voice" | "manual"),
+            "invalid_tool_origin"
+        );
+        let operation = uuid::Uuid::new_v4().to_string();
+        let consent = (plan.risk != super::permission_engine::Risk::Green)
+            .then(|| uuid::Uuid::new_v4().to_string());
+        atomic(&self.conn, || {
+            let (session, state): (Option<String>, String) = self.conn.query_row(
+                "SELECT session_id,state FROM conversation_turns WHERE id=?1",
+                [turn_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            ensure!(state == "running", "journal_turn_not_running");
+            let now = Utc::now();
+            let stamp = now.to_rfc3339();
+            self.conn.execute("INSERT INTO tool_audit(timestamp,session_id,tool,args,permission,decided) VALUES(?1,?2,?3,'[redacted]',?4,'prepared')", params![stamp,session,call.name,plan.risk.as_str()])?;
+            let anchor = self.conn.last_insert_rowid();
+            self.conn.execute("INSERT INTO operation_journal(id,turn_id,session_id,kind,tool,state,prepared_at,updated_at,permission,consent,audit_id) VALUES(?1,?2,?3,'tool',?4,'prepared',?5,?5,?6,'pending',?7)", params![operation,turn_id,session,call.name,stamp,plan.risk.as_str(),anchor])?;
+            event(&self.conn, &operation, "prepared", anchor)?;
+            self.conn.execute("INSERT INTO permission_requests(operation_id,consent_id,tool_call_id,fingerprint,risk,principal,origin,state,created_at,expires_at) VALUES(?1,?2,?3,?4,?5,'local_authenticated',?6,?7,?8,?9)", params![operation,consent,call.id,plan.fingerprint,plan.risk.as_str(),origin,if consent.is_some() {"pending"} else {"auto"},now.timestamp(),now.timestamp()+120])?;
+            Ok(())
+        })?;
+        Ok((operation, consent))
+    }
+
+    pub fn answer_permission(
+        &self,
+        consent_id: &str,
+        tool_call_id: &str,
+        turn_id: &str,
+        session_id: Option<&str>,
+        approved: bool,
+    ) -> Result<()> {
+        atomic(&self.conn, || {
+            let (operation, expires): (String, i64) = self.conn.query_row(
+                "SELECT operation_id,expires_at FROM permission_requests WHERE consent_id=?1 AND tool_call_id=?2 AND state='pending'",
+                params![consent_id,tool_call_id], |r| Ok((r.get(0)?,r.get(1)?)))?;
+            let valid: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM operation_journal j JOIN conversation_turns t ON t.id=j.turn_id WHERE j.id=?1 AND j.turn_id=?2 AND j.session_id IS ?3 AND j.state='prepared' AND t.state='running')",params![operation,turn_id,session_id],|r|r.get(0))?;
+            ensure!(
+                valid && expires > Utc::now().timestamp(),
+                "consent_expired_or_wrong_context"
+            );
+            let changed=self.conn.execute("UPDATE permission_requests SET state=?2,answered_at=?3 WHERE operation_id=?1 AND state='pending'",params![operation,if approved {"approved"} else {"denied"},Utc::now().timestamp()])?;
+            ensure!(changed == 1, "consent_already_answered");
+            if !approved {
+                transition(
+                    &self.conn,
+                    &operation,
+                    OperationState::Denied,
+                    "denied",
+                    None,
+                )?;
+            }
+            Ok(())
+        })
+    }
+
+    pub fn deny_permission(&self, operation: &str) -> Result<()> {
+        atomic(&self.conn, || {
+            let state: String = self.conn.query_row(
+                "SELECT state FROM operation_journal WHERE id=?1",
+                [operation],
+                |r| r.get(0),
+            )?;
+            if state == "denied" {
+                return Ok(());
+            }
+            self.conn.execute("UPDATE permission_requests SET state='denied',answered_at=?2 WHERE operation_id=?1 AND state IN ('pending','approved')",params![operation,Utc::now().timestamp()])?;
+            transition(
+                &self.conn,
+                operation,
+                OperationState::Denied,
+                "denied",
+                None,
+            )
+        })
+    }
+
+    pub fn dispatch_permission(
+        &self,
+        operation: &str,
+        turn: &str,
+        session: Option<&str>,
+        call: &crate::models::ToolCall,
+        fingerprint: &str,
+    ) -> Result<String> {
+        atomic(&self.conn, || {
+            let (owner_turn,owner_session,owner_tool,op_state,turn_state,stored,status,expires): (String,Option<String>,String,String,String,String,String,i64)=self.conn.query_row(
+                "SELECT j.turn_id,j.session_id,j.tool,j.state,t.state,p.fingerprint,p.state,p.expires_at FROM operation_journal j JOIN conversation_turns t ON t.id=j.turn_id JOIN permission_requests p ON p.operation_id=j.id WHERE j.id=?1",[operation],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?)))?;
+            ensure!(
+                owner_turn == turn
+                    && owner_session.as_deref() == session
+                    && owner_tool == call.name
+                    && op_state == "prepared"
+                    && turn_state == "running",
+                "operation_identity_mismatch"
+            );
+            ensure!(
+                stored == fingerprint && expires > Utc::now().timestamp(),
+                "consent_resource_or_arguments_changed"
+            );
+            ensure!(
+                matches!(status.as_str(), "auto" | "approved"),
+                "consent_missing_or_consumed"
+            );
+            let consent = if status == "auto" { "auto" } else { "approved" };
+            let changed=self.conn.execute("UPDATE permission_requests SET state='consumed',consumed_at=?2 WHERE operation_id=?1 AND state=?3",params![operation,Utc::now().timestamp(),status])?;
+            ensure!(changed == 1, "consent_already_consumed");
+            transition(
+                &self.conn,
+                operation,
+                OperationState::Authorized,
+                consent,
+                None,
+            )?;
+            transition(
+                &self.conn,
+                operation,
+                OperationState::Dispatched,
+                consent,
+                None,
+            )?;
+            Ok(consent.to_owned())
+        })
+    }
     /// Operation IDs always originate here, never in ToolCtx or provider output.
     pub fn prepare_operation(&self, turn_id: &str, tool: &str) -> Result<String> {
         ensure!(
@@ -316,7 +451,9 @@ impl SessionManager {
             transition(
                 &self.conn,
                 id,
-                if result.success {
+                if result.outcome_uncertain {
+                    OperationState::UnknownOutcome
+                } else if result.success {
                     OperationState::Succeeded
                 } else {
                     OperationState::Failed
@@ -324,6 +461,9 @@ impl SessionManager {
                 consent,
                 Some(result.content.len().min(i64::MAX as usize) as i64),
             )?;
+            if result.outcome_uncertain {
+                audit(&self.conn, id, "unknown_outcome", consent)?;
+            }
             self.conn.execute("UPDATE tool_audit SET duration_ms=?2 WHERE id=(SELECT audit_id FROM operation_journal WHERE id=?1)",params![id,duration_ms.min(i64::MAX as u64) as i64])?;
             Ok(())
         })
@@ -398,6 +538,7 @@ impl SessionManager {
                     None,
                 )?;
             }
+            self.conn.execute("UPDATE permission_requests SET state='revoked' WHERE state IN ('pending','approved') AND operation_id IN (SELECT id FROM operation_journal WHERE turn_id=?1 AND state='abandoned')",[turn_id])?;
             self.finish_turn(turn_id, terminal)
         })
     }

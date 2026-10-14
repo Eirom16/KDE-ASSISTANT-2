@@ -34,7 +34,7 @@ def main():
         ("fmt", ["cargo", "fmt", "--check"]),
         ("check", ["cargo", "check", "--locked", "--all-targets"]),
         ("clippy", ["cargo", "clippy", "--locked", "--all-targets", "--", "-D", "warnings"]),
-        ("f1a-security", ["cargo", "test", "--locked", "--test", "f1a_security"]),
+        ("f1a-security", ["cargo", "test", "--locked", "--features", "legacy-fixtures", "--test", "f1a_security"]),
         ("f1b1", ["cargo", "test", "--locked", "--test", "f1b1_text_startup", "--", "--test-threads=1"]),
         ("f1b2-conversation", ["cargo", "test", "--locked", "--test", "f1b2_conversation", "--", "--test-threads=1"]),
         ("f1b3a-persistence", ["cargo", "test", "--locked", "--test", "f1b3a_persistence", "--", "--test-threads=1"]),

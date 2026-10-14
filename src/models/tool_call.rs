@@ -18,6 +18,13 @@ pub struct ToolResult {
     /// Para show_image: ruta local o URL de la imagen
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_url: Option<String>,
+    /// A dispatched effect may have changed its target even though it failed.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub outcome_uncertain: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl ToolResult {
@@ -27,6 +34,7 @@ impl ToolResult {
             success: true,
             content: content.into(),
             image_url: None,
+            outcome_uncertain: false,
         }
     }
 
@@ -36,11 +44,17 @@ impl ToolResult {
             success: false,
             content: message.into(),
             image_url: None,
+            outcome_uncertain: false,
         }
     }
 
     pub fn with_image(mut self, url: impl Into<String>) -> Self {
         self.image_url = Some(url.into());
+        self
+    }
+
+    pub fn uncertain(mut self) -> Self {
+        self.outcome_uncertain = true;
         self
     }
 }

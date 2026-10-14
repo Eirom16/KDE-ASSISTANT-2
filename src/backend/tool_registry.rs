@@ -31,12 +31,13 @@ impl Permission {
 /// Nivel de cada herramienta.
 pub fn permission(name: &str) -> Permission {
     match name {
+        "system_info" => Permission::Green,
+        "edit_file" | "close_app" | "kdeconnect" => Permission::Red,
         "read_file" | "web_search" | "show_image" | "find_file" | "find_document"
-        | "preview_document" | "list_open_apps" | "system_info" | "network_status" => {
-            Permission::Green
-        }
-        "edit_file" => Permission::Red,
-        _ => Permission::Yellow,
+        | "preview_document" | "list_open_apps" | "network_status" | "open_app" | "create_file"
+        | "open_file" | "copy_file" | "open_url" | "focus_app" | "notify" | "media" | "volume"
+        | "brightness" | "remind_in" => Permission::Yellow,
+        _ => Permission::Red,
     }
 }
 
@@ -755,10 +756,8 @@ fn kdeconnect_tool() -> Tool {
 
 /// Herramientas filtradas según la configuración del usuario.
 ///
-/// Respeta `ai.enable_tool_calling` (si es false → ninguna) y cada
-/// flag `tools.*` (open_app, create/edit/read_file, web_search, show_image,
-/// find_file, open_file, open_url).
-/// El executor también valida por si llega una llamada deshabilitada.
+/// Respeta `ai.enable_tool_calling` y los flags individuales; F2 sólo anuncia
+/// el catálogo de cuatro adaptadores que tienen despacho autorizado.
 pub fn filtered_tools(cfg: &Config) -> Vec<Tool> {
     if !cfg.ai.enable_tool_calling {
         return Vec::new();
@@ -833,6 +832,30 @@ pub fn filtered_tools(cfg: &Config) -> Vec<Tool> {
     if cfg.tools.kdeconnect {
         out.push(kdeconnect_tool());
     }
+    out.retain(|tool| {
+        !matches!(
+            tool.function.name.as_str(),
+            "web_search"
+                | "open_url"
+                | "open_app"
+                | "open_file"
+                | "focus_app"
+                | "close_app"
+                | "kdeconnect"
+                | "preview_document"
+                | "list_open_apps"
+                | "network_status"
+                | "notify"
+                | "remind_in"
+                | "volume"
+                | "brightness"
+                | "media"
+                | "find_file"
+                | "find_document"
+                | "show_image"
+                | "copy_file"
+        )
+    });
     out
 }
 
@@ -867,7 +890,7 @@ mod tests {
         cfg.tools.list_open_apps = false;
         cfg.tools.focus_app = false;
         cfg.tools.close_app = false;
-        cfg.tools.system_info = false;
+        cfg.tools.system_info = true;
         cfg.tools.notify = false;
         cfg.tools.media = false;
         cfg.tools.volume = false;
@@ -877,30 +900,31 @@ mod tests {
         cfg.tools.kdeconnect = false;
         let tools = filtered_tools(&cfg);
         assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].function.name, "open_app");
+        assert_eq!(tools[0].function.name, "system_info");
     }
 
     #[test]
     fn all_enabled_by_default() {
         let cfg = Config::default();
-        assert_eq!(filtered_tools(&cfg).len(), 23);
+        assert_eq!(filtered_tools(&cfg).len(), 4);
     }
 
     #[test]
     fn permission_levels() {
         use super::permission;
-        assert_eq!(permission("read_file"), super::Permission::Green);
-        assert_eq!(permission("find_document"), super::Permission::Green);
-        assert_eq!(permission("preview_document"), super::Permission::Green);
-        assert_eq!(permission("list_open_apps"), super::Permission::Green);
-        assert_eq!(permission("network_status"), super::Permission::Green);
+        assert_eq!(permission("read_file"), super::Permission::Yellow);
+        assert_eq!(permission("find_document"), super::Permission::Yellow);
+        assert_eq!(permission("preview_document"), super::Permission::Yellow);
+        assert_eq!(permission("list_open_apps"), super::Permission::Yellow);
+        assert_eq!(permission("network_status"), super::Permission::Yellow);
         assert_eq!(permission("open_app"), super::Permission::Yellow);
         assert_eq!(permission("copy_file"), super::Permission::Yellow);
-        assert_eq!(permission("close_app"), super::Permission::Yellow);
+        assert_eq!(permission("close_app"), super::Permission::Red);
         assert_eq!(permission("focus_app"), super::Permission::Yellow);
         assert_eq!(permission("media"), super::Permission::Yellow);
-        assert_eq!(permission("kdeconnect"), super::Permission::Yellow);
+        assert_eq!(permission("kdeconnect"), super::Permission::Red);
         assert_eq!(permission("edit_file"), super::Permission::Red);
-        assert_eq!(permission("whatever_unknown"), super::Permission::Yellow);
+        assert_eq!(permission("system_info"), super::Permission::Green);
+        assert_eq!(permission("whatever_unknown"), super::Permission::Red);
     }
 }

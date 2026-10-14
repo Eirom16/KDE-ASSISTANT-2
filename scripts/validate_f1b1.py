@@ -34,7 +34,7 @@ def main():
         ("fmt", ["cargo", "fmt", "--check"]),
         ("check", ["cargo", "check", "--locked", "--all-targets"]),
         ("clippy", ["cargo", "clippy", "--locked", "--all-targets", "--", "-D", "warnings"]),
-        ("f1a-security", ["cargo", "test", "--locked", "--test", "f1a_security"]),
+        ("f1a-security", ["cargo", "test", "--locked", "--features", "legacy-fixtures", "--test", "f1a_security"]),
         ("f1b1", ["cargo", "test", "--locked", "--test", "f1b1_text_startup", "--", "--test-threads=1"]),
         ("unit-safe", ["cargo", "test", "--locked", "--lib", "--", "--test-threads=1"] + skips),
         ("piper-inherited-now-lazy", ["cargo", "test", "--locked", "--lib", "--", "--exact", "--test-threads=1"] + PIPER_TESTS),

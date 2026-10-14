@@ -12,6 +12,36 @@ import qml.agent 1.0
 
 ApplicationWindow {
     id: root
+    property var pendingConsents: ({})
+
+    function showConsent(toolCallId) {
+        var request = pendingConsents[toolCallId]
+        if (!request) return
+        consentDialog.request = request
+        consentDialog.open()
+    }
+
+    function openNextConsent() {
+        if (consentDialog.visible) return
+        var ids = Object.keys(pendingConsents)
+        if (ids.length > 0) showConsent(ids[0])
+    }
+
+    function forgetConsent(toolCallId) {
+        if (!pendingConsents[toolCallId]) return
+        var remaining = Object.assign({}, pendingConsents)
+        delete remaining[toolCallId]
+        pendingConsents = remaining
+        if (consentDialog.request && consentDialog.request.tool_call_id === toolCallId)
+            consentDialog.close()
+    }
+
+    function forgetTurnConsents(turnId) {
+        var ids = Object.keys(pendingConsents)
+        for (var i = 0; i < ids.length; i++) {
+            if (pendingConsents[ids[i]].turn_id === turnId) forgetConsent(ids[i])
+        }
+    }
 
     title: "KDE Assistant v2"
     width: Theme.windowDefaultWidth
@@ -290,6 +320,7 @@ ApplicationWindow {
                 if (obj) toolArr.push({ id: obj.id || "", name: obj.name || "tool", status: "running", result: "", imageUrl: "", caption: "" })
             } else if (ev === "tool_result") {
                 if (obj) {
+                    forgetConsent(obj.tool_call_id)
                     for (var j = 0; j < toolArr.length; j++) {
                         if (toolArr[j].id === obj.tool_call_id) {
                             var denied = obj.content && (obj.content.indexOf("El usuario denegó") === 0 || obj.content.indexOf("Acción sensible denegada") === 0)
@@ -309,23 +340,29 @@ ApplicationWindow {
                     }
                 }
             } else if (ev === "approval_needed") {
-                // F4-1: la tool espera tu decisión (botones en el badge).
                 if (obj) {
+                    var requests = Object.assign({}, pendingConsents)
+                    requests[obj.tool_call_id] = obj
+                    pendingConsents = requests
                     for (var n = 0; n < toolArr.length; n++) {
                         if (toolArr[n].id === obj.tool_call_id) {
                             toolArr[n].status = "confirm"
-                            toolArr[n].result = qsTr("Requiere confirmación") + (obj.permission ? " (" + obj.permission + ")" : "")
+                            toolArr[n].result = (obj.effect || qsTr("Acción")) + ": " + (obj.resource || "")
                             break
                         }
                     }
+                    if (!consentDialog.visible) Qt.callLater(root.openNextConsent)
                 }
             } else if (ev === "cancelled") {
+                forgetTurnConsents(obj.turn_id)
                 terminalReceived = true
                 rawText = obj.message || qsTr("Cancelado por el usuario; los efectos iniciados pueden haber terminado.")
             } else if (ev === "done") {
+                forgetTurnConsents(obj.turn_id)
                 terminalReceived = true
                 if (obj && obj.full_content && !rawText) rawText = obj.full_content
             } else if (ev === "error") {
+                forgetTurnConsents(obj.turn_id)
                 terminalReceived = true
                 if (obj && obj.message) sawError = obj.message
             }
@@ -641,29 +678,40 @@ ApplicationWindow {
 
     // F4-1: resuelve una confirmación pendiente (botones del badge).
     function approveTool(toolCallId, approved) {
-        if (!toolCallId) return
-        // Optimista: marcar el badge mientras el backend reanuda al agente.
-        var arr = messages.slice()
-        for (var i = 0; i < arr.length; i++) {
-            var tcs = arr[i].toolCalls || []
-            for (var j = 0; j < tcs.length; j++) {
-                if (tcs[j].id === toolCallId && tcs[j].status === "confirm") {
-                    var updatedCalls = tcs.slice()
-                    updatedCalls[j] = Object.assign({}, tcs[j], {
-                        status: approved ? "running" : "error",
-                        result: approved ? qsTr("Aprobada, ejecutando…") : qsTr("Denegada por ti")
-                    })
-                    arr[i] = Object.assign({}, arr[i], { toolCalls: updatedCalls })
-                    break
-                }
-            }
-        }
-        messages = arr
+        var consent = pendingConsents[toolCallId]
+        if (!consent) return
         var req = new XMLHttpRequest()
         req.open("POST", backendUrl + "/api/tools/approve")
         req.setRequestHeader("Content-Type", "application/json")
         setAuth(req)
-        req.send(JSON.stringify({ tool_call_id: toolCallId, approved: approved }))
+        req.onreadystatechange = function() {
+            if (req.readyState !== XMLHttpRequest.DONE) return
+            if (req.status !== 200) {
+                lastErrorDetail = qsTr("La autorización caducó o ya no corresponde a este turno.")
+                return
+            }
+            var arr = messages.slice()
+            for (var i = 0; i < arr.length; i++) {
+                var tcs = arr[i].toolCalls || []
+                for (var j = 0; j < tcs.length; j++) {
+                    if (tcs[j].id === toolCallId && tcs[j].status === "confirm") {
+                        var updatedCalls = tcs.slice()
+                        updatedCalls[j] = Object.assign({}, tcs[j], {
+                            status: approved ? "running" : "error",
+                            result: approved ? qsTr("Aprobada, ejecutando…") : qsTr("Denegada por ti")
+                        })
+                        arr[i] = Object.assign({}, arr[i], { toolCalls: updatedCalls })
+                    }
+                }
+            }
+            messages = arr
+        }
+        req.send(JSON.stringify({ tool_call_id: toolCallId, consent_id: consent.consent_id,
+                                   turn_id: consent.turn_id, session_id: consent.session_id,
+                                   approved: approved }))
+        var remaining = Object.assign({}, pendingConsents)
+        delete remaining[toolCallId]
+        pendingConsents = remaining
     }
 
     // Stop conserva SSE hasta el terminal: HTTP 202 sólo confirma la solicitud.
@@ -706,6 +754,9 @@ ApplicationWindow {
     }
 
     function detachChat() {
+        var consents = Object.keys(pendingConsents)
+        for (var i = 0; i < consents.length; i++) approveTool(consents[i], false)
+        if (consentDialog.visible) consentDialog.close()
         ++chatRequestGeneration
         activeChatTurnId = ""
         activeChatSessionId = ""
@@ -1215,7 +1266,7 @@ ApplicationWindow {
                     root.regenerate()
                 }
                 onToolApproveRequested: function(id) {
-                    root.approveTool(id, true)
+                    root.showConsent(id)
                 }
                 onToolDenyRequested: function(id) {
                     root.approveTool(id, false)
@@ -1265,6 +1316,52 @@ ApplicationWindow {
     }
 
     // === Image preview dialog (overlay) ===
+    Dialog {
+        id: consentDialog
+        objectName: "f2ConsentDialog"
+        property var request: null
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        title: qsTr("Autorizar herramienta")
+        width: Math.min(root.width - Theme.spacingMd * 2, 420)
+        x: (root.width - width) / 2
+        y: (root.height - height) / 2
+        onClosed: {
+            if (request && root.pendingConsents[request.tool_call_id])
+                root.approveTool(request.tool_call_id, false)
+            request = null
+            Qt.callLater(root.openNextConsent)
+        }
+
+        contentItem: Column {
+            spacing: Theme.spacingSm
+            Label { objectName: "f2ConsentTool"; width: parent.width; wrapMode: Text.Wrap; text: consentDialog.request ? qsTr("Herramienta: ") + consentDialog.request.name : "" }
+            Label { objectName: "f2ConsentEffect"; width: parent.width; wrapMode: Text.Wrap; text: consentDialog.request ? qsTr("Acción: ") + consentDialog.request.effect : "" }
+            Label { objectName: "f2ConsentResource"; width: parent.width; wrapMode: Text.Wrap; text: consentDialog.request ? qsTr("Recurso: ") + consentDialog.request.resource : "" }
+            Label { width: parent.width; wrapMode: Text.Wrap; visible: !!(consentDialog.request && consentDialog.request.detail); text: consentDialog.request ? consentDialog.request.detail || "" : "" }
+            Label { width: parent.width; wrapMode: Text.Wrap; text: consentDialog.request ? qsTr("Riesgo: ") + consentDialog.request.permission : "" }
+            Label { width: parent.width; wrapMode: Text.Wrap; text: qsTr("Alcance: esta operación exacta, una vez, durante 120 segundos. El efecto puede no revertirse al cancelar.") }
+            Row {
+                spacing: Theme.spacingSm
+                Button {
+                    text: qsTr("Denegar")
+                    onClicked: {
+                        if (consentDialog.request) root.approveTool(consentDialog.request.tool_call_id, false)
+                        consentDialog.close()
+                    }
+                }
+                Button {
+                    text: qsTr("Aprobar")
+                    onClicked: {
+                        if (consentDialog.request) root.approveTool(consentDialog.request.tool_call_id, true)
+                        consentDialog.close()
+                    }
+                }
+            }
+        }
+    }
+
     ImagePreviewDialog {
         id: imagePreview
         anchors.fill: parent

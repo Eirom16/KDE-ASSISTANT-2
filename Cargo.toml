@@ -16,6 +16,23 @@ path = "src/main.rs"
 name = "kde_assistant_lib"
 path = "src/lib.rs"
 
+[features]
+default = []
+# Explicit opt-in for synthetic regressions of F1A adapters disabled by F2.
+legacy-fixtures = []
+
+[[test]]
+name = "f1a_security"
+required-features = ["legacy-fixtures"]
+
+[[test]]
+name = "f1b3b_storage"
+required-features = ["legacy-fixtures"]
+
+[[test]]
+name = "agent_smoke"
+required-features = ["legacy-fixtures"]
+
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["full"] }

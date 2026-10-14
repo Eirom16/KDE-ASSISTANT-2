@@ -4,8 +4,8 @@
 //! - NUNCA usar sh -c con strings
 //! - Siempre std::process::Command con array de argumentos
 //! - Validar paths antes de escribir/leer
-//! - Web search via DuckDuckGo Lite (sin API key)
-//! - show_image descarga o copia a cache local
+//! - Los adaptadores legacy de red/proceso siguen presentes para fixtures,
+//!   pero F2 los bloquea en cualquier dispatcher productivo.
 
 use anyhow::{anyhow, bail, Context, Result};
 use futures_util::StreamExt;
@@ -23,7 +23,7 @@ use crate::models::{Config, ToolCall, ToolResult};
 #[derive(Debug, Clone)]
 pub struct ToolCtx {
     pub session_id: Option<String>,
-    /// "auto" | "approved" | "denied".
+    /// Dato heredado del caller; nunca se usa como autorización F2.
     pub decided: String,
 }
 
@@ -40,6 +40,7 @@ impl ToolCtx {
 pub struct ToolExecutor {
     config: std::sync::Arc<tokio::sync::RwLock<Config>>,
     sessions: Option<std::sync::Arc<std::sync::Mutex<SessionManager>>>,
+    quota: std::sync::Arc<tokio::sync::Semaphore>,
     memory: std::sync::Arc<std::sync::Mutex<ToolMemory>>,
     #[cfg(test)]
     pub(crate) create_gate: Option<std::sync::Arc<TestCreateGate>>,
@@ -66,10 +67,13 @@ struct EditArgs {
 }
 
 impl ToolExecutor {
-    pub fn new(config: std::sync::Arc<tokio::sync::RwLock<Config>>) -> Self {
+    /// Synthetic regressions only. Not compiled into the default library.
+    #[cfg(any(test, feature = "legacy-fixtures"))]
+    pub fn legacy_fixture(config: std::sync::Arc<tokio::sync::RwLock<Config>>) -> Self {
         Self {
             config,
             sessions: None,
+            quota: std::sync::Arc::new(tokio::sync::Semaphore::new(4)),
             memory: std::sync::Arc::new(std::sync::Mutex::new(ToolMemory::default())),
             #[cfg(test)]
             create_gate: None,
@@ -84,13 +88,27 @@ impl ToolExecutor {
         Self {
             config,
             sessions: Some(sessions),
+            quota: std::sync::Arc::new(tokio::sync::Semaphore::new(4)),
             memory: std::sync::Arc::new(std::sync::Mutex::new(ToolMemory::default())),
             #[cfg(test)]
             create_gate: None,
         }
     }
 
+    pub fn permission_plan(&self, call: &ToolCall) -> Result<super::permission_engine::Plan> {
+        super::permission_engine::plan(call, &self.get_config_snapshot()?)
+    }
     pub fn prepare_for_turn(&self, turn_id: &str, call: &ToolCall) -> Result<String> {
+        self.prepare_for_turn_with_consent(turn_id, call, "chat")
+            .map(|(operation, _)| operation)
+    }
+    pub fn prepare_for_turn_with_consent(
+        &self,
+        turn_id: &str,
+        call: &ToolCall,
+        origin: &str,
+    ) -> Result<(String, Option<String>)> {
+        let plan = self.permission_plan(call)?;
         let sessions = self
             .sessions
             .as_ref()
@@ -98,7 +116,7 @@ impl ToolExecutor {
         sessions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .prepare_operation(turn_id, &call.name)
+            .prepare_permission(turn_id, call, &plan, origin)
     }
     pub fn journal_state(
         &self,
@@ -116,35 +134,79 @@ impl ToolExecutor {
             .unwrap_or_else(|e| e.into_inner())
             .transition_operation(operation, state, consent, bytes)
     }
-    pub async fn execute_for_turn(
-        &self,
-        call: &ToolCall,
-        ctx: &ToolCtx,
-        turn: &std::sync::Arc<super::conversation_turn::Turn>,
-        operation: &str,
-    ) -> Result<ToolResult> {
-        use super::operation_journal::OperationState;
-        // ToolCtx describes caller consent only; execution still checks cfg/SafePath.
+    pub fn deny_permission(&self, operation: &str) -> Result<()> {
         self.sessions
             .as_ref()
             .context("journal storage unavailable")?
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .authorize_operation(operation, &turn.id, &call.name, &ctx.decided)?;
+            .deny_permission(operation)
+    }
+    pub fn record_policy_denial_for_turn(&self, turn_id: &str, call: &ToolCall) -> Result<()> {
+        let manager = self
+            .sessions
+            .as_ref()
+            .context("journal storage unavailable")?;
+        let manager = manager.lock().unwrap_or_else(|e| e.into_inner());
+        let operation = manager.prepare_operation(turn_id, &call.name)?;
+        manager.transition_operation(
+            &operation,
+            super::operation_journal::OperationState::Denied,
+            "denied",
+            None,
+        )
+    }
+    pub async fn execute_for_turn(
+        &self,
+        call: &ToolCall,
+        _ctx: &ToolCtx,
+        turn: &std::sync::Arc<super::conversation_turn::Turn>,
+        operation: &str,
+    ) -> Result<ToolResult> {
+        let plan = self.permission_plan(call)?;
+        let consent = if plan.risk == super::permission_engine::Risk::Green {
+            "auto"
+        } else {
+            "approved"
+        };
+        let _permit = super::conversation_turn::cancellable(Some(turn), async {
+            Ok(tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                self.quota.clone().acquire_owned(),
+            )
+            .await
+            .context("tool_quota_wait_timeout")??)
+        })
+        .await?;
         turn.dispatch_recorded(
-            || self.journal_state(operation, OperationState::Dispatched, &ctx.decided, None),
-            self.execute_and_record(call, ctx, operation),
+            || {
+                self.sessions
+                    .as_ref()
+                    .context("journal storage unavailable")?
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .dispatch_permission(
+                        operation,
+                        &turn.id,
+                        turn.session_id.as_deref(),
+                        call,
+                        &plan.fingerprint,
+                    )
+                    .map(|_| ())
+            },
+            self.execute_and_record(call, consent, operation, &plan),
         )
         .await
     }
     async fn execute_and_record(
         &self,
         call: &ToolCall,
-        ctx: &ToolCtx,
+        consent: &str,
         operation: &str,
+        plan: &super::permission_engine::Plan,
     ) -> Result<ToolResult> {
         let started = std::time::Instant::now();
-        let result = self.execute_raw(call).await?;
+        let result = self.execute_raw_authorized(call, plan).await?;
         let sessions = self
             .sessions
             .as_ref()
@@ -154,7 +216,7 @@ impl ToolExecutor {
             .unwrap_or_else(|e| e.into_inner())
             .record_operation_result(
                 operation,
-                &ctx.decided,
+                consent,
                 &result,
                 started.elapsed().as_millis().min(u64::MAX as u128) as u64,
             )
@@ -163,22 +225,54 @@ impl ToolExecutor {
     }
     pub async fn execute(&self, tool_call: &ToolCall, ctx: &ToolCtx) -> Result<ToolResult> {
         let Some(sessions) = &self.sessions else {
-            // Standalone test executor has no production backend storage.
+            #[cfg(any(test, feature = "legacy-fixtures"))]
             return self.execute_raw(tool_call).await;
+            #[cfg(not(any(test, feature = "legacy-fixtures")))]
+            bail!("journal storage unavailable");
         };
+        let plan = match self.permission_plan(tool_call) {
+            Ok(plan) => plan,
+            Err(error) => {
+                if super::tool_registry::all_tools()
+                    .iter()
+                    .any(|tool| tool.function.name == tool_call.name)
+                {
+                    self.record_denial(tool_call, ctx.session_id.clone())?;
+                }
+                return Err(error);
+            }
+        };
+        let _permit = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            self.quota.clone().acquire_owned(),
+        )
+        .await
+        .context("tool_quota_wait_timeout")??;
         let turn_id = uuid::Uuid::new_v4().to_string();
         sessions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .begin_turn(&turn_id, ctx.session_id.as_deref(), None)?;
-        let operation = self.prepare_for_turn(&turn_id, tool_call)?;
-        use super::operation_journal::OperationState;
+        let (operation, _) = self.prepare_for_turn_with_consent(&turn_id, tool_call, "manual")?;
+        if plan.risk != super::permission_engine::Risk::Green {
+            let manager = sessions.lock().unwrap_or_else(|e| e.into_inner());
+            manager.deny_permission(&operation)?;
+            manager.settle_turn(&turn_id, "completed")?;
+            anyhow::bail!("consent_required: manual dispatch cannot grant itself approval");
+        }
         sessions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .authorize_operation(&operation, &turn_id, &tool_call.name, &ctx.decided)?;
-        self.journal_state(&operation, OperationState::Dispatched, &ctx.decided, None)?;
-        let result = self.execute_and_record(tool_call, ctx, &operation).await;
+            .dispatch_permission(
+                &operation,
+                &turn_id,
+                ctx.session_id.as_deref(),
+                tool_call,
+                &plan.fingerprint,
+            )?;
+        let result = self
+            .execute_and_record(tool_call, "auto", &operation, &plan)
+            .await;
         sessions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -206,6 +300,94 @@ impl ToolExecutor {
             }
             Err(e) => Ok(ToolResult::error(id, e.to_string())),
         }
+    }
+
+    async fn execute_raw_authorized(
+        &self,
+        call: &ToolCall,
+        plan: &super::permission_engine::Plan,
+    ) -> Result<ToolResult> {
+        if call.name == "system_info" {
+            let result =
+                tokio::time::timeout(std::time::Duration::from_secs(2), self.execute_raw(call))
+                    .await;
+            return Ok(match result {
+                Ok(Ok(mut value)) => {
+                    value.content = value.content.chars().take(32_000).collect();
+                    value
+                }
+                Ok(Err(error)) => ToolResult::error(call.id.clone(), error.to_string()),
+                Err(_) => ToolResult::error(call.id.clone(), "system_info_timeout"),
+            });
+        }
+        let cfg = self.get_config_snapshot()?;
+        let result: Result<ToolResult> = async {
+            match call.name.as_str() {
+                "read_file" => {
+                    anyhow::ensure!(cfg.tools.read_file, "read_file disabled");
+                    let path = Self::arg_string(&call.arguments, "path")?;
+                    let safe = SafePath::resolve(&cfg, path)?;
+                    let identity = plan.identity.clone();
+                    let bytes =
+                        tokio::task::spawn_blocking(move || safe.read_bound(&identity)).await??;
+                    let content = String::from_utf8(bytes).context("archivo no es UTF-8 válido")?;
+                    let clipped: String = content.chars().take(32_000).collect();
+                    Ok(ToolResult::success(call.id.clone(), clipped))
+                }
+                "create_file" => {
+                    anyhow::ensure!(cfg.tools.create_file, "create_file disabled");
+                    let path = Self::arg_string(&call.arguments, "path")?;
+                    let content = Self::arg_string(&call.arguments, "content")?
+                        .as_bytes()
+                        .to_vec();
+                    let safe = SafePath::resolve(&cfg, path)?;
+                    let display = safe.display.clone();
+                    let identity = plan.identity.clone();
+                    #[cfg(test)]
+                    if let Some(gate) = &self.create_gate {
+                        gate.started.notify_one();
+                        gate.release.notified().await;
+                    }
+                    tokio::task::spawn_blocking(move || safe.create_bound(&identity, &content))
+                        .await??;
+                    Ok(ToolResult::success(
+                        call.id.clone(),
+                        format!("Archivo creado: {}", display.display()),
+                    ))
+                }
+                "edit_file" => {
+                    anyhow::ensure!(cfg.tools.edit_file, "edit_file disabled");
+                    let path = Self::arg_string(&call.arguments, "path")?;
+                    let mode = Self::arg_string(&call.arguments, "mode")?.to_owned();
+                    let content = Self::arg_string(&call.arguments, "content")?.to_owned();
+                    let safe = SafePath::resolve(&cfg, path)?;
+                    let display = safe.display.clone();
+                    let identity = plan.identity.clone();
+                    let mode_for_worker = mode.clone();
+                    tokio::task::spawn_blocking(move || {
+                        safe.edit_bound(&identity, &mode_for_worker, &content)
+                    })
+                    .await??;
+                    Ok(ToolResult::success(
+                        call.id.clone(),
+                        format!("Archivo editado: {} (mode={mode})", display.display()),
+                    ))
+                }
+                _ => anyhow::bail!("tool_disabled_by_f2_policy"),
+            }
+        }
+        .await;
+        Ok(result.unwrap_or_else(|error| {
+            let uncertain = error
+                .downcast_ref::<super::safe_fs::UncertainEdit>()
+                .is_some();
+            let result = ToolResult::error(call.id.clone(), error.to_string());
+            if uncertain {
+                result.uncertain()
+            } else {
+                result
+            }
+        }))
     }
 
     // Una sola versión autoriza el flag y todas las rutas de la operación.
@@ -1493,9 +1675,6 @@ fn collect_system_info() -> String {
             human_bytes(total)
         ));
     }
-    if let Some(disk) = disk_summary() {
-        lines.push(disk);
-    }
     if let Some(bat) = battery_summary() {
         lines.push(bat);
     }
@@ -1592,26 +1771,6 @@ fn human_bytes(b: u64) -> String {
     } else {
         format!("{:.0} MB", f / MB)
     }
-}
-
-fn disk_summary() -> Option<String> {
-    // df sin shell: binario + args.
-    let out = std::process::Command::new("df")
-        .args(["-h", "--output=avail,used,target", "/"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let mut lines = text.lines();
-    lines.next()?; // cabecera
-    let row = lines.next()?;
-    let cols: Vec<&str> = row.split_whitespace().collect();
-    if cols.len() < 2 {
-        return None;
-    }
-    Some(format!("Disco /: {} libres (usados {})", cols[0], cols[1]))
 }
 
 fn battery_summary() -> Option<String> {
@@ -2475,7 +2634,7 @@ mod tests {
 
     fn dummy_executor() -> ToolExecutor {
         let cfg = Arc::new(RwLock::new(Config::default()));
-        ToolExecutor::new(cfg)
+        ToolExecutor::legacy_fixture(cfg)
     }
 
     fn tc(name: &str, args: HashMap<String, serde_json::Value>) -> ToolCall {
@@ -2497,7 +2656,7 @@ mod tests {
         let mut cfg = Config::default();
         cfg.tools.allowed_paths = vec![root.display().to_string()];
         let shared = Arc::new(RwLock::new(cfg));
-        let executor = ToolExecutor::new(shared.clone());
+        let executor = ToolExecutor::legacy_fixture(shared.clone());
         let snapshot = executor.get_config_snapshot().unwrap();
         let mut guard = shared.write().await;
         guard.tools.create_file = false;
@@ -2756,7 +2915,7 @@ mod tests {
         std::fs::write(&doc, "contenido de prueba").unwrap();
         let mut cfg = Config::default();
         cfg.tools.allowed_paths = vec![base.to_string_lossy().to_string()];
-        let ex = ToolExecutor::new(Arc::new(RwLock::new(cfg)));
+        let ex = ToolExecutor::legacy_fixture(Arc::new(RwLock::new(cfg)));
         let mut args = HashMap::new();
         args.insert(
             "path".to_string(),
@@ -2782,7 +2941,7 @@ mod tests {
         std::fs::write(&src, b"%PDF-test-bytes").unwrap();
         let mut cfg = Config::default();
         cfg.tools.allowed_paths = vec![base.to_string_lossy().to_string()];
-        let ex = ToolExecutor::new(Arc::new(RwLock::new(cfg)));
+        let ex = ToolExecutor::legacy_fixture(Arc::new(RwLock::new(cfg)));
         let mut args = HashMap::new();
         args.insert(
             "source".to_string(),

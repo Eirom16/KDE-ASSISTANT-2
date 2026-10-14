@@ -962,7 +962,7 @@ fn image_preview_retains_snapshot_and_failed_render_cleans_pending_resources() {
         let mut cfg = Config::first_run();
         cfg.tools.preview_document = true;
         cfg.tools.allowed_paths = vec![p.0.display().to_string()];
-        let tools = ToolExecutor::new(std::sync::Arc::new(tokio::sync::RwLock::new(cfg)));
+        let tools = ToolExecutor::legacy_fixture(std::sync::Arc::new(tokio::sync::RwLock::new(cfg)));
         let preview = |path: PathBuf| ToolCall {
             id: uuid::Uuid::new_v4().to_string(),
             name: "preview_document".into(),
@@ -1122,7 +1122,7 @@ fn image_download_does_not_follow_planted_output_symlinks() {
         });
         let mut cfg = Config::first_run();
         cfg.tools.show_image = true;
-        let tools = ToolExecutor::new(Arc::new(tokio::sync::RwLock::new(cfg)));
+        let tools = ToolExecutor::legacy_fixture(Arc::new(tokio::sync::RwLock::new(cfg)));
         let result = tools
             .execute(
                 &ToolCall {

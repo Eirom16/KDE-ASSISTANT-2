@@ -142,7 +142,9 @@ Item {
             rows[79] = row("assistant", "", true)
             chat.messages = rows
             tryCompare(list(), "count", 80)
-            wait(100)
+            tryVerify(function() { return list().contentHeight > list().height }, 1000)
+            wait(250)
+            list().follow = false
             list().positionViewAtBeginning()
             wait(50)
             tryVerify(function() { return !list().atYEnd }, 500)

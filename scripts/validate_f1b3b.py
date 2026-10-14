@@ -35,18 +35,18 @@ def main():
         ("fmt", ["cargo", "fmt", "--check"]),
         ("check", ["cargo", "check", "--locked", "--all-targets"]),
         ("clippy", ["cargo", "clippy", "--locked", "--all-targets", "--", "-D", "warnings"]),
-        ("f1a-security", ["cargo", "test", "--locked", "--test", "f1a_security"]),
+        ("f1a-security", ["cargo", "test", "--locked", "--features", "legacy-fixtures", "--test", "f1a_security"]),
         ("f1b1", ["cargo", "test", "--locked", "--test", "f1b1_text_startup", "--", "--test-threads=1"]),
         ("f1b2-conversation", ["cargo", "test", "--locked", "--test", "f1b2_conversation", "--", "--test-threads=1"]),
         ("f1b3a-persistence", ["cargo", "test", "--locked", "--test", "f1b3a_persistence", "--", "--test-threads=1"]),
-        ("f1b3b-storage", ["cargo", "test", "--locked", "--test", "f1b3b_storage", "--", "--test-threads=1"]),
+        ("f1b3b-storage", ["cargo", "test", "--locked", "--features", "legacy-fixtures", "--test", "f1b3b_storage", "--", "--test-threads=1"]),
         ("unit-safe", ["cargo", "test", "--locked", "--lib", "--", "--test-threads=1"] + skips),
         ("app-paths", ["cargo", "test", "--locked", "--test", "app_paths"]),
     ]
     if args.qml:
         commands.append(("qml-offscreen", ["cargo", "test", "--locked", "--test", "f1b1_text_startup", "qml_offscreen", "--", "--ignored", "--nocapture"]))
         commands.append(("qml-f1b2-review", ["cargo", "test", "--locked", "--test", "f1b2_conversation", "qml_", "--", "--ignored", "--nocapture", "--test-threads=1"]))
-        commands.append(("qml-f1b3b-recovery", ["cargo", "test", "--locked", "--test", "f1b3b_storage", "qml_", "--", "--ignored", "--nocapture", "--test-threads=1"]))
+        commands.append(("qml-f1b3b-recovery", ["cargo", "test", "--locked", "--features", "legacy-fixtures", "--test", "f1b3b_storage", "qml_", "--", "--ignored", "--nocapture", "--test-threads=1"]))
     results = {"base": "d8a6972b5bc3977408c8d0956fce3196623d5458", "commands": [], "excluded": EXTERNAL_TESTS, "qml_offscreen": args.qml, "plasma_wayland": "NOT_TESTED"}
     source_paths = sorted(p for base in ["src", "qml", "tests", "migrations", "scripts"] for p in (repo / base).rglob("*") if p.is_file() and (p.suffix in [".rs", ".qml", ".sql", ".py", ".js"] or p.name == "qmldir"))
     manifest = {str(p.relative_to(repo)): hashlib.sha256(p.read_bytes()).hexdigest() for p in source_paths}

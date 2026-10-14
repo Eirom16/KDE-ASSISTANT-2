@@ -67,6 +67,41 @@ fn executor(p: &Private, db: SessionManager) -> (ToolExecutor, Arc<Mutex<Session
         db,
     )
 }
+fn execute_approved(
+    exec: &ToolExecutor,
+    db: &Arc<Mutex<SessionManager>>,
+    sid: &str,
+    call: &ToolCall,
+) -> anyhow::Result<kde_assistant_lib::models::ToolResult> {
+    let turn = Turn::new(Some(sid.to_owned()));
+    turn.transition(TurnState::Running)?;
+    db.lock().unwrap().begin_turn(&turn.id, Some(sid), None)?;
+    let (op, consent) = exec.prepare_for_turn_with_consent(&turn.id, call, "chat")?;
+    turn.transition(TurnState::WaitingForApproval)?;
+    db.lock().unwrap().answer_permission(
+        &consent.ok_or_else(|| anyhow::anyhow!("missing consent"))?,
+        &call.id,
+        &turn.id,
+        Some(sid),
+        true,
+    )?;
+    turn.transition(TurnState::Running)?;
+    let result = rt().block_on(exec.execute_for_turn(
+        call,
+        &ToolCtx::auto(Some(sid.to_owned())),
+        &turn,
+        &op,
+    ));
+    db.lock().unwrap().settle_turn(
+        &turn.id,
+        if result.is_ok() {
+            "completed"
+        } else {
+            "failed"
+        },
+    )?;
+    result
+}
 fn integrity(p: &Private) {
     let sql = Connection::open(p.db()).unwrap();
     assert_eq!(
@@ -293,7 +328,7 @@ fn insert_and_dispatch_failures_never_execute() {
     ] {
         let p = Private::new();let (db,sid)=fixture(&p);let (exec,db)=executor(&p,db);
         Connection::open(p.db()).unwrap().execute_batch(sql).unwrap();
-        assert!(rt().block_on(exec.execute(&call(&p),&ToolCtx::auto(Some(sid)))).is_err());
+        assert!(execute_approved(&exec,&db,&sid,&call(&p)).is_err());
         assert!(!p.0.join("effect.txt").exists());
         Connection::open(p.db()).unwrap().execute_batch("DROP TRIGGER inject").unwrap();
         assert!(db.lock().unwrap().create_turn("after-error",None).is_ok());
@@ -308,7 +343,7 @@ fn result_or_audit_failure_never_reports_success() {
     ] {
         let p=Private::new();let (db,sid)=fixture(&p);let (exec,db)=executor(&p,db);
         Connection::open(p.db()).unwrap().execute_batch(sql).unwrap();
-        let err=rt().block_on(exec.execute(&call(&p),&ToolCtx::auto(Some(sid.clone())))).unwrap_err();
+        let err=execute_approved(&exec,&db,&sid,&call(&p)).unwrap_err();
         assert!(err.to_string().contains("operation_result_not_persisted"));
         assert!(p.0.join("effect.txt").exists());
         let ops=db.lock().unwrap().list_operations(Some(&sid),50).unwrap();
@@ -327,9 +362,7 @@ fn simulated_disk_full_fails_closed_and_rolls_back() {
     let sql = Connection::open(p.db()).unwrap();
     // Model the failed write boundary deterministically, without filling a real disk.
     sql.execute_batch("CREATE TRIGGER disk_failure BEFORE INSERT ON operation_events BEGIN SELECT RAISE(ABORT,'simulated SQLITE_FULL'); END;").unwrap();
-    assert!(rt()
-        .block_on(exec.execute(&call(&p), &ToolCtx::auto(Some(sid.clone()))))
-        .is_err());
+    assert!(execute_approved(&exec, &db, &sid, &call(&p)).is_err());
     assert!(db
         .lock()
         .unwrap()
@@ -340,7 +373,7 @@ fn simulated_disk_full_fails_closed_and_rolls_back() {
     assert!(!p.0.join("effect.txt").exists());
     sql.execute_batch("DROP TRIGGER disk_failure").unwrap();
     assert!(
-        rt().block_on(exec.execute(&call(&p), &ToolCtx::auto(Some(sid))))
+        execute_approved(&exec, &db, &sid, &call(&p))
             .unwrap()
             .success
     );
@@ -354,15 +387,13 @@ fn busy_database_times_out_without_effect_and_recovers() {
     let lock = Connection::open(p.db()).unwrap();
     lock.execute_batch("BEGIN IMMEDIATE").unwrap();
     let start = Instant::now();
-    assert!(rt()
-        .block_on(exec.execute(&call(&p), &ToolCtx::auto(Some(sid.clone()))))
-        .is_err());
+    assert!(execute_approved(&exec, &_db, &sid, &call(&p)).is_err());
     assert!(start.elapsed() >= Duration::from_secs(4));
     assert!(start.elapsed() < Duration::from_secs(10));
     assert!(!p.0.join("effect.txt").exists());
     lock.execute_batch("ROLLBACK").unwrap();
     assert!(
-        rt().block_on(exec.execute(&call(&p), &ToolCtx::auto(Some(sid))))
+        execute_approved(&exec, &_db, &sid, &call(&p))
             .unwrap()
             .success
     );
@@ -401,14 +432,11 @@ fn privacy_denials_transitions_and_schema_are_enforced() {
     let p = Private::new();
     let (db, sid) = fixture(&p);
     let (exec, db) = executor(&p, db);
-    rt().block_on(async {
-        assert!(
-            exec.execute(&call(&p), &ToolCtx::auto(Some(sid.clone())))
-                .await
-                .unwrap()
-                .success
-        );
-    });
+    assert!(
+        execute_approved(&exec, &db, &sid, &call(&p))
+            .unwrap()
+            .success
+    );
     exec.record_denial(&call(&p), Some(sid.clone())).unwrap();
     let db = db.lock().unwrap();
     let ops = db.list_operations(Some(&sid), 50).unwrap();
@@ -692,17 +720,30 @@ async fn http_journal(fail_result: bool) {
         .timeout(Duration::from_secs(10))
         .build()
         .unwrap();
-    let stream = client
+    let response = client
         .post(format!("{base}/api/chat"))
         .header("Host", "127.0.0.1:8765")
         .bearer_auth(&state.local_token)
         .json(&serde_json::json!({"session_id":sid,"message":"synthetic request"}))
         .send()
         .await
-        .unwrap()
-        .text()
-        .await
         .unwrap();
+    let collected = tokio::spawn(async move { response.text().await.unwrap() });
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while state.approvals.pending_count() == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let (consent_id,tool_call_id,turn_id):(String,String,String)=Connection::open(&dbpath).unwrap().query_row(
+        "SELECT p.consent_id,p.tool_call_id,j.turn_id FROM permission_requests p JOIN operation_journal j ON j.id=p.operation_id WHERE j.session_id=?1 AND p.state='pending' ORDER BY p.created_at DESC LIMIT 1",
+        [&sid],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
+    assert_eq!(client.post(format!("{base}/api/tools/approve"))
+        .header("Host","127.0.0.1:8765").bearer_auth(&state.local_token)
+        .json(&serde_json::json!({"consent_id":consent_id,"tool_call_id":tool_call_id,"turn_id":turn_id,"session_id":sid,"approved":true}))
+        .send().await.unwrap().status(),200);
+    let stream = collected.await.unwrap();
     assert!(file.exists());
     if fail_result {
         assert!(stream.contains("event: error"));

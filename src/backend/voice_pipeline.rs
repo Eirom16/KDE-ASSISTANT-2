@@ -1106,7 +1106,7 @@ mod tests {
     async fn test_pipeline() -> VoicePipeline {
         let cfg = Arc::new(RwLock::new(Config::default()));
         let ai = Arc::new(AiService::new(cfg.clone()).await.unwrap());
-        let tools = Arc::new(ToolExecutor::new(cfg.clone()));
+        let tools = Arc::new(ToolExecutor::legacy_fixture(cfg.clone()));
         let approvals = Arc::new(crate::backend::approvals::ApprovalManager::new());
         let sessions = Arc::new(Mutex::new(
             crate::backend::session_manager::SessionManager::in_memory_for_tests().unwrap(),

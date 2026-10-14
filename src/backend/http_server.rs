@@ -896,6 +896,9 @@ async fn list_tool_schemas(State(state): State<AppState>) -> impl IntoResponse {
 #[derive(Debug, Deserialize)]
 pub struct ApproveToolRequest {
     pub tool_call_id: String,
+    pub consent_id: String,
+    pub turn_id: String,
+    pub session_id: Option<String>,
     pub approved: bool,
 }
 
@@ -1007,7 +1010,14 @@ async fn execute_tool_manual(
             )
         }
         Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
+            if e.to_string().starts_with("consent_required")
+                || e.to_string().starts_with("tool_disabled")
+                || e.to_string().starts_with("tool_not_catalogued")
+            {
+                StatusCode::FORBIDDEN
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            },
             Json(serde_json::json!({ "ok": false, "error": e.to_string() })),
         ),
     }
@@ -1023,7 +1033,30 @@ async fn approve_tool(
             Json(serde_json::json!({ "error": "tool_call_id vacío" })),
         );
     }
-    if state.approvals.resolve(&body.tool_call_id, body.approved) {
+    let Some(turn) = state.chat_tasks.find(&body.session_id, &body.turn_id) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error":"turn_not_found"})),
+        );
+    };
+    if turn.state() != TurnState::WaitingForApproval {
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({"error":"turn_not_waiting_for_approval"})),
+        );
+    }
+    let decision = state
+        .sessions
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .answer_permission(
+            &body.consent_id,
+            &body.tool_call_id,
+            &body.turn_id,
+            body.session_id.as_deref(),
+            body.approved,
+        );
+    if decision.is_ok() && state.approvals.resolve(&body.consent_id, body.approved) {
         (
             StatusCode::OK,
             Json(
@@ -2045,12 +2078,17 @@ fn sse_event(ev: StreamEvent) -> (&'static str, String) {
         ),
         StreamEvent::ToolApprovalNeeded {
             tool_call_id,
+            consent_id,
+            turn_id,
+            session_id,
             name,
-            arguments,
+            effect,
+            resource,
+            detail,
             permission,
         } => (
             "approval_needed",
-            serde_json::json!({ "tool_call_id": tool_call_id, "name": name, "arguments": arguments, "permission": permission }).to_string(),
+            serde_json::json!({ "tool_call_id": tool_call_id, "consent_id": consent_id, "turn_id":turn_id, "session_id":session_id, "name": name, "effect":effect, "resource":resource, "detail":detail, "permission": permission }).to_string(),
         ),
         StreamEvent::Done { full_content } => (
             "done",
@@ -2078,7 +2116,7 @@ mod tests {
         let cfg = Arc::new(RwLock::new(Config::default()));
         let sessions = Arc::new(Mutex::new(SessionManager::in_memory_for_tests().unwrap()));
         let ai = Arc::new(AiService::new(cfg.clone()).await.unwrap());
-        let tools = Arc::new(ToolExecutor::new(cfg.clone()));
+        let tools = Arc::new(ToolExecutor::legacy_fixture(cfg.clone()));
         let approvals = Arc::new(crate::backend::approvals::ApprovalManager::new());
         let speech = Arc::new(SpeechService::new(cfg.clone()).await.unwrap());
         let chimes = Arc::new(ChimePlayer::new().await.unwrap());
@@ -2106,6 +2144,123 @@ mod tests {
             dictation_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             sidecar_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
+    }
+
+    #[tokio::test]
+    async fn f2_http_consent_requires_live_turn_and_exact_call_identity() {
+        let mut state = test_state().await;
+        state.local_token = "a".repeat(64);
+        let root = std::env::temp_dir().join(format!("kda-f2-http-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let file = root.join("fixture.txt");
+        std::fs::write(&file, "synthetic").unwrap();
+        {
+            let mut cfg = state.config.write().await;
+            cfg.tools.allowed_paths = vec![root.to_string_lossy().into_owned()];
+        }
+        state.tools = Arc::new(ToolExecutor::with_audit(
+            state.config.clone(),
+            state.sessions.clone(),
+        ));
+        let sid = state
+            .sessions
+            .lock()
+            .unwrap()
+            .create_session("f2")
+            .unwrap()
+            .id;
+        let turn = state.chat_tasks.reserve(Some(sid.clone())).unwrap();
+        turn.transition(TurnState::Running).unwrap();
+        state
+            .sessions
+            .lock()
+            .unwrap()
+            .begin_turn(&turn.id, Some(&sid), None)
+            .unwrap();
+        let call = crate::models::ToolCall {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: "read_file".into(),
+            arguments: serde_json::from_value(serde_json::json!({"path":file})).unwrap(),
+        };
+        let (_op, consent) = state
+            .tools
+            .prepare_for_turn_with_consent(&turn.id, &call, "chat")
+            .unwrap();
+        let consent = consent.unwrap();
+        let _pending = state.approvals.register(&consent);
+        turn.transition(TurnState::WaitingForApproval).unwrap();
+        let wrong = approve_tool(
+            State(state.clone()),
+            Json(ApproveToolRequest {
+                tool_call_id: "wrong".into(),
+                consent_id: consent.clone(),
+                turn_id: turn.id.clone(),
+                session_id: Some(sid.clone()),
+                approved: true,
+            }),
+        )
+        .await
+        .into_response();
+        assert_eq!(wrong.status(), StatusCode::NOT_FOUND);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = router(state.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let url = format!("http://{address}/api/tools/approve");
+        let client = reqwest::Client::new();
+        let forged_body = serde_json::json!({
+            "tool_call_id":"wrong", "consent_id":consent,
+            "turn_id":turn.id, "session_id":sid, "approved":true
+        });
+        let without_bearer = client
+            .post(&url)
+            .header("Host", "127.0.0.1:8765")
+            .json(&forged_body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(without_bearer.status(), StatusCode::UNAUTHORIZED);
+        let forged_event = client
+            .post(&url)
+            .header("Host", "127.0.0.1:8765")
+            .bearer_auth(&state.local_token)
+            .json(&forged_body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(forged_event.status(), StatusCode::NOT_FOUND);
+        server.abort();
+        let request = ApproveToolRequest {
+            tool_call_id: call.id.clone(),
+            consent_id: consent.clone(),
+            turn_id: turn.id.clone(),
+            session_id: Some(sid),
+            approved: true,
+        };
+        assert_eq!(
+            approve_tool(
+                State(state.clone()),
+                Json(ApproveToolRequest {
+                    tool_call_id: request.tool_call_id.clone(),
+                    consent_id: request.consent_id.clone(),
+                    turn_id: request.turn_id.clone(),
+                    session_id: request.session_id.clone(),
+                    approved: true
+                })
+            )
+            .await
+            .into_response()
+            .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            approve_tool(State(state.clone()), Json(request))
+                .await
+                .into_response()
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
@@ -2169,6 +2324,30 @@ mod tests {
             false,
         )
         .unwrap();
+        let approval = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let event = rx.recv().await.expect("approval event");
+                if event.name == "approval_needed" {
+                    break event.data;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let decision = ApproveToolRequest {
+            tool_call_id: approval["tool_call_id"].as_str().unwrap().into(),
+            consent_id: approval["consent_id"].as_str().unwrap().into(),
+            turn_id: turn.id.clone(),
+            session_id: Some(sid.clone()),
+            approved: true,
+        };
+        assert_eq!(
+            approve_tool(State(state.clone()), Json(decision))
+                .await
+                .into_response()
+                .status(),
+            StatusCode::OK
+        );
         tokio::time::timeout(Duration::from_secs(3), gate.started.notified())
             .await
             .unwrap();

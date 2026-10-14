@@ -1,8 +1,7 @@
 //! Aprobaciones de herramientas sensibles (F4-1).
 //!
-//! Las tools 🟡/🔴 no se ejecutan hasta que el usuario las aprueba en la UI:
-//! el agente emite `ToolApprovalNeeded`, la UI responde
-//! `POST /api/tools/approve {tool_call_id, approved}` y el agente continúa.
+//! El agente emite `ToolApprovalNeeded`; la UI responde con los identificadores
+//! de consentimiento, llamada, turno y sesión. SQLite decide si sigue vigente.
 //! Timeout (120s) = denegado.
 
 use std::collections::HashMap;
@@ -11,14 +10,14 @@ use tokio::sync::oneshot;
 
 const APPROVE_TIMEOUT_SECS: u64 = 120;
 
-/// Política de confirmación (sale de `tools.confirm_sensitive`).
+/// Política heredada de interacción; F2 clasifica el riesgo y exige consentimiento.
 #[derive(Debug, Clone, Copy)]
 pub struct ApprovalPolicy {
-    /// Si false, las 🟡 se ejecutan sin preguntar (modo potencia).
+    /// Valor heredado: F2 no lo usa como autorización de herramientas.
     pub confirm_yellow: bool,
     /// Las 🔴 siempre preguntan.
     pub confirm_red: bool,
-    /// Si false (voz manos-libres), no se espera: las 🔴 se deniegan al momento.
+    /// Si false (voz manos-libres), F2 deniega Yellow y Red al momento.
     pub interactive: bool,
 }
 
@@ -31,7 +30,7 @@ impl ApprovalPolicy {
         }
     }
 
-    /// Política para voz manos-libres: 🟡 automáticas, 🔴 denegadas al momento.
+    /// Política de voz heredada; F2 deniega Yellow y Red sin UI interactiva.
     pub fn voice() -> Self {
         Self {
             confirm_yellow: false,
@@ -151,5 +150,15 @@ mod tests {
     fn resolve_unknown_is_false() {
         let m = ApprovalManager::new();
         assert!(!m.resolve("nope", true));
+    }
+
+    #[test]
+    fn dropped_waiter_revokes_late_answer() {
+        let m = ApprovalManager::new();
+        let pending = m.register("abandoned");
+        assert_eq!(m.pending_count(), 1);
+        drop(pending);
+        assert_eq!(m.pending_count(), 0);
+        assert!(!m.resolve("abandoned", true));
     }
 }
