@@ -209,14 +209,40 @@ impl Entry {
 #[derive(Default)]
 pub struct TurnRegistry {
     entries: Mutex<HashMap<Option<String>, Entry>>,
+    stopping: std::sync::atomic::AtomicBool,
 }
 impl TurnRegistry {
+    /// Stop admission at the server first. Cancellation never replays effects.
+    pub async fn shutdown(&self) -> bool {
+        let turns: Vec<_> = {
+            let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+            self.stopping
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            entries.values().map(|e| e.turn.clone()).collect()
+        };
+        for turn in &turns {
+            if !turn.state().terminal() {
+                turn.cancel();
+            }
+        }
+        tokio::time::timeout(Duration::from_secs(5), async {
+            for turn in turns {
+                turn.wait_terminal().await;
+            }
+        })
+        .await
+        .is_ok()
+    }
     fn key(session: &Option<String>) -> Option<String> {
         session.clone()
     }
     pub fn reserve(&self, session: Option<String>) -> Result<Arc<Turn>> {
         let key = Self::key(&session);
         let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        anyhow::ensure!(
+            !self.stopping.load(std::sync::atomic::Ordering::SeqCst),
+            "application_stopping"
+        );
         // Finished handles remain owned until reaped; never replace an active owner.
         entries.retain(|_, e| {
             e.diagnose_finished();

@@ -10,6 +10,7 @@ pub mod auth;
 pub mod chime_player;
 pub mod conversation_turn;
 pub mod document_suite;
+pub mod global_shortcuts;
 pub mod hotkey_listener;
 pub mod hotword;
 pub mod http_server;
@@ -42,6 +43,7 @@ use crate::models::Config;
 
 /// Estructura principal del backend que coordina todos los servicios.
 pub struct Backend {
+    pub desktop: Arc<crate::desktop::Desktop>,
     pub config: Arc<RwLock<Config>>,
     pub ai: Arc<ai_service::AiService>,
     pub sessions: Arc<Mutex<session_manager::SessionManager>>,
@@ -108,6 +110,7 @@ impl Backend {
         log::info!("Todos los subservicios inicializados");
 
         Ok(Self {
+            desktop: Arc::new(crate::desktop::Desktop::default()),
             config,
             ai,
             sessions,
@@ -134,6 +137,8 @@ impl Backend {
     pub fn http_state(&self) -> Result<http_server::AppState> {
         let local_token = crate::backend::auth::ensure_server_token()?;
         Ok(http_server::AppState {
+            desktop: self.desktop.clone(),
+            http_port: 8765,
             ai: self.ai.clone(),
             tools: self.tools.clone(),
             approvals: self.approvals.clone(),

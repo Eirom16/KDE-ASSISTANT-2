@@ -12,7 +12,7 @@ use futures_util::StreamExt;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use crate::backend::document_suite;
 use crate::backend::safe_fs::SafePath;
@@ -1483,35 +1483,11 @@ fn find_window_by_query(query: &str) -> Result<WindowInfo> {
         .ok_or_else(|| anyhow!("No encontré ventana abierta para: {query}"))
 }
 
-fn terminate_exact_process(name: &str) -> Result<bool> {
-    let mut candidates = process_candidates(name);
-    candidates.sort();
-    candidates.dedup();
-    for candidate in candidates {
-        if candidate.is_empty() || candidate.len() > 64 {
-            continue;
-        }
-        if !candidate
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-        {
-            continue;
-        }
-        if Command::new("pgrep")
-            .args(["-x", &candidate])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-        {
-            cmd_status(&["pkill", "-TERM", "-x", &candidate])?;
-            return Ok(true);
-        }
-    }
-    Ok(false)
+fn terminate_exact_process(_name: &str) -> Result<bool> {
+    bail!("process_termination_disabled: no verifiable ownership; third-party process consent contract required")
 }
 
+#[cfg(test)]
 fn process_candidates(name: &str) -> Vec<String> {
     let lower = name.trim().to_lowercase();
     let mut out = vec![lower.clone()];

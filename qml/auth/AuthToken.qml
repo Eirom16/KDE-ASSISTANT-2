@@ -7,6 +7,7 @@ pragma Singleton
 import QtQuick
 
 QtObject {
+    readonly property string backendUrl: "http://127.0.0.1:8765"
     readonly property string token: ""
     readonly property string cacheDir: ""
     // Dev default: sin overlay layer-shell → la ventana standalone puede

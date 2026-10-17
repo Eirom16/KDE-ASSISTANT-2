@@ -1005,7 +1005,7 @@ fn qml_offscreen_settings_and_two_visible_turns() {
                     fs::read(format!("/proc/{pid}/cmdline")).is_ok_and(|args| {
                         let argv = args.split(|byte| *byte == 0).collect::<Vec<_>>();
                         argv.first().is_some_and(|arg| arg.ends_with(b"qml6"))
-                            && argv.contains(&b"qml/Main.qml".as_slice())
+                            && argv.iter().any(|arg| arg.ends_with(b"/qml/Main.qml"))
                     })
                 }) {
                     break pid.to_owned();
@@ -1032,8 +1032,14 @@ fn qml_offscreen_settings_and_two_visible_turns() {
         let broken_ui_dir = dirs::cache_dir().unwrap().join("broken-ui");
         fs::create_dir_all(broken_ui_dir.join("qml")).unwrap();
         fs::write(broken_ui_dir.join("qml/Main.qml"), "import QtQuick\nWindow { invalid QML").unwrap();
+        for resource in ["qml/qmldir", "qml/Theme.qml", "qml/Octicon.qml", "qml/components/TrayMenu.qml",
+            "assets/icons/kde-assistant.svg", "assets/octicons/plus-16.svg"] {
+            let target = broken_ui_dir.join(resource);
+            fs::create_dir_all(target.parent().unwrap()).unwrap();
+            fs::copy(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(resource), target).unwrap();
+        }
         let mut broken_ui = app_with(&["--no-shortcuts"], |command| {
-            command.current_dir(&broken_ui_dir);
+            command.env("KDE_ASSISTANT_DATA_DIR", &broken_ui_dir);
         });
         assert!(!wait_exit(&mut broken_ui).success());
         assert!(fs::read_to_string(&broken_ui.log).unwrap().contains("interfaz QML terminó con error"));

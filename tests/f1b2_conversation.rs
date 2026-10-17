@@ -707,6 +707,29 @@ fn cancelled_turn_survives_backend_restart_without_false_reply() {
         // Aborting serve requests teardown; spawned HTTP connections also own state.
         // A restart begins only once every owner of the old database has gone.
         eventually(|| previous_db.upgrade().is_none()).await;
+        // Weak::upgrade becomes None before SessionManager's destructor finishes
+        // closing SQLite and its ownership file. Observe the actual lock release.
+        let ownership = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(
+                dirs::data_local_dir()
+                    .unwrap()
+                    .join("kde-assistant/sessions.db"),
+            )
+            .unwrap();
+        eventually(|| {
+            match rustix::fs::flock(
+                &ownership,
+                rustix::fs::FlockOperation::NonBlockingLockExclusive,
+            ) {
+                Ok(()) => true,
+                Err(rustix::io::Errno::WOULDBLOCK) => false,
+                Err(error) => panic!("unexpected ownership probe error: {error}"),
+            }
+        })
+        .await;
+        drop(ownership);
         let backend = Backend::new().await.unwrap();
         assert_eq!(
             backend

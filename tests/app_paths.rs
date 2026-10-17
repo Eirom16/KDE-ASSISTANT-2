@@ -58,3 +58,33 @@ fn explicit_data_directory_has_priority() {
     assert_eq!(resolved, explicit_data);
     fs::remove_dir_all(sandbox).expect("limpiar fixture");
 }
+
+#[test]
+fn cwd_cannot_supply_resources_and_missing_override_is_fatal() {
+    let sandbox = std::env::temp_dir().join(format!("kda-f3-paths-{}", uuid::Uuid::new_v4()));
+    create_main_qml(&sandbox.join("cwd"));
+    assert!(resolve_data_dir_from(
+        &sandbox.join("bin/app"),
+        &sandbox.join("absent"),
+        &sandbox.join("cwd"),
+        None
+    )
+    .is_err());
+    create_main_qml(&sandbox.join("source"));
+    assert!(resolve_data_dir_from(
+        &sandbox.join("bin/app"),
+        &sandbox.join("source"),
+        &sandbox.join("cwd"),
+        Some(&sandbox.join("absent"))
+    )
+    .is_err());
+    assert!(resolve_data_dir_from(
+        Path::new("/bin/app"),
+        &sandbox.join("source"),
+        &sandbox.join("cwd"),
+        Some(Path::new("relative"))
+    )
+    .is_err());
+    assert!(kde_assistant_lib::app_paths::validate_resources(&sandbox.join("source")).is_err());
+    fs::remove_dir_all(sandbox).unwrap();
+}

@@ -95,7 +95,35 @@ pub fn write_qml_auth_module(token: &str, agent_overlay: bool) -> Result<PathBuf
     Ok(dir)
 }
 
+pub fn write_qml_auth_for_desktop(
+    token: &str,
+    agent_overlay: bool,
+    profile: &str,
+    port: u16,
+) -> Result<PathBuf> {
+    anyhow::ensure!(valid_server_token(token), "Token QML inválido");
+    let suffix = profile.strip_prefix("org.kde.assistant.p").unwrap_or("");
+    anyhow::ensure!(
+        suffix.len() == 64 && suffix.bytes().all(|b| b.is_ascii_hexdigit()),
+        "Perfil QML inválido"
+    );
+    anyhow::ensure!(port != 0, "Puerto QML todavía no resuelto");
+    let dir = dirs::cache_dir()
+        .context("sin cache_dir")?
+        .join("kde-assistant/qml-generated")
+        .join(profile);
+    write_qml_auth_module_with_port(token, agent_overlay, &dir, port)?;
+    Ok(dir)
+}
 fn write_qml_auth_module_to(token: &str, agent_overlay: bool, dir: &Path) -> Result<()> {
+    write_qml_auth_module_with_port(token, agent_overlay, dir, 8765)
+}
+fn write_qml_auth_module_with_port(
+    token: &str,
+    agent_overlay: bool,
+    dir: &Path,
+    port: u16,
+) -> Result<()> {
     use std::fmt::Write as _;
     // Módulo `qml.auth`: <dir>/qml/auth/{qmldir,AuthToken.qml}.
     let mod_dir = dir.join("qml/auth");
@@ -138,6 +166,7 @@ fn write_qml_auth_module_to(token: &str, agent_overlay: bool, dir: &Path) -> Res
          pragma Singleton\n\
          import QtQuick\n\
          QtObject {{\n\
+         \x20   readonly property string backendUrl: \"http://127.0.0.1:{port}\"\n\
          \x20   readonly property string token: {lit}\n\
          \x20   readonly property string cacheDir: {cache_lit}\n\
          \x20   readonly property bool agentOverlay: {agent_overlay}\n\
@@ -178,6 +207,9 @@ fn constant_eq(a: &[u8], b: &[u8]) -> bool {
 
 /// Autoridad exacta de este servidor. Ausencia de Host no autentica.
 pub fn valid_host(headers: &axum::http::HeaderMap) -> bool {
+    valid_host_for_port(headers, 8765)
+}
+pub fn valid_host_for_port(headers: &axum::http::HeaderMap, port: u16) -> bool {
     if headers.get_all(axum::http::header::HOST).iter().count() != 1 {
         return false;
     }
@@ -185,25 +217,33 @@ pub fn valid_host(headers: &axum::http::HeaderMap) -> bool {
         .get(axum::http::header::HOST)
         .and_then(|v| v.to_str().ok())
         .is_some_and(|h| {
-            matches!(
-                h.to_ascii_lowercase().as_str(),
-                "127.0.0.1:8765" | "localhost:8765" | "[::1]:8765"
-            )
+            [
+                format!("127.0.0.1:{port}"),
+                format!("localhost:{port}"),
+                format!("[::1]:{port}"),
+            ]
+            .contains(&h.to_ascii_lowercase())
         })
 }
 
 /// QML nativo omite Origin o usa null; autoridades web se comparan completas.
 pub fn valid_origin(headers: &axum::http::HeaderMap) -> bool {
+    valid_origin_for_port(headers, 8765)
+}
+pub fn valid_origin_for_port(headers: &axum::http::HeaderMap, port: u16) -> bool {
     if headers.get_all(axum::http::header::ORIGIN).iter().count() > 1 {
         return false;
     }
     match headers.get(axum::http::header::ORIGIN) {
         None => true,
         Some(value) => value.to_str().is_ok_and(|o| {
-            matches!(
-                o.to_ascii_lowercase().as_str(),
-                "null" | "http://127.0.0.1:8765" | "http://localhost:8765" | "http://[::1]:8765"
-            )
+            [
+                "null".to_owned(),
+                format!("http://127.0.0.1:{port}"),
+                format!("http://localhost:{port}"),
+                format!("http://[::1]:{port}"),
+            ]
+            .contains(&o.to_ascii_lowercase())
         }),
     }
 }

@@ -31,7 +31,7 @@ Window {
     property string voiceState: "idle"
     property string chatState: "idle"
     property real voiceLevel: 0.0
-    property string backendUrl: "http://127.0.0.1:8765"
+    property string backendUrl: AuthToken.backendUrl
     property bool keepVisible: false
     property bool fadingOut: false
     property int idlePresenceMs: 7000

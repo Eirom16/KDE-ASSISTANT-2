@@ -18,7 +18,11 @@ ApplicationWindow {
         var request = pendingConsents[toolCallId]
         if (!request) return
         consentDialog.request = request
+        consentDialog.openedAtMs = Date.now()
+        traceConsentWindow("before_present")
+        desktopWindow.present()
         consentDialog.open()
+        Qt.callLater(function() { root.traceConsentWindow("after_open") })
     }
 
     function openNextConsent() {
@@ -43,11 +47,38 @@ ApplicationWindow {
         }
     }
 
+    function traceConsentWindow(stage) {
+        if (Object.keys(pendingConsents).length === 0) return
+        console.info("F3_CONSENT_WINDOW", JSON.stringify({stage: stage, at_ms: Date.now(),
+            elapsed_ms: consentDialog.openedAtMs ? Date.now() - consentDialog.openedAtMs : 0,
+            visible: root.visible, active: root.active, visibility: root.visibility,
+            x: root.x, y: root.y, width: root.width, height: root.height,
+            popup_visible: consentDialog.visible, popup_focus: consentDialog.activeFocus,
+            popup_z: consentDialog.z, focus_item_present: root.activeFocusItem !== null,
+            compositor_stacking: "not_observable_from_qml"}))
+    }
+    DesktopWindowController {
+        id: desktopWindow
+        objectName: "desktopWindowController"
+        window: root
+        onNativeActivationStatusChanged: {
+            if (nativeActivationStatus === "NOT_SUPPORTED") {
+                root.lastError = qsTr("La activación nativa de ventanas no está disponible")
+                root.lastErrorDetail = qsTr("Comprueba que el módulo KWindowSystem de KDE esté instalado. El compositor decide si concede el foco.")
+                root.showErrorBanner = true
+            }
+        }
+    }
+    onVisibilityChanged: { desktopWindow.rememberState(); traceConsentWindow("visibility_changed") }
+    onActiveChanged: traceConsentWindow("active_changed")
+    property bool closeToTray: true
+    property string desktopShortcutStatus: "disabled"
+
     title: "KDE Assistant v2"
     width: Theme.windowDefaultWidth
     height: Theme.windowDefaultHeight
-    minimumWidth: Theme.windowMinWidth
-    minimumHeight: Theme.windowMinHeight
+    minimumWidth: Math.min(Theme.windowMinWidth, Screen.desktopAvailableWidth)
+    minimumHeight: Math.min(Theme.windowMinHeight, Screen.desktopAvailableHeight)
     maximumWidth: Theme.windowMaxWidth
     maximumHeight: Theme.windowMaxHeight
 
@@ -60,26 +91,18 @@ ApplicationWindow {
     // bandeja (wake word / hotkeys / recordatorios siguen vivos). La salida
     // real es tray "Salir" (quitRequested -> Qt.quit()).
     onClosing: function(close) {
-        close.accepted = false
-        root.hide()
+        desktopWindow.userInteracted = true
+        if (closeToTray && tray.trayAvailable) {
+            close.accepted = false
+            desktopWindow.hide()
+        } else { root.detachChat(); Qt.quit() }
     }
 
 
     // === Modelo de datos real (conectado al backend Rust) ===
-    property string backendUrl: "http://127.0.0.1:8765"
-    // Token local: módulo generado por main.rs (qml.auth) y, como
-    // respaldo, env KDE_ASSISTANT_TOKEN (Qt.platform.environment es null
-    // en algunas sesiones qml6: sin token todo da 401).
-    property string authToken: {
-        try {
-            if (AuthToken.token) return String(AuthToken.token)
-        } catch (e) {}
-        try {
-            var env = Qt.platform.environment
-            var t = env ? env["KDE_ASSISTANT_TOKEN"] : null
-            return t ? String(t) : ""
-        } catch (err) { return "" }
-    }
+    property string backendUrl: AuthToken.backendUrl
+    // Token del módulo privado generado por main.rs para este perfil.
+    property string authToken: AuthToken.token
     function setAuth(xhr) {
         if (authToken !== "") xhr.setRequestHeader("Authorization", "Bearer " + authToken)
     }
@@ -391,7 +414,7 @@ ApplicationWindow {
                     if (xhr.status === 401) {
                         rawText = qsTr("⚠ No autorizado (token local). Reinicia la app.")
                         lastError = qsTr("No autorizado")
-                        lastErrorDetail = qsTr("Falta el token local. Reinicia kde-assistant (main.rs lo inyecta vía KDE_ASSISTANT_TOKEN).")
+                        lastErrorDetail = qsTr("Falta el token local. Reinicia KDE Assistant para regenerar el módulo autenticado del perfil.")
                         showErrorBanner = true
                         streaming = false
                         chatCancelling = false
@@ -642,9 +665,7 @@ ApplicationWindow {
     // Prepara el input con un texto y abre la ventana (acciones rápidas del tray).
     function prefill(text) {
         inputBar.text = text
-        root.show()
-        root.raise()
-        root.requestActivate()
+        desktopWindow.present()
         inputBar.focusInput()
     }
 
@@ -770,22 +791,20 @@ ApplicationWindow {
 
     Component.onCompleted: {
         root.startupTime = Date.now()
+        root.width = Math.min(root.width, Screen.desktopAvailableWidth)
+        root.height = Math.min(root.height, Screen.desktopAvailableHeight)
         // Centrar al arrancar: sin x/y el WM la deja arriba-izquierda.
         // Asignacion unica (no binding) para no pelear con el usuario.
         root.x = Math.round((Screen.desktopAvailableWidth - root.width) / 2)
         root.y = Math.round((Screen.desktopAvailableHeight - root.height) / 2)
-        console.log("auth token len:", authToken.length, "| cache:", cacheBase)
+        console.info("F3_WINDOW_READY", Date.now(), root.visible, root.active, root.width, root.height)
         loadSessions()
         checkBackend()
         applyTheme()
+        startDesktopStream()
         startVoiceStream()
         startAgentStream()
         checkVoiceCalibration()
-        // F0-6: si cacheBase quedó vacío (sin HOME), desactivar polling.
-        if (!cacheBase) {
-            console.warn("HOME no disponible: polling de hotkey/voz desactivado")
-            filePollingEnabled = false
-        }
         // Rescate: si la ventana quedó oculta (recreación por flags),
         // forzar visible + diagnóstico de geometría.
         rescueTimer.start()
@@ -864,7 +883,7 @@ ApplicationWindow {
         interval: 1500
         repeat: false
         onTriggered: {
-            if (!root.visible) {
+            if (!root.visible && !desktopWindow.userInteracted) {
                 console.warn("ventana oculta al arrancar: forzando show")
                 root.show()
                 root.raise()
@@ -872,6 +891,13 @@ ApplicationWindow {
             }
             console.log("ventana:", root.visible, root.width + "x" + root.height, "en", root.x + "," + root.y)
         }
+    }
+
+    function shortcutStatusText() {
+        if (desktopShortcutStatus === "registered_portal") return qsTr("Atajo global activo")
+        if (desktopShortcutStatus === "awaiting_system_consent") return qsTr("Autoriza el atajo en el sistema")
+        if (desktopShortcutStatus === "disabled") return qsTr("Atajo desactivado")
+        return qsTr("Atajo no disponible")
     }
 
     function backendStatusText() {
@@ -978,6 +1004,7 @@ ApplicationWindow {
             if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
                 try {
                     var cfg = JSON.parse(xhr.responseText)
+                    root.closeToTray = !cfg.ui || cfg.ui.close_to_tray !== false
                     var t = cfg.ui && cfg.ui.theme ? String(cfg.ui.theme) : "system"
                     if (t === "dark") Theme.isDark = true
                     else if (t === "light") Theme.isDark = false
@@ -1320,6 +1347,8 @@ ApplicationWindow {
         id: consentDialog
         objectName: "f2ConsentDialog"
         property var request: null
+        property double openedAtMs: 0
+        onOpened: root.traceConsentWindow("popup_opened")
         modal: true
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
@@ -1491,18 +1520,17 @@ ApplicationWindow {
     // === System Tray (KDE Plasma) ===
     TrayMenu {
         id: tray
-        windowVisible: root.visible && root.active && root.visibility !== Window.Minimized
+        windowVisible: desktopWindow.canHide
+        recentSessions: root.sessions.slice(0, 5)
+        statusText: root.backendStatusText() + " · " + root.shortcutStatusText()
         voiceEnabled: root.voiceAvailable
         alwaysOnTop: root.alwaysOnTop
+        alwaysOnTopAvailable: desktopWindow.nativeActivator !== null && !desktopWindow.nativeActivator.wayland
         pttShortcut: root.pttShortcut
         backendUrl: root.backendUrl
-        onShowRequested: {
-            if ((root.visible && !root.active) || root.visibility === Window.Minimized) root.showNormal()
-            else root.show()
-            root.raise()
-            root.requestActivate()
-        }
-        onHideRequested: root.hide()
+        onShowRequested: desktopWindow.present()
+        onHideRequested: desktopWindow.hide()
+        onMinimizeRequested: desktopWindow.minimize()
         onDictateRequested: {
             if (!root.voiceAvailable) return
             // Abre la ventana con el input listo; el dictado es el PTT global.
@@ -1522,23 +1550,19 @@ ApplicationWindow {
         }
         onNewSessionRequested: {
             root.newSession()
-            root.show()
-            root.raise()
+            desktopWindow.present()
         }
         onOpenSessionRequested: function(sessionId) {
             if (sessionId !== root.currentSessionId) root.detachChat()
             root.currentSessionId = sessionId
             root.loadMessages(sessionId)
-            root.show()
-            root.raise()
-            root.requestActivate()
+            desktopWindow.present()
         }
         onSettingsRequested: {
             settings.show()
-            root.show()
-            root.raise()
+            desktopWindow.present()
         }
-        onQuitRequested: Qt.quit()
+        onQuitRequested: { root.detachChat(); Qt.quit() }
     }
 
     // === Desktop Agent (personaje): character.enabled en config.json ===
@@ -1572,44 +1596,63 @@ ApplicationWindow {
         voiceLevel: root.voiceLevel
     }
 
-    // === Hotkey polling: lee ~/.cache/kde-assistant/hotkey.state ===
-    // El backend Rust (rdev) escribe a este archivo cuando detecta
-    // Super+Shift+A (toggle), Super+Shift+V mantenido (PTT start/end),
-    // Ctrl+Shift+K (new session). El backend ya graba/procesa el audio;
-    // aqui solo se refleja el estado visual (VoiceOrb).
-    property string hotkeyStamp: ""
-    property string lastHotkeyStamp: ""
-    // FIX-sesión-real: ignorar hotkeys más viejos que el arranque. El archivo
-    // hotkey.state persiste entre sesiones; sin este filtro, un toggle_window
-    // rancio ocultaba la ventana sola 300ms después de abrir (proceso sano,
-    // sin errores en el log).
-    property double startupTime: 0
-    // F0-6: si no hay HOME, no leer /root ajeno: desactivar polling con aviso.
-    // (Sin side-effects dentro del binding: el flag se calcula en onCompleted.)
-    property bool filePollingEnabled: true
-    property string cacheBase: {
-        try {
-            if (AuthToken.cacheDir) return AuthToken.cacheDir
-        } catch (e) {}
-        try {
-            var env = Qt.platform.environment
-            var home = env ? env["HOME"] : null
-            if (home && String(home).trim() !== "") {
-                return "file://" + home + "/.cache/kde-assistant/"
-            }
-        } catch (err) {}
-        return ""
-    }
-    property string homePath: cacheBase + "hotkey.state"
+    // Profile-scoped, outbound-only desktop SSE. No filesystem polling.
     property real voiceLevel: 0.0
-    Timer {
-        id: hotkeyTimer
-        interval: 300
-        running: true
-        repeat: true
-        onTriggered: {
-            pollHotkeys()
+    property double startupTime: 0
+    property string cacheBase: AuthToken.cacheDir
+    property var desktopXhr: null
+    Timer { id: desktopRetry; interval: 2000; repeat: false; onTriggered: startDesktopStream() }
+    function handleDesktopAction(action) {
+        if (action === "show") desktopWindow.present()
+        else if (action === "toggle") desktopWindow.toggle()
+        else if (action === "status") refreshDesktopStatus()
+    }
+    function startDesktopStream() {
+        if (desktopXhr) return
+        var req = new XMLHttpRequest()
+        var consumed = 0
+        var pending = ""
+        desktopXhr = req
+        req.open("GET", backendUrl + "/api/desktop/events")
+        setAuth(req)
+        req.onreadystatechange = function() {
+            if (desktopXhr !== req) return
+            if (req.readyState === 3 || req.readyState === 4) {
+                pending += (req.responseText || "").substring(consumed)
+                consumed = (req.responseText || "").length
+                var blocks = pending.split("\n\n")
+                pending = blocks.pop()
+                for (var i = 0; i < blocks.length; ++i) {
+                    var lines = blocks[i].split("\n")
+                    var event = "desktop"
+                    for (var j = 0; j < lines.length; ++j) {
+                        if (lines[j].indexOf("event: ") === 0) event = lines[j].substring(7).trim()
+                        if (lines[j].indexOf("data: ") !== 0) continue
+                        var data = lines[j].substring(6).trim()
+                        if (event === "desktop_activation") {
+                            try {
+                                var activation = JSON.parse(data)
+                                if (activation.action === "toggle") desktopWindow.toggle(activation.token || "")
+                            } catch (e) { console.warn("F3: evento de activación inválido") }
+                        } else root.handleDesktopAction(data)
+                    }
+                }
+                if (req.readyState === 4) { desktopXhr = null; desktopRetry.restart() }
+            }
         }
+        req.send()
+        refreshDesktopStatus()
+    }
+    function refreshDesktopStatus() {
+        var status = new XMLHttpRequest()
+        status.open("GET", backendUrl + "/api/desktop/status")
+        setAuth(status)
+        status.onreadystatechange = function() {
+            if (status.readyState === 4 && status.status === 200) {
+                try { root.desktopShortcutStatus = JSON.parse(status.responseText).shortcuts } catch (e) {}
+            }
+        }
+        status.send()
     }
     // F3-1: reintento del stream de voz si se cae (el backend lo mantiene vivo).
     Timer {
@@ -1700,57 +1743,6 @@ ApplicationWindow {
         req.send(JSON.stringify({}))
     }
 
-    function pollHotkeys() {
-        if (!filePollingEnabled || !root.homePath) return
-        var req = new XMLHttpRequest()
-        req.open("GET", root.homePath + "?t=" + Date.now())
-        req.onreadystatechange = function() {
-            if (req.readyState === 4) {
-                if (req.status === 200 || req.status === 0) {
-                    var content = req.responseText.trim()
-                    if (!content || content === root.lastHotkeyStamp) return
-                    root.lastHotkeyStamp = content
-                    // Solo acciones más nuevas que el arranque (ver startupTime).
-                    var parts = content.split("|")
-                    var ts = parseInt(parts[1] || "0", 10)
-                    if (ts <= root.startupTime) return
-                    var action = parts[0]
-                    console.log("Hotkey recibido:", action)
-                    if (action === "toggle_window") {
-                        root.visible = !root.visible
-                        if (root.visible) {
-                            root.show()
-                            root.raise()
-                            root.requestActivate()
-                        }
-                    } else if (action === "push_to_talk_start") {
-                        if (root.voiceState === "speaking") bargeIn()
-                        root.voiceState = "listening"
-                    } else if (action === "push_to_talk_end") {
-                        root.voiceState = "idle"
-                    } else if (action === "push_to_talk") {
-                        if (root.voiceState === "speaking") {
-                            bargeIn()
-                            root.voiceState = "listening"
-                        } else {
-                            root.voiceState = root.voiceState === "listening" ? "idle" : "listening"
-                        }
-                    } else if (action === "new_session") {
-                        root.currentSessionId = ""
-                    } else if (action === "open_menu") {
-                        root.show()
-                        root.raise()
-                        root.requestActivate()
-                        tray.openMenu()
-                    }
-                }
-            }
-        }
-        req.send()
-    }
-
-    // F3-1: push de estado/nivel por SSE (adiós polling de voice.state/level).
-    // Un solo XHR persistente; si se cae, reintenta a los 2s.
     property var voiceStreamXhr: null
     function startVoiceStream() {
         if (voiceStreamXhr) {

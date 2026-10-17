@@ -1,4 +1,5 @@
 module qml.components
+DesktopWindowController 1.0 DesktopWindowController.qml
 AppleButton 1.0 AppleButton.qml
 PillButton 1.0 PillButton.qml
 IconButton 1.0 IconButton.qml

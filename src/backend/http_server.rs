@@ -44,6 +44,8 @@ use tokio::sync::RwLock;
 /// Estado compartido del servidor HTTP.
 #[derive(Clone)]
 pub struct AppState {
+    pub desktop: Arc<crate::desktop::Desktop>,
+    pub http_port: u16,
     pub voice_enabled: Arc<std::sync::atomic::AtomicBool>,
     pub ai: Arc<AiService>,
     pub tools: Arc<ToolExecutor>,
@@ -68,13 +70,41 @@ pub struct AppState {
     pub sidecar_active: Arc<std::sync::atomic::AtomicBool>,
 }
 
+// Outbound-only UI channel. There is deliberately no action POST endpoint.
+async fn desktop_events(
+    State(state): State<AppState>,
+) -> Sse<impl Stream<Item = std::result::Result<Event, Infallible>>> {
+    let rx = state.desktop.subscribe();
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+        let action = match rx.recv().await {
+            Ok(action) => action,
+            Err(_) => return None,
+        };
+        let event = match action {
+            crate::desktop::UiAction::Show => Event::default().event("desktop").data("show"),
+            crate::desktop::UiAction::Toggle => Event::default().event("desktop").data("toggle"),
+            crate::desktop::UiAction::Status => Event::default().event("desktop").data("status"),
+            crate::desktop::UiAction::PortalToggle(token) => Event::default()
+                .event("desktop_activation")
+                .data(serde_json::json!({"action":"toggle", "token":token}).to_string()),
+        };
+        Some((Ok(event), rx))
+    });
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+async fn desktop_status(State(state): State<AppState>) -> Json<serde_json::Value> {
+    Json(
+        serde_json::json!({"shortcuts": state.desktop.shortcut_status(), "window": "qt_quick", "blur": "NOT_SUPPORTED"}),
+    )
+}
+
 /// Middleware F0-3: auth + host + origin para `/api/*`.
 async fn auth_layer(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let path = req.uri().path().to_string();
     if !crate::backend::auth::path_requires_auth(&path) {
         return next.run(req).await;
     }
-    if !crate::backend::auth::valid_host(req.headers()) {
+    if !crate::backend::auth::valid_host_for_port(req.headers(), state.http_port) {
         log::debug!("auth: host rechazado para {}", path);
         return (
             StatusCode::FORBIDDEN,
@@ -82,7 +112,7 @@ async fn auth_layer(State(state): State<AppState>, req: Request, next: Next) -> 
         )
             .into_response();
     }
-    if !crate::backend::auth::valid_origin(req.headers()) {
+    if !crate::backend::auth::valid_origin_for_port(req.headers(), state.http_port) {
         log::debug!("auth: origin rechazado para {}", path);
         return (
             StatusCode::FORBIDDEN,
@@ -145,6 +175,8 @@ pub struct SessionInfo {
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/health", get(health))
+        .route("/api/desktop/events", get(desktop_events))
+        .route("/api/desktop/status", get(desktop_status))
         .route("/api/chat", post(chat))
         .route("/api/chat/complete", post(chat_complete))
         .route("/api/chat/cancel", post(chat_cancel))
@@ -2130,6 +2162,8 @@ mod tests {
             chimes,
         ));
         AppState {
+            desktop: Arc::new(crate::desktop::Desktop::default()),
+            http_port: 8765,
             voice_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ai,
             tools,
@@ -2144,6 +2178,121 @@ mod tests {
             dictation_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             sidecar_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
+    }
+
+    #[tokio::test]
+    async fn f3_http_desktop_sse_is_authenticated_bounded_and_never_dispatches() {
+        use futures_util::StreamExt;
+        let mut state = test_state().await;
+        state.local_token = "b".repeat(64);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        state.http_port = address.port();
+        let app = router(state.clone());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let url = format!("http://{address}/api/desktop/events");
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        assert_eq!(
+            client.get(&url).send().await.unwrap().status(),
+            StatusCode::UNAUTHORIZED
+        );
+        for host in [
+            "localhost:8765".to_owned(),
+            format!("localhost:{}@evil", address.port()),
+        ] {
+            assert_eq!(
+                client
+                    .get(&url)
+                    .header("Host", host)
+                    .bearer_auth(&state.local_token)
+                    .send()
+                    .await
+                    .unwrap()
+                    .status(),
+                StatusCode::FORBIDDEN
+            );
+        }
+        for origin in [
+            format!("http://localhost:{}/evil", address.port()),
+            format!("http://localhost:{}.evil", address.port()),
+        ] {
+            assert_eq!(
+                client
+                    .get(&url)
+                    .header("Origin", origin)
+                    .bearer_auth(&state.local_token)
+                    .send()
+                    .await
+                    .unwrap()
+                    .status(),
+                StatusCode::FORBIDDEN
+            );
+        }
+        assert_eq!(
+            client
+                .post(&url)
+                .bearer_auth(&state.local_token)
+                .json(&serde_json::json!({"action":"notify", "tool":"close_app"}))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+        let response = client
+            .get(&url)
+            .bearer_auth(&state.local_token)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut stream = response.bytes_stream();
+        state
+            .desktop
+            .send(crate::desktop::UiAction::Toggle)
+            .unwrap();
+        let chunk = tokio::time::timeout(std::time::Duration::from_secs(1), stream.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(String::from_utf8_lossy(&chunk).contains("data: toggle"));
+        // On the current-thread test runtime this producer cannot yield to the
+        // HTTP task: a stalled receiver must close on broadcast lag.
+        for _ in 0..40 {
+            state
+                .desktop
+                .send(crate::desktop::UiAction::Toggle)
+                .unwrap();
+        }
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), stream.next())
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let fresh = client
+            .get(&url)
+            .bearer_auth(&state.local_token)
+            .send()
+            .await
+            .unwrap();
+        let mut fresh = fresh.bytes_stream();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), fresh.next())
+                .await
+                .is_err()
+        );
+        state.desktop.send(crate::desktop::UiAction::Show).unwrap();
+        let chunk = tokio::time::timeout(std::time::Duration::from_secs(1), fresh.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(String::from_utf8_lossy(&chunk).contains("data: show"));
+        assert!(!String::from_utf8_lossy(&chunk).contains("toggle"));
+        server.abort();
+        let _ = server.await;
     }
 
     #[tokio::test]

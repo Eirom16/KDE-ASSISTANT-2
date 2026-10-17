@@ -1,146 +1,143 @@
-//! KDE Integration - DBus, System Tray, Global Shortcuts, KWin blur
-//!
-//! Implementation using:
-//! - `dbus-send` for KWin blur, notifications, theme detection
-//! - `QSystemTrayIcon` in QML for system tray (handled in QML)
-
-use anyhow::Result;
-use std::process::Command;
+//! Internal KDE adapters. None is connected to the agent dispatcher.
+use anyhow::{Context, Result};
+use std::collections::HashMap;
+use zbus::zvariant::OwnedValue;
 
 pub struct KdeIntegration {
     pub theme: ThemePreference,
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThemePreference {
     System,
     Light,
     Dark,
 }
-
 impl ThemePreference {
     pub fn is_dark(self) -> bool {
-        match self {
-            ThemePreference::Dark => true,
-            ThemePreference::Light => false,
-            ThemePreference::System => Self::detect_system_prefers_dark(),
-        }
-    }
-
-    /// Lee el tema del sistema via DBus portal.
-    /// Retorna `true` si es dark, `false` si light.
-    fn detect_system_prefers_dark() -> bool {
-        // Intentar leer "org.freedesktop.appearance color-scheme" via portal
-        let output = Command::new("dbus-send")
-            .args([
-                "--session",
-                "--print-reply",
-                "--dest=org.freedesktop.portal.Desktop",
-                "--type=method_call",
-                "/org/freedesktop/portal/desktop",
-                "org.freedesktop.portal.Settings.Read",
-                "string:org.freedesktop.appearance",
-                "string:color-scheme",
-            ])
-            .output();
-
-        if let Ok(out) = output {
-            if out.status.success() {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                // Respuesta tipica: variant 1 = dark, 0 = light, 2 = unknown
-                if stdout.contains("uint32 1") {
-                    return true;
-                }
-            }
-        }
-        // Fallback: leer variable de entorno
-        if let Ok(v) = std::env::var("KDE_BREEZE_THEME") {
-            if v.contains("Dark") {
-                return true;
-            }
-        }
-        // Default: dark
-        true
+        self != Self::Light
     }
 }
-
-impl KdeIntegration {
-    pub fn new() -> Self {
-        log::info!("KdeIntegration: inicializando");
-        let theme = ThemePreference::System;
-        let is_dark = theme.is_dark();
-        log::info!("Tema detectado: dark={is_dark}");
-        Self { theme }
-    }
-
-    /// Setup completo: detección de tema.
-    /// Los shortcuts globales se manejan en `hotkey_listener`.
-    pub fn setup(&mut self) -> Result<()> {
-        log::info!("KdeIntegration: setup");
-        let is_dark = self.theme.is_dark();
-        log::info!("Tema detectado: dark={is_dark}");
-        Ok(())
-    }
-
-    /// Aplica blur de KWin a la ventana via DBus.
-    pub fn set_window_blur(&self, _window_id: u32) -> Result<()> {
-        // La translucidez real se aplica en QML via Qt.WA_TranslucentBackground
-        log::info!("KWin blur se aplica via Qt.WA_TranslucentBackground en QML");
-        Ok(())
-    }
-
-    /// Habilita translucidez global via KWin (blur a fondo de pantalla).
-    pub fn enable_translucent(&self) -> Result<()> {
-        // La translucidez real se aplica en QML
-        log::info!("Translucidez se aplica en QML via Qt.WA_TranslucentBackground");
-        Ok(())
-    }
-
-    /// Manda una notificación nativa via DBus org.freedesktop.Notifications.
-    pub fn send_notification(&self, title: &str, body: &str, app_name: &str) -> bool {
-        let icon = app_name.to_string();
-        let result = Command::new("dbus-send")
-            .args([
-                "--session",
-                "--print-reply",
-                "--dest=org.freedesktop.Notifications",
-                "--type=method_call",
-                "/org/freedesktop/Notifications",
-                "org.freedesktop.Notifications.Notify",
-                &format!("string:{app_name}"),
-                "uint32:0",
-                &format!("string:{icon}"),
-                &format!("string:{title}"),
-                &format!("string:{body}"),
-                "string:",
-                "array:string:",
-                "dict:string:",
-                "int32:-1",
-            ])
-            .output();
-        matches!(result, Ok(o) if o.status.success())
-    }
-}
-
 impl Default for KdeIntegration {
     fn default() -> Self {
         Self::new()
     }
 }
+impl KdeIntegration {
+    // Construction must not contact DBus (including during unit tests).
+    pub fn new() -> Self {
+        Self {
+            theme: ThemePreference::System,
+        }
+    }
+    pub async fn detect_theme(bus: &zbus::Connection) -> Result<ThemePreference> {
+        let proxy = zbus::Proxy::new(
+            bus,
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.Settings",
+        )
+        .await?;
+        let value: OwnedValue = tokio::time::timeout(
+            crate::desktop::DBUS_TIMEOUT,
+            proxy.call("Read", &("org.freedesktop.appearance", "color-scheme")),
+        )
+        .await
+        .context("theme_dbus_timeout")??;
+        parse_theme(&value)
+    }
+    pub fn set_window_blur(&self, _window_id: u32) -> Result<()> {
+        anyhow::bail!("NOT_SUPPORTED: no existe integración de blur nativo; transparencia Qt no garantiza blur")
+    }
+    pub fn enable_translucent(&self) -> Result<()> {
+        self.set_window_blur(0)
+    }
+}
+
+fn parse_theme(value: &OwnedValue) -> Result<ThemePreference> {
+    // Settings.Read historically wraps its result in an extra variant.
+    Ok(match value.downcast_ref::<u32>()? {
+        1 => ThemePreference::Dark,
+        2 => ThemePreference::Light,
+        _ => ThemePreference::System,
+    })
+}
+
+pub fn validate_notification(title: &str, body: &str) -> Result<()> {
+    anyhow::ensure!(
+        !title.trim().is_empty() && title.len() <= 160 && body.len() <= 2048,
+        "notification_size_invalid"
+    );
+    anyhow::ensure!(
+        !title.chars().any(char::is_control) && !body.chars().any(|c| c.is_control() && c != '\n'),
+        "notification_control_character"
+    );
+    Ok(())
+}
+/// Internal application notices only. No HTTP/QML/LLM entry point accepts this action.
+/// Return the server-assigned ID; a timeout means outcome unknown, never retry.
+pub async fn send_notification(bus: &zbus::Connection, title: &str, body: &str) -> Result<u32> {
+    validate_notification(title, body)?;
+    let body = body
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+    let proxy = zbus::Proxy::new(
+        bus,
+        "org.freedesktop.Notifications",
+        "/org/freedesktop/Notifications",
+        "org.freedesktop.Notifications",
+    )
+    .await?;
+    let hints: HashMap<String, OwnedValue> = HashMap::new();
+    let id: u32 = tokio::time::timeout(
+        crate::desktop::DBUS_TIMEOUT,
+        proxy.call(
+            "Notify",
+            &(
+                "KDE Assistant",
+                0u32,
+                "",
+                title,
+                body,
+                Vec::<String>::new(),
+                hints,
+                5000i32,
+            ),
+        ),
+    )
+    .await
+    .context("notification_timeout_outcome_unknown")??;
+    anyhow::ensure!(id != 0, "notification_invalid_id_outcome_unknown");
+    Ok(id)
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn new_creates_default() {
-        let k = KdeIntegration::new();
-        assert!(matches!(k.theme, ThemePreference::System));
+        assert_eq!(KdeIntegration::new().theme, ThemePreference::System);
     }
-
     #[test]
     fn theme_preference_default() {
-        let k = KdeIntegration::new();
-        let _ = k.theme.is_dark();
+        assert!(ThemePreference::Dark.is_dark());
+        assert!(!ThemePreference::Light.is_dark());
+    }
+    #[test]
+    fn theme_accepts_portal_nested_variant_but_rejects_wrong_type() {
+        let nested = OwnedValue::try_from(zbus::zvariant::Value::Value(Box::new(
+            zbus::zvariant::Value::U32(1),
+        )))
+        .unwrap();
+        assert_eq!(parse_theme(&nested).unwrap(), ThemePreference::Dark);
+        assert_eq!(
+            parse_theme(&OwnedValue::from(2u32)).unwrap(),
+            ThemePreference::Light
+        );
+        assert_eq!(
+            parse_theme(&OwnedValue::from(0u32)).unwrap(),
+            ThemePreference::System
+        );
+        assert!(parse_theme(&OwnedValue::from(zbus::zvariant::Str::from("invalid"))).is_err());
     }
 }

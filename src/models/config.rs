@@ -375,6 +375,8 @@ pub struct UiConfig {
     #[serde(default = "default_true")]
     pub always_on_top: bool,
     #[serde(default = "default_true")]
+    pub close_to_tray: bool,
+    #[serde(default = "default_true")]
     pub translucent: bool,
 }
 
@@ -774,6 +776,7 @@ impl Config {
                 window_height: default_window_h(),
                 show_session_panel: false,
                 always_on_top: true,
+                close_to_tray: true,
                 translucent: true,
             },
             tools: ToolsConfig {

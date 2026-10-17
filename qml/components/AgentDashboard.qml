@@ -6,7 +6,7 @@ import qml.auth 1.0
 
 Popup {
     id: root
-    property string backendUrl: "http://127.0.0.1:8765"
+    property string backendUrl: AuthToken.backendUrl
     property var stats: ({active:[], recent:[], tool_usage:[], completed:0, errors:0, cancelled:0})
     property string errorText: ""
     property bool loading: false

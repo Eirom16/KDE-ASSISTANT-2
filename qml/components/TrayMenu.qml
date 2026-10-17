@@ -19,19 +19,11 @@ Item {
     property bool windowVisible: true
     property bool voiceEnabled: false
     property bool alwaysOnTop: true
+    property bool alwaysOnTopAvailable: true
     property string pttShortcut: "Super+Shift+V"
     property var recentSessions: []   // [{id, title}]
-    property string backendUrl: "http://127.0.0.1:8765"
-    property string authToken: {
-        try {
-            if (AuthToken.token) return String(AuthToken.token)
-        } catch (e) {}
-        try {
-            var env = Qt.platform.environment
-            var t = env ? env["KDE_ASSISTANT_TOKEN"] : null
-            return t ? String(t) : ""
-        } catch (err) { return "" }
-    }
+    property string backendUrl: AuthToken.backendUrl
+    property string authToken: AuthToken.token
     function setAuth(xhr) {
         if (authToken !== "") xhr.setRequestHeader("Authorization", "Bearer " + authToken)
     }
@@ -41,6 +33,9 @@ Item {
     // true cuando el popup esta visible (util para tests).
     property bool menuOpen: menuWindow.visible
 
+    readonly property bool trayAvailable: tray.available
+    property string statusText: ""
+    signal minimizeRequested()
     signal showRequested()
     signal hideRequested()
     signal newSessionRequested()
@@ -53,29 +48,6 @@ Item {
     signal settingsRequested()
     signal quitRequested()
 
-    function refreshRecents() {
-        var xhr = new XMLHttpRequest()
-        xhr.open("GET", backendUrl + "/api/sessions")
-        setAuth(xhr)
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === 4 && (xhr.status === 200 || xhr.status === 0)) {
-                try {
-                    var list = JSON.parse(xhr.responseText)
-                    recentSessions = list.slice(0, 5)
-                } catch (e) {}
-            }
-        }
-        xhr.send()
-    }
-
-    Component.onCompleted: refreshRecents()
-    Timer {
-        interval: 15000
-        running: true
-        repeat: true
-        onTriggered: refreshRecents()
-    }
-
     // Reconstruye las filas y calcula la altura exacta
     // (filas 36px + separadores 9px + padding 16px).
     // Todas las filas llevan todas las claves (sin undefined).
@@ -84,7 +56,8 @@ Item {
             label: o.label || "", icon: o.icon || "", hint: o.hint || "",
             act: o.act || "", arg: o.arg || "",
             sep: o.sep === true,
-            checkable: o.checkable === true, checked: o.checked === true
+            checkable: o.checkable === true, checked: o.checked === true,
+            enabled: o.enabled !== false
         }
     }
     function rebuildRows() {
@@ -92,6 +65,8 @@ Item {
         r.push(newRow({ label: root.windowVisible ? qsTr("Ocultar ventana") : qsTr("Mostrar ventana"), icon: "eye-16", act: "toggle" }))
         if (root.voiceEnabled)
             r.push(newRow({ label: qsTr("Dictar"), icon: "unmute-16", hint: root.pttShortcut, act: "dictate" }))
+        r.push(newRow({ label: qsTr("Restaurar ventana"), act: "restore" }))
+        r.push(newRow({ label: qsTr("Minimizar"), act: "minimize" }))
         r.push(newRow({ sep: true }))
         r.push(newRow({ label: qsTr("Nueva sesión"), icon: "plus-16", act: "new" }))
         for (var i = 0; i < Math.min(root.recentSessions.length, 5); i++) {
@@ -103,7 +78,7 @@ Item {
         r.push(newRow({ label: qsTr("Abrir aplicación…"), icon: "rocket-16", act: "app" }))
         r.push(newRow({ label: qsTr("Ver archivos de Documentos"), icon: "file-16", act: "folder" }))
         r.push(newRow({ sep: true }))
-        r.push(newRow({ label: qsTr("Siempre visible"), act: "pin", checkable: true, checked: root.alwaysOnTop }))
+        r.push(newRow({ label: root.alwaysOnTopAvailable ? qsTr("Siempre visible") : qsTr("Siempre visible (no disponible)"), act: "pin", checkable: root.alwaysOnTopAvailable, checked: root.alwaysOnTopAvailable && root.alwaysOnTop, enabled: root.alwaysOnTopAvailable }))
         r.push(newRow({ label: qsTr("Configuración"), icon: "gear-16", act: "settings" }))
         r.push(newRow({ sep: true }))
         r.push(newRow({ label: qsTr("Salir"), icon: "sign-out-16", act: "quit" }))
@@ -118,6 +93,10 @@ Item {
         if (act === "toggle") {
             if (root.windowVisible) root.hideRequested()
             else root.showRequested()
+        } else if (act === "restore") {
+            root.showRequested()
+        } else if (act === "minimize") {
+            root.minimizeRequested()
         } else if (act === "dictate") {
             if (root.voiceEnabled) root.dictateRequested()
         } else if (act === "new") {
@@ -131,7 +110,7 @@ Item {
         } else if (act === "folder") {
             root.quickOpenFolderRequested()
         } else if (act === "pin") {
-            root.alwaysOnTopToggled(!root.alwaysOnTop)
+            if (root.alwaysOnTopAvailable) root.alwaysOnTopToggled(!root.alwaysOnTop)
         } else if (act === "settings") {
             root.settingsRequested()
         } else if (act === "quit") {
@@ -170,7 +149,7 @@ Item {
     SystemTrayIcon {
         id: tray
         visible: true
-        tooltip: qsTr("KDE Assistant v2")
+        tooltip: qsTr("KDE Assistant v2") + (root.statusText ? " · " + root.statusText : "")
 
         // Icono: nombre del tema hicolor con fallback al SVG del repo.
         icon.name: "kde-assistant"
@@ -204,6 +183,9 @@ Item {
                     else root.showRequested()
                 }
             }
+            MenuItem { text: qsTr("Restaurar ventana"); onTriggered: root.showRequested() }
+            MenuItem { text: qsTr("Minimizar"); onTriggered: root.minimizeRequested() }
+            MenuItem { text: root.statusText; enabled: false; visible: root.statusText !== "" }
             MenuItem {
                 visible: root.voiceEnabled
                 enabled: root.voiceEnabled
@@ -255,9 +237,10 @@ Item {
             }
             MenuSeparator { }
             MenuItem {
-                text: qsTr("Siempre visible")
+                text: root.alwaysOnTopAvailable ? qsTr("Siempre visible") : qsTr("Siempre visible (no disponible)")
+                enabled: root.alwaysOnTopAvailable
                 checkable: true
-                checked: root.alwaysOnTop
+                checked: root.alwaysOnTopAvailable && root.alwaysOnTop
                 onTriggered: root.alwaysOnTopToggled(!root.alwaysOnTop)
             }
             MenuItem {
@@ -413,6 +396,7 @@ Item {
 
                             MouseArea {
                                 id: rowMouse
+                                enabled: modelData.enabled
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor

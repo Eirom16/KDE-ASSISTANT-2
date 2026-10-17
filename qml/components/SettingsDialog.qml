@@ -42,6 +42,7 @@ Rectangle {
     property bool autoListen: false
     property bool chimesEnabled: true
     property string theme: "system"  // "system" | "dark" | "light"
+    property bool closeToTray: true
 
     // Piper-tts
     property string piperModel: "es_ES-sharvard-medium"
@@ -87,19 +88,9 @@ Rectangle {
     property string activeTab: "general"  // general | voz | atajos | memoria | personaje
 
     // Backend
-    property string backendUrl: "http://127.0.0.1:8765"
-    // Token local F0-3/FIX: módulo generado por main.rs y, como
-    // respaldo, env KDE_ASSISTANT_TOKEN.
-    property string authToken: {
-        try {
-            if (AuthToken.token) return String(AuthToken.token)
-        } catch (e) {}
-        try {
-            var env = Qt.platform.environment
-            var t = env ? env["KDE_ASSISTANT_TOKEN"] : null
-            return t ? String(t) : ""
-        } catch (err) { return "" }
-    }
+    property string backendUrl: AuthToken.backendUrl
+    // Token del módulo privado generado por main.rs para este perfil.
+    property string authToken: AuthToken.token
     function setAuth(xhr) {
         if (authToken !== "") xhr.setRequestHeader("Authorization", "Bearer " + authToken)
     }
@@ -224,6 +215,7 @@ Rectangle {
                 root.autoListen = cfg.speech.auto_listen === true
                 root.chimesEnabled = cfg.speech.chimes_enabled !== false
                 root.theme = cfg.ui.theme || "system"
+                root.closeToTray = cfg.ui.close_to_tray !== false
                 root.piperModel = cfg.speech.piper_model || "es_ES-sharvard-medium"
                 root.piperLengthScale = cfg.speech.piper_length_scale || 1.0
                 root.sttLanguage = cfg.speech.stt_language || "auto"
@@ -399,6 +391,7 @@ Rectangle {
         if (!cfg.ai) cfg.ai = {}
         if (!cfg.speech) cfg.speech = {}
         if (!cfg.ui) cfg.ui = {}
+        cfg.ui.close_to_tray = root.closeToTray
         if (!cfg.shortcuts) cfg.shortcuts = {}
         if (!cfg.memory) cfg.memory = {}
         rememberProviderFields()
@@ -873,6 +866,13 @@ Rectangle {
                     }
 
                     // Tema
+                    SettingsToggle {
+                        Layout.fillWidth: true
+                        label: qsTr("Cerrar a la bandeja")
+                        description: qsTr("Al cerrar la ventana, mantener el asistente disponible en la bandeja")
+                        active: root.closeToTray
+                        onToggled: root.closeToTray = !root.closeToTray
+                    }
                     Text {
                         text: qsTr("Apariencia")
                         font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0.4)

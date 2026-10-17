@@ -3,16 +3,33 @@ use std::path::{Path, PathBuf};
 
 const DATA_DIR_ENV: &str = "KDE_ASSISTANT_DATA_DIR";
 
+pub fn validate_resources(root: &Path) -> Result<()> {
+    for resource in [
+        "qml/Main.qml",
+        "qml/qmldir",
+        "qml/Theme.qml",
+        "qml/Octicon.qml",
+        "qml/components/TrayMenu.qml",
+        "assets/icons/kde-assistant.svg",
+        "assets/octicons/plus-16.svg",
+    ] {
+        anyhow::ensure!(
+            root.join(resource).is_file(),
+            "Falta recurso requerido: {resource}; revisa KDE_ASSISTANT_DATA_DIR o la instalación"
+        );
+    }
+    Ok(())
+}
+
 /// Localiza los recursos QML tanto en desarrollo como en una instalación FHS.
 pub fn data_dir() -> Result<PathBuf> {
     let executable = std::env::current_exe().context("resolviendo la ruta del ejecutable")?;
-    let current_dir = std::env::current_dir().context("resolviendo el directorio actual")?;
     let explicit = std::env::var_os(DATA_DIR_ENV).map(PathBuf::from);
 
     resolve_data_dir_from(
         &executable,
         Path::new(env!("CARGO_MANIFEST_DIR")),
-        &current_dir,
+        Path::new("/"),
         explicit.as_deref(),
     )
 }
@@ -21,19 +38,28 @@ pub fn data_dir() -> Result<PathBuf> {
 pub fn resolve_data_dir_from(
     executable: &Path,
     manifest_dir: &Path,
-    current_dir: &Path,
+    _current_dir: &Path,
     explicit: Option<&Path>,
 ) -> Result<PathBuf> {
+    if let Some(explicit) = explicit {
+        anyhow::ensure!(
+            explicit.is_absolute(),
+            "{DATA_DIR_ENV} debe ser una ruta absoluta"
+        );
+        anyhow::ensure!(
+            explicit.join("qml/Main.qml").is_file(),
+            "Faltan recursos: {DATA_DIR_ENV}/qml/Main.qml"
+        );
+        return explicit
+            .canonicalize()
+            .context("resolviendo recursos explícitos");
+    }
     let installed = executable
         .parent()
         .and_then(Path::parent)
         .map(|prefix| prefix.join("share/kde-assistant"));
 
-    let candidates = explicit
-        .into_iter()
-        .map(Path::to_path_buf)
-        .chain(installed)
-        .chain([manifest_dir.to_path_buf(), current_dir.to_path_buf()]);
+    let candidates = installed.into_iter().chain([manifest_dir.to_path_buf()]);
 
     let mut checked = Vec::new();
     for candidate in candidates {

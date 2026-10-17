@@ -78,7 +78,7 @@ env_logger = "0.11"
 dirs = "5"
 once_cell = "1"
 hex = "0.4"
-ctrlc = "3"
+ctrlc = { version = "3", features = ["termination"] }
 rustix = { version = "1.1", features = ["fs", "process"] }
 
 # Hashing para verificar integridad de descargas
@@ -87,6 +87,7 @@ sha2 = "0.10"
 # Extraccion de archivos .tar.gz (libreria ONNX Runtime auto-descargada)
 flate2 = "1"
 tar = "0.4"
+zbus = { version = "5", default-features = false, features = ["tokio"] }
 
 [build-dependencies]
 
