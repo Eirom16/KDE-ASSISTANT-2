@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from qml_test_harness import build_runner
 import time
 
 
@@ -26,7 +27,7 @@ def main():
             path = base / directory
             path.mkdir(mode=0o700)
             env[key] = str(path)
-        qml = shutil.which("qmltestrunner") or "/usr/lib/qt6/bin/qmltestrunner"
+        qml = env.get("KDA_QML_TEST_RUNNER") or str(build_runner(repo, base, env))
         commands = [
             ("fmt", ["cargo", "fmt", "--check"]),
             ("check", ["cargo", "check", "--locked", "--all-targets"]),

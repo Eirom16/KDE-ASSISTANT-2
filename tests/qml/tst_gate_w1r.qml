@@ -25,6 +25,7 @@ Item {
     SignalSpy { id: shown; target: tray; signalName: "showRequested" }
     SignalSpy { id: hidden; target: tray; signalName: "hideRequested" }
     SignalSpy { id: dictated; target: tray; signalName: "dictateRequested" }
+    SignalSpy { id: pinned; target: tray; signalName: "alwaysOnTopToggled" }
 
     TestCase {
         name: "GateW1R"
@@ -35,6 +36,8 @@ Item {
             input.voiceEnabled = false
             tray.voiceEnabled = false
             tray.windowVisible = true
+            tray.alwaysOnTopAvailable = true
+            pinned.clear()
             shown.clear(); hidden.clear(); dictated.clear()
         }
         function row(role, text, streaming) {
@@ -184,6 +187,17 @@ Item {
             }
             compare(hidden.count, 10)
             compare(shown.count, 10)
+        }
+
+        function test_unavailable_pin_never_claims_or_changes_desktop_state() {
+            tray.alwaysOnTopAvailable = false
+            tray.alwaysOnTop = true
+            tray.rebuildRows()
+            var pin = tray.rows.filter(function(r) { return r.act === "pin" })[0]
+            compare(pin.enabled, false)
+            compare(pin.checked, false)
+            tray.handleRow("pin", "")
+            compare(pinned.count, 0)
         }
 
         function test_input_voice_capability() {

@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from qml_test_harness import build_runner
 
 
 def main() -> int:
@@ -30,6 +31,7 @@ def main() -> int:
             env[key] = str(path)
         env["QT_QPA_PLATFORM"] = "offscreen"
         env["QML_DISABLE_DISK_CACHE"] = "1"
+        runner = env.get("KDA_QML_TEST_RUNNER") or str(build_runner(repo, Path(private), env))
         command = [
             runner,
             "-import", str(repo),
