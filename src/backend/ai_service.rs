@@ -38,17 +38,6 @@ pub struct AiService {
 }
 
 #[derive(Debug, Serialize)]
-struct ChatRequest<'a> {
-    model: &'a str,
-    messages: Vec<OpenAIMessage<'a>>,
-    temperature: f32,
-    max_tokens: u32,
-    stream: bool,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    tools: Vec<Tool>,
-}
-
-#[derive(Debug, Serialize)]
 struct OpenAIMessage<'a> {
     role: &'a str,
     content: Option<&'a str>,
@@ -79,10 +68,7 @@ impl AiService {
         config: Arc<RwLock<Config>>,
         timeout: std::time::Duration,
     ) -> Result<Self> {
-        let http = reqwest::Client::builder()
-            .timeout(timeout)
-            .user_agent("KDE-Assistant/2.0")
-            .build()?;
+        let http = crate::backend::provider_connection::client(timeout)?;
         let provider = {
             let cfg = config.try_read().context("configuracion no disponible")?;
             cfg.ai.validate_provider()?;
@@ -207,53 +193,36 @@ impl AiService {
             tools,
             max_tokens.unwrap_or(cfg.ai.max_tokens),
         )?;
-        let provider_id = cfg.ai.provider_id().to_string();
-        let provider_name = crate::models::AiConfig::provider_name(&provider_id);
-        let api_key = cfg.ai.effective_api_key();
-        if api_key.trim().is_empty() {
-            let env_var = crate::models::AiConfig::provider_env_var(&provider_id);
-            bail!("API key no configurada. Ponla en Configuracion o configura {env_var} (proveedor actual: {provider_name})");
-        }
-
+        crate::backend::provider_connection::validate(&cfg.ai)?;
         let base_url = cfg.ai.effective_base_url();
-        let model = cfg.ai.effective_model();
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-        let req = ChatRequest {
-            model: &model,
-            messages: self.build_messages(messages),
-            temperature: cfg.ai.temperature,
-            max_tokens: max_tokens.unwrap_or(cfg.ai.max_tokens),
-            stream: true,
-            tools: tools.to_vec(),
-        };
-
-        let mut req_builder = self
-            .http
-            .post(&url)
-            .header("Authorization", format!("Bearer {api_key}"))
-            .header("Content-Type", "application/json");
-        // OpenRouter pide identificacion extra; el resto de proveedores
-        // OpenAI-compatibles (Groq, OpenAI, custom) no la necesitan.
-        if provider_id == "openrouter" {
-            req_builder = req_builder
-                .header("HTTP-Referer", "https://kde-assistant.local")
-                .header("X-Title", "KDE Assistant");
+        let mut request = crate::backend::provider_connection::chat_parameters(
+            &cfg.ai,
+            max_tokens.unwrap_or(cfg.ai.max_tokens),
+        );
+        request["messages"] = serde_json::to_value(self.build_messages(messages))?;
+        if !tools.is_empty() {
+            request["tools"] = serde_json::to_value(tools)?;
+            if cfg.ai.provider_id() == "groq" {
+                request["parallel_tool_calls"] = serde_json::json!(false);
+            }
         }
-        // Retries are explicit caller actions; never silently replay a request.
-        let response = req_builder
-            .json(&req)
-            .send()
-            .await
-            .context("transport: enviando request")?;
-        let status = response.status();
-        if !status.is_success() {
-            bail!("provider_http: {provider_name} {status}");
+        let response =
+            crate::backend::provider_connection::authorize(self.http.post(&url), &cfg.ai)
+                .json(&request)
+                .send()
+                .await
+                .map_err(crate::backend::provider_connection::transport)?;
+        if !response.status().is_success() {
+            return Err(crate::backend::provider_connection::http_error(response)
+                .await
+                .into());
         }
         let mut stream = response.bytes_stream();
         let mut parser = crate::backend::sse_parser::ChatStreamParser::default();
         while let Some(chunk) = stream.next().await {
-            let bytes = chunk.context("transport: leyendo SSE")?;
-            for content in parser.push(&bytes)? {
+            let bytes = chunk.map_err(crate::backend::provider_connection::transport)?;
+            for content in parser.push(&bytes).map_err(safe_stream_error)? {
                 tx.send(StreamEvent::Token { content })
                     .await
                     .context("client_disconnected")?;
@@ -262,7 +231,7 @@ impl AiService {
                 break;
             }
         }
-        let (text, calls) = parser.finish()?;
+        let (text, calls) = parser.finish().map_err(safe_stream_error)?;
         for tool in calls {
             tx.send(StreamEvent::ToolCall { tool })
                 .await
@@ -679,6 +648,13 @@ fn canonical_json_value(value: &serde_json::Value) -> String {
             format!("[{}]", parts.join(","))
         }
         other => serde_json::to_string(other).unwrap_or_else(|_| "null".to_string()),
+    }
+}
+
+fn safe_stream_error(error: crate::backend::sse_parser::StreamError) -> anyhow::Error {
+    match error {
+        crate::backend::sse_parser::StreamError::Provider(_) => anyhow::anyhow!("provider_error: El proveedor devolvió un error de streaming o una respuesta incompleta"),
+        _ => anyhow::anyhow!("sse_invalid: Stream del proveedor inválido o interrumpido"),
     }
 }
 

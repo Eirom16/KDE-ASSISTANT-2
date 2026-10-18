@@ -22,3 +22,5 @@ SettingsToggle 1.0 SettingsToggle.qml
 TrayMenu 1.0 TrayMenu.qml
 ToolDetailDialog 1.0 ToolDetailDialog.qml
 AuditDialog 1.0 AuditDialog.qml
+SettingsButton 1.0 SettingsButton.qml
+SettingsChoice 1.0 SettingsChoice.qml

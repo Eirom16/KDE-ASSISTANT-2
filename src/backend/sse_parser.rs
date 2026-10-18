@@ -156,12 +156,25 @@ pub struct ChatStreamParser {
     tools: BTreeMap<usize, (String, String, String)>,
     pub text: String,
     done: bool,
+    diagnostic: bool,
+    limited: bool,
     finished: Option<String>,
     calls: Vec<ToolCall>,
     tool_bytes: usize,
     pub duplicate_terminations: usize,
 }
 impl ChatStreamParser {
+    /// Only diagnostics may accept the deliberately short completion limit.
+    pub fn diagnostic() -> Self {
+        Self {
+            diagnostic: true,
+            ..Self::default()
+        }
+    }
+    pub fn is_limited(&self) -> bool {
+        self.limited
+    }
+
     /// Returns deltas immediately, validated tools only after [DONE].
     pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<String>, StreamError> {
         let mut tokens = Vec::new();
@@ -179,7 +192,10 @@ impl ChatStreamParser {
                 ));
             }
             if event.data == "[DONE]" {
-                if self.text.is_empty() && self.tools.is_empty() {
+                if self.text.is_empty()
+                    && self.tools.is_empty()
+                    && !(self.diagnostic && self.limited)
+                {
                     return Err(StreamError::Malformed("respuesta vacía".into()));
                 }
                 let mut ids = HashSet::new();
@@ -266,7 +282,9 @@ impl ChatStreamParser {
                     }
                 }
                 if let Some(reason) = choice.finish_reason {
-                    if reason != "stop" && reason != "tool_calls" {
+                    if self.diagnostic && reason == "length" {
+                        self.limited = true;
+                    } else if reason != "stop" && reason != "tool_calls" {
                         return Err(StreamError::Provider(format!(
                             "respuesta incompleta: finish_reason={reason}"
                         )));

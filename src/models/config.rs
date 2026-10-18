@@ -26,11 +26,12 @@ impl Default for Config {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AiConfig {
     /// Proveedor: "openrouter" | "groq" | "openai" | "custom".
     /// Solo afecta a headers extra y a la variable de entorno de fallback.
     /// La URL siempre sale de `base_url`.
+    #[serde(default = "default_provider")]
     pub provider: String,
     pub base_url: String,
     #[serde(default)]
@@ -46,6 +47,9 @@ pub struct AiConfig {
     /// Modelo elegido por proveedor.
     #[serde(default)]
     pub provider_models: HashMap<String, String>,
+    /// Explicit trust decisions, bound to the exact alternate base URL per provider.
+    #[serde(default)]
+    pub provider_endpoint_approvals: HashMap<String, String>,
     pub model: String,
     #[serde(default = "default_temperature")]
     pub temperature: f32,
@@ -61,6 +65,15 @@ pub struct AiConfig {
     pub enable_tool_calling: bool,
     #[serde(default = "default_max_iterations")]
     pub max_tool_iterations: u32,
+}
+
+impl std::fmt::Debug for AiConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AiConfig")
+            .field("provider", &self.provider)
+            .field("model", &self.model)
+            .finish_non_exhaustive()
+    }
 }
 
 fn default_provider() -> String {
@@ -173,7 +186,8 @@ impl AiConfig {
             "fireworks" => "FIREWORKS_API_KEY",
             "cerebras" => "CEREBRAS_API_KEY",
             "sambanova" => "SAMBANOVA_API_KEY",
-            _ => "OPENROUTER_API_KEY",
+            "openrouter" => "OPENROUTER_API_KEY",
+            _ => "",
         }
     }
 
@@ -196,18 +210,71 @@ impl AiConfig {
         }
     }
 
+    pub fn endpoint_needs_approval(&self) -> bool {
+        let preset = Self::provider_preset_url(self.provider_id());
+        if self.provider_id() == "custom" {
+            return false;
+        }
+        match (
+            reqwest::Url::parse(&self.effective_base_url()),
+            reqwest::Url::parse(preset),
+        ) {
+            (Ok(actual), Ok(expected)) => actual.origin() != expected.origin(),
+            _ => true,
+        }
+    }
+
+    pub fn endpoint_is_approved(&self) -> bool {
+        !self.endpoint_needs_approval()
+            || self
+                .provider_endpoint_approvals
+                .get(self.provider_id())
+                .is_some_and(|approved| {
+                    !approved.is_empty()
+                        && approved.trim().trim_end_matches('/')
+                            == self.effective_base_url().trim().trim_end_matches('/')
+                })
+    }
+
     /// API key efectiva: la de config, o la variable de entorno del proveedor.
     pub fn effective_api_key(&self) -> String {
         let provider_id = self.provider_id();
         if let Some(key) = self.provider_keys.get(provider_id) {
-            if !key.trim().is_empty() {
-                return key.clone();
-            }
+            // An explicit empty entry disables environment fallback after deletion.
+            return key.clone();
         }
         if !self.api_key.trim().is_empty() && self.provider_keys.is_empty() {
             return self.api_key.clone();
         }
         std::env::var(Self::provider_env_var(provider_id)).unwrap_or_default()
+    }
+
+    /// Move the legacy active profile into scoped storage without changing it.
+    pub fn migrate_profiles(&mut self) {
+        if self.validate_provider().is_err() {
+            return;
+        }
+        let id = self.provider_id().to_owned();
+        self.provider = id.clone();
+        // Only a legacy-only document identifies its active secret unambiguously.
+        // Mixed documents may carry a stale secret from another provider. Keep an
+        // unmatched legacy value private and inactive until explicitly discarded.
+        if self.provider_keys.is_empty() && !self.api_key.is_empty() {
+            self.provider_keys.insert(id.clone(), self.api_key.clone());
+        }
+        if self
+            .provider_keys
+            .values()
+            .any(|key| !key.is_empty() && *key == self.api_key)
+        {
+            self.api_key.clear();
+        }
+        self.provider_base_urls
+            .entry(id.clone())
+            .or_insert_with(|| self.base_url.clone());
+        self.provider_models
+            .entry(id)
+            .or_insert_with(|| self.model.clone());
     }
 
     pub fn effective_base_url(&self) -> String {
@@ -217,7 +284,7 @@ impl AiConfig {
                 return url.clone();
             }
         }
-        if !self.base_url.trim().is_empty() {
+        if self.provider_base_urls.is_empty() && !self.base_url.trim().is_empty() {
             return self.base_url.clone();
         }
         Self::provider_preset_url(provider_id).to_string()
@@ -230,7 +297,11 @@ impl AiConfig {
                 return model.clone();
             }
         }
-        self.model.clone()
+        if self.provider_models.is_empty() {
+            self.model.clone()
+        } else {
+            String::new()
+        }
     }
 }
 
@@ -635,8 +706,9 @@ impl Config {
         })
         .await?
         .context("configuración ilegible; conserva y corrige config.json para reintentar")?;
-        let config: Self = serde_json::from_str(&content)
+        let mut config: Self = serde_json::from_str(&content)
             .context("configuración inválida; conserva y corrige config.json para reintentar")?;
+        config.ai.migrate_profiles();
         config.validate()?;
         Ok(config)
     }
@@ -649,13 +721,55 @@ impl Config {
             matches!(url.scheme(), "http" | "https")
                 && url.host_str().is_some()
                 && url.username().is_empty()
-                && url.password().is_none(),
+                && url.password().is_none()
+                && url.query().is_none()
+                && url.fragment().is_none(),
             "URL del proveedor inválida"
         );
+        for (id, candidate) in self
+            .ai
+            .provider_base_urls
+            .iter()
+            .chain(self.ai.provider_endpoint_approvals.iter())
+        {
+            anyhow::ensure!(
+                AiConfig::normalize_provider_id(id) == id,
+                "Perfil de proveedor inválido"
+            );
+            if candidate.is_empty() {
+                continue;
+            }
+            let candidate = reqwest::Url::parse(candidate).context("URL de perfil inválida")?;
+            anyhow::ensure!(
+                matches!(candidate.scheme(), "http" | "https")
+                    && candidate.host_str().is_some()
+                    && candidate.username().is_empty()
+                    && candidate.password().is_none()
+                    && candidate.query().is_none()
+                    && candidate.fragment().is_none(),
+                "URL de perfil inválida"
+            );
+        }
         anyhow::ensure!(
             !self.ai.effective_model().trim().is_empty(),
             "Falta modelo de IA"
         );
+        anyhow::ensure!(
+            self.ai.temperature.is_finite() && (0.0..=2.0).contains(&self.ai.temperature),
+            "Temperatura fuera de rango (0–2)"
+        );
+        anyhow::ensure!(
+            (1..=131072).contains(&self.ai.max_tokens),
+            "Límite de salida fuera de rango (1–131072)"
+        );
+        for (id, key) in &self.ai.provider_keys {
+            anyhow::ensure!(
+                AiConfig::normalize_provider_id(id) == id
+                    && key.len() <= 8192
+                    && !key.chars().any(char::is_control),
+                "Credencial o proveedor inválido"
+            );
+        }
         Ok(())
     }
 
@@ -701,7 +815,12 @@ impl Config {
 
     pub async fn save(&self) -> Result<()> {
         self.validate()?;
-        let path = Self::config_path()?;
+        self.save_to(&Self::config_path()?).await
+    }
+
+    pub async fn save_to(&self, path: &std::path::Path) -> Result<()> {
+        self.validate()?;
+        let path = path.to_owned();
         let content = serde_json::to_string_pretty(self)?;
         tokio::task::spawn_blocking(move || {
             if path.exists() {
@@ -729,10 +848,11 @@ impl Config {
             ai: AiConfig {
                 provider: default_provider(),
                 base_url: "https://openrouter.ai/api/v1".to_string(),
-                api_key: std::env::var("OPENROUTER_API_KEY").unwrap_or_default(),
+                api_key: String::new(),
                 provider_keys: HashMap::new(),
                 provider_base_urls: HashMap::new(),
                 provider_models: HashMap::new(),
+                provider_endpoint_approvals: HashMap::new(),
                 model: "openrouter/z-ai/glm-5.2:free".to_string(),
                 temperature: default_temperature(),
                 max_tokens: default_max_tokens(),
@@ -819,8 +939,9 @@ impl Config {
 }
 
 /// Reemplazo para modelos retirados por el proveedor.
-/// Groq apagó `llama-3.3-70b-versatile` y `llama-3.1-8b-instant` el 16/08/2026
-/// (todo request da 404). Retorna el id vigente o None si sigue válido.
+/// Groq anunció su retirada del catálogo estándar el 16/08/2026; puede
+/// conservar acceso Enterprise. Es una sugerencia, nunca una migración automática.
+/// Consultar /models es la autoridad sobre la disponibilidad para cada cuenta.
 pub fn retired_model_replacement(provider: &str, model: &str) -> Option<&'static str> {
     if AiConfig::normalize_provider_id(provider) != "groq" {
         return None;
@@ -911,6 +1032,7 @@ mod tests {
             provider_keys: HashMap::new(),
             provider_base_urls: HashMap::new(),
             provider_models: HashMap::new(),
+            provider_endpoint_approvals: HashMap::new(),
             model: "openrouter/test".to_string(),
             temperature: default_temperature(),
             max_tokens: default_max_tokens(),

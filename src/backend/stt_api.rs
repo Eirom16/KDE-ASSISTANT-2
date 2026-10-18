@@ -10,8 +10,6 @@
 use anyhow::{Context, Result};
 
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
-/// Recorte de errores del proveedor (regla F0-4: nunca volcar HTML al log chat).
-const MAX_ERR_BODY: usize = 500;
 
 pub struct SttApiClient {
     http: reqwest::Client,
@@ -22,11 +20,9 @@ pub struct SttApiClient {
 
 impl SttApiClient {
     pub fn new(base_url: String, api_key: String, model: String) -> Result<Self> {
-        let http = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(DEFAULT_TIMEOUT_SECS))
-            .user_agent("KDE-Assistant/2.0")
-            .build()
-            .context("construyendo cliente HTTP para STT API")?;
+        let http = crate::backend::provider_connection::client(std::time::Duration::from_secs(
+            DEFAULT_TIMEOUT_SECS,
+        ))?;
         Ok(Self {
             http,
             base_url: base_url.trim_end_matches('/').to_string(),
@@ -43,28 +39,7 @@ impl SttApiClient {
     /// None = auto-detección del proveedor.
     pub async fn transcribe(&self, samples: &[f32], language: Option<&str>) -> Result<String> {
         let wav = encode_wav_16k(samples);
-        self.transcribe_with_retry(&wav, language).await
-    }
-
-    async fn transcribe_with_retry(&self, wav: &[u8], language: Option<&str>) -> Result<String> {
-        let mut last_err = anyhow::anyhow!("sin intentos");
-        for attempt in 1..=2 {
-            match self.transcribe_once(wav, language).await {
-                Ok(text) => return Ok(text),
-                Err(e) => {
-                    let retryable = e
-                        .downcast_ref::<SttApiError>()
-                        .is_some_and(|se| se.retryable);
-                    log::warn!("STT API intento {attempt}/2 falló: {e}");
-                    if !retryable {
-                        return Err(e);
-                    }
-                    last_err = e;
-                    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
-                }
-            }
-        }
-        Err(last_err)
+        self.transcribe_once(&wav, language).await
     }
 
     async fn transcribe_once(&self, wav: &[u8], language: Option<&str>) -> Result<String> {
@@ -78,41 +53,24 @@ impl SttApiClient {
             .body(body)
             .send()
             .await
-            .context("enviando audio a la API STT")?;
+            .map_err(crate::backend::provider_connection::transport)?;
 
         let status = resp.status();
         if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            let mut snippet: String = body.chars().take(MAX_ERR_BODY).collect();
-            snippet = snippet.replace('\n', " ").trim().to_string();
-            return Err(SttApiError {
-                status: status.as_u16(),
-                retryable: status.as_u16() == 429 || status.is_server_error(),
-                message: format!("STT API {status}: {snippet}"),
-            }
-            .into());
+            return Err(crate::backend::provider_connection::http_error(resp)
+                .await
+                .into());
         }
 
         #[derive(serde::Deserialize)]
         struct TranscriptionResponse {
             text: String,
         }
-        let parsed: TranscriptionResponse = resp
-            .json()
-            .await
-            .context("parseando respuesta STT (JSON)")?;
+        let body = crate::backend::provider_connection::bytes(resp).await?;
+        let parsed: TranscriptionResponse =
+            serde_json::from_slice(&body).context("respuesta STT JSON inválida")?;
         Ok(parsed.text.trim().to_string())
     }
-}
-
-/// Error HTTP de la API de transcripción.
-#[derive(Debug, thiserror::Error)]
-#[error("{message}")]
-struct SttApiError {
-    #[allow(dead_code)]
-    status: u16,
-    retryable: bool,
-    message: String,
 }
 
 /// Codifica samples f32 mono a WAV PCM16 16kHz (header RIFF clásico).

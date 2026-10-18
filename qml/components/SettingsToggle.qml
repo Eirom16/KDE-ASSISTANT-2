@@ -1,6 +1,7 @@
 // SettingsToggle.qml - Toggle on/off estilo Apple para SettingsDialog
 
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import qml 1.0
 import "."
@@ -17,7 +18,7 @@ Item {
     // Ocupa todo el ancho cuando esta dentro de un layout
     Layout.fillWidth: true
 
-    implicitHeight: column.implicitHeight + Theme.spacingXs * 2
+    implicitHeight: Math.max(Theme.buttonIconSize, column.implicitHeight + Theme.spacingXs * 2)
 
     Row {
         id: row
@@ -36,60 +37,39 @@ Item {
                 text: root.label
                 font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, -0.1)
                 color: Theme.ink
+                wrapMode: Text.Wrap
+                width: parent.width
             }
             Text {
                 visible: root.description !== ""
                 text: root.description
-                font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
-                color: Theme.inkMuted
+                font: Theme.font(Theme.fontSizeBodySmall, Theme.weightNormal, 0)
+                color: Theme.inkMuted80
                 wrapMode: Text.Wrap
                 width: parent.width
             }
         }
 
-        // Toggle switch
-        Item {
+        Switch {
+            objectName: root.objectName ? root.objectName + "Control" : ""
             width: 48
-            height: 28
+            height: Theme.buttonIconSize
             anchors.verticalCenter: parent.verticalCenter
-
-            Rectangle {
-                anchors.fill: parent
+            checked: root.active
+            Accessible.name: root.label
+            onClicked: root.toggled()
+            indicator: Rectangle {
+                width: 48; height: 28
+                y: (parent.height - height) / 2
                 radius: height / 2
-                color: root.active ? Theme.success : Theme.surfaceChip
-
-                Behavior on color {
-                    ColorAnimation { duration: Theme.animFast }
-                }
-
+                color: root.active ? Theme.primary : Theme.surfaceChip
+                border.width: parent.activeFocus ? 2 : 0
+                border.color: Theme.ink
                 Rectangle {
-                    width: parent.height - 4
-                    height: width
-                    radius: width / 2
+                    width: 24; height: 24; radius: 12; y: 2
+                    x: root.active ? 22 : 2
                     color: Theme.inkOnPrimary
-                    x: root.active ? parent.width - width - 2 : 2
-                    y: 2
-
-                    Behavior on x {
-                        NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutCubic }
-                    }
-
-                    // Sombra
-                    Rectangle {
-                        anchors.fill: parent
-                        anchors.margins: -2
-                        z: -1
-                        color: Theme.shadowSoft
-                        opacity: 0.3
-                        radius: parent.radius + 2
-                    }
                 }
-            }
-
-            MouseArea {
-                anchors.fill: parent
-                cursorShape: Qt.PointingHandCursor
-                onClicked: root.toggled()
             }
         }
     }

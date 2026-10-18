@@ -1,1664 +1,680 @@
-// SettingsDialog.qml - Dialog modal de configuracion
-// Acceso desde el SessionDrawer ("Configuracion") o desde la X del title
-// NOTA: los campos se leen/escriben de forma imperativa (por id) para
-// evitar peleas de bindings con lo que escribe el usuario.
-
 import QtQuick
 import QtQuick.Controls
-import qml 1.0
 import QtQuick.Layouts
+import QtQuick.Window
+import qml 1.0
 import qml.auth 1.0
 import "."
 
 Rectangle {
     id: root
-
     property bool open_: false
-    property string provider: "openrouter"   // openrouter | groq | openai | custom
-    property string apiKey: ""
-    property string model: ""
-    property string baseUrl: ""
+    property string backendUrl: AuthToken.backendUrl
+    property string authToken: AuthToken.token
+    property string activeTab: "general"
+    property var rawConfig: ({})
+    property bool loaded: false
+    property bool busy: false
+    property string statusText: ""
+    property string statusKind: "info"
+    property string provider: "openrouter"
+    // Drafts contain only replacements typed in this visit, never saved secrets.
     property var providerKeys: ({})
     property var providerBaseUrls: ({})
     property var providerModels: ({})
-    property string providerSearch: ""
-    property var providerCatalog: [
-        { id: "openrouter", name: "OpenRouter", url: "https://openrouter.ai/api/v1", key: "sk-or-...", model: "openrouter/z-ai/glm-5.2:free", note: qsTr("Muchos modelos y proveedores detrás de una sola API") },
-        { id: "groq", name: "Groq", url: "https://api.groq.com/openai/v1", key: "gsk-...", model: "llama-3.3-70b-versatile", note: qsTr("Muy rápido; útil también para STT API") },
-        { id: "openai", name: "OpenAI", url: "https://api.openai.com/v1", key: "sk-...", model: "gpt-4o-mini", note: qsTr("API oficial compatible OpenAI") },
-        { id: "deepseek", name: "DeepSeek", url: "https://api.deepseek.com/v1", key: "sk-...", model: "deepseek-chat", note: qsTr("Modelos DeepSeek OpenAI-compatible") },
-        { id: "mistral", name: "Mistral", url: "https://api.mistral.ai/v1", key: "...", model: "mistral-small-latest", note: qsTr("Modelos Mistral") },
-        { id: "xai", name: "xAI", url: "https://api.x.ai/v1", key: "xai-...", model: "grok-3-mini", note: qsTr("Modelos Grok vía xAI") },
-        { id: "together", name: "Together", url: "https://api.together.xyz/v1", key: "...", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo", note: qsTr("Catálogo amplio OpenAI-compatible") },
-        { id: "fireworks", name: "Fireworks", url: "https://api.fireworks.ai/inference/v1", key: "...", model: "accounts/fireworks/models/llama-v3p3-70b-instruct", note: qsTr("Inferencia rápida OpenAI-compatible") },
-        { id: "cerebras", name: "Cerebras", url: "https://api.cerebras.ai/v1", key: "csk-...", model: "llama3.1-8b", note: qsTr("Inferencia acelerada") },
-        { id: "sambanova", name: "SambaNova", url: "https://api.sambanova.ai/v1", key: "...", model: "Meta-Llama-3.1-8B-Instruct", note: qsTr("Proveedor OpenAI-compatible") },
-        { id: "lmstudio", name: "LM Studio", url: "http://127.0.0.1:1234/v1", key: "lm-studio", model: "local-model", note: qsTr("Servidor local; normalmente no requiere key real") },
-        { id: "ollama", name: "Ollama", url: "http://127.0.0.1:11434/v1", key: "ollama", model: "llama3.1", note: qsTr("Servidor local OpenAI-compatible") },
-        { id: "custom", name: qsTr("Personalizado"), url: "", key: qsTr("tu-api-key"), model: "", note: qsTr("Cualquier endpoint /v1 compatible con OpenAI") }
-    ]
-    property bool toolCallingEnabled: true
-    property bool autoSpeak: false
-    property bool autoListen: false
-    property bool chimesEnabled: true
-    property string theme: "system"  // "system" | "dark" | "light"
-    property bool closeToTray: true
-
-    // Piper-tts
-    property string piperModel: "es_ES-sharvard-medium"
-    property real piperLengthScale: 1.0
-
-    // STT idioma
-    property string sttLanguage: "auto"
-    // F3-3: micro preferido + nivel en vivo (lo pasa Main).
-    property string micDevice: ""
-    property var audioDevices: []
-    property real micLevel: 0.0
-
-    // Voz avanzada (F1-4): se persisten, aplican al reiniciar el pipeline.
-    property string wakeWord: "hey jarvis"
-    property real wakeThreshold: 0.5
-    property string wakeGreeting: "Sí, dígame"
-    property string sttModel: "base"
-    // Motor STT: "auto" (API si hay Groq), "api" (forzar nube), "local".
-    property string sttBackend: "auto"
-    property string sttApiModel: "whisper-large-v3-turbo"
-
-    // Memoria (F5): todo local, nada sale del equipo salvo el prompt actual.
-    property bool memoryEnabled: true
-    property bool autoSummarize: true
+    property var endpointApprovals: ({})
+    property bool dirty: false
+    property bool deleteLegacyKey: false
+    property var credentialStates: ({})
+    property var deletedKeys: ({})
+    property var modelList: []
     property var memoryFacts: []
-
-    // Atajos (F1-4): formato "Super+Shift+A".
-    property string shortcutToggle: "Super+Shift+A"
-    property string shortcutPtt: "Super+Shift+V"
-    property string shortcutNewSession: "Ctrl+Shift+K"
-    property string shortcutMenu: "Super+Shift+M"
-
-    // Personaje (F8): Desktop Agent settings
-    property bool characterEnabled: false
-    property string characterMode: "companion"
-    property bool characterReducedMotion: false
-    property int characterSleepSecs: 240
-    property int characterSize: 140
-    property string characterAppearance: "capsule"
-    property string characterAccentColor: "#0094bb"
-
-    // Tabs
-    property string activeTab: "general"  // general | voz | atajos | memoria | personaje
-
-    // Backend
-    property string backendUrl: AuthToken.backendUrl
-    // Token del módulo privado generado por main.rs para este perfil.
-    property string authToken: AuthToken.token
-    function setAuth(xhr) {
-        if (authToken !== "") xhr.setRequestHeader("Authorization", "Bearer " + authToken)
+    property bool factsLoaded: false
+    property var audioDevices: []
+    property bool characterDetails: false
+    property real micLevel: 0
+    property int generation: 0
+    property var pendingRequest: null
+    property var navigation: [
+        {key:"general", label:qsTr("General"), help:qsTr("Comportamiento de la ventana y acceso rápido.")},
+        {key:"ia", label:qsTr("IA y proveedores"), help:qsTr("Cada proveedor conserva su propia clave, URL y modelo.")},
+        {key:"apariencia", label:qsTr("Apariencia"), help:qsTr("Personaliza el tema del asistente.")},
+        {key:"voz", label:qsTr("Voz"), help:qsTr("Whisper y Piper locales. Los ajustes de voz se aplican al reiniciar el pipeline.")},
+        {key:"herramientas", label:qsTr("Herramientas y permisos"), help:qsTr("Habilitar herramientas conserva las confirmaciones de seguridad F2.")},
+        {key:"privacidad", label:qsTr("Privacidad y datos"), help:qsTr("Controla la memoria local y conoce qué se envía al proveedor.")},
+        {key:"avanzado", label:qsTr("Avanzado"), help:qsTr("Parámetros de generación y ajustes técnicos de voz.")}
+    ]
+    property var providerCatalog: [
+        {id:"groq", name:"Groq", url:"https://api.groq.com/openai/v1", model:"openai/gpt-oss-120b"},
+        {id:"openrouter", name:"OpenRouter", url:"https://openrouter.ai/api/v1", model:"openrouter/z-ai/glm-5.2:free"},
+        {id:"openai", name:"OpenAI", url:"https://api.openai.com/v1", model:"gpt-4o-mini"},
+        {id:"deepseek", name:"DeepSeek", url:"https://api.deepseek.com/v1", model:"deepseek-chat"},
+        {id:"mistral", name:"Mistral", url:"https://api.mistral.ai/v1", model:"mistral-small-latest"},
+        {id:"xai", name:"xAI (Grok)", url:"https://api.x.ai/v1", model:""},
+        {id:"together", name:"Together AI", url:"https://api.together.xyz/v1", model:""},
+        {id:"fireworks", name:"Fireworks AI", url:"https://api.fireworks.ai/inference/v1", model:""},
+        {id:"cerebras", name:"Cerebras", url:"https://api.cerebras.ai/v1", model:""},
+        {id:"sambanova", name:"SambaNova", url:"https://api.sambanova.ai/v1", model:""},
+        {id:"lmstudio", name:"LM Studio", url:"http://127.0.0.1:1234/v1", model:""},
+        {id:"ollama", name:"Ollama", url:"http://127.0.0.1:11434/v1", model:""},
+        {id:"custom", name:qsTr("Personalizado"), url:"", model:""}
+    ]
+    onActiveTabChanged: {
+        if (formScroll && formScroll.contentItem) formScroll.contentItem.contentY = 0
     }
-    property var rawConfig: ({})   // config completa cargada del backend
-    property var modelList: []     // modelos ofrecidos por la API
-
     signal closed()
     signal saved()
-
     visible: open_
     color: Theme.overlayBackdrop
     z: 998
+    focus: open_
 
+    function cloneMap(value) { return JSON.parse(JSON.stringify(value || ({}))) }
+    function providerProfile(id) {
+        for (var i = 0; i < providerCatalog.length; ++i)
+            if (providerCatalog[i].id === id) return providerCatalog[i]
+        return providerCatalog[providerCatalog.length - 1]
+    }
+    function tabInfo() {
+        for (var i = 0; i < navigation.length; ++i)
+            if (navigation[i].key === activeTab) return navigation[i]
+        return navigation[0]
+    }
+    function markDirty() {
+        if (!loaded || busy) return
+        dirty = true
+        message(qsTr("Cambios pendientes de guardar."))
+    }
+    function endpointMismatch() {
+        var profile = providerProfile(provider)
+        if (provider === "custom" || !baseUrlField.value.trim()) return false
+        function origin(url) {
+            var match = String(url).trim().match(/^([a-z]+):\/\/([^/]+)/i)
+            return match ? (match[1] + "://" + match[2]).toLowerCase().replace(/:443$/, "") : ""
+        }
+        return origin(baseUrlField.value) !== origin(profile.url)
+    }
+    function approveEndpoint() {
+        var approvals = cloneMap(endpointApprovals)
+        var url = baseUrlField.value.trim().replace(/\/+$/, "")
+        if (approvals[provider] === url) delete approvals[provider]
+        else approvals[provider] = url
+        endpointApprovals = approvals
+        markDirty()
+    }
+    function message(text, kind) { statusText = text; statusKind = kind || "info" }
     function show() {
-        root.open_ = true
-        root.loadConfig()
+        open_ = true
+        loadConfig()
+        closeButton.forceActiveFocus()
     }
-
     function hide() {
-        root.open_ = false
-        root.closed()
+        if (busy) return
+        generation++
+        open_ = false
+        providerKeys = ({})
+        apiKeyField.value = ""
+        rawConfig = ({})
+        memoryFacts = []; factsLoaded = false
+        loaded = false
+        closed()
     }
-
-    function providerProfile(p) {
-        for (var i = 0; i < providerCatalog.length; ++i) {
-            if (providerCatalog[i].id === p) return providerCatalog[i]
+    function request(method, path, body, callback) {
+        if (busy) return
+        busy = true
+        var epoch = ++generation
+        var xhr = new XMLHttpRequest()
+        pendingRequest = xhr
+        xhr.open(method, backendUrl + path)
+        if (authToken) xhr.setRequestHeader("Authorization", "Bearer " + authToken)
+        if (body !== null) xhr.setRequestHeader("Content-Type", "application/json")
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState !== XMLHttpRequest.DONE || epoch !== generation) return
+            watchdog.stop()
+            pendingRequest = null
+            busy = false
+            if (xhr.status === 0) { message(qsTr("No se pudo contactar al backend. Los cambios no se confirmaron."), "error"); return }
+            var response = ({})
+            try { response = JSON.parse(xhr.responseText) } catch (e) {
+                message(qsTr("Respuesta inválida del backend. Los cambios no se confirmaron."), "error")
+                return
+            }
+            if (xhr.status === 200) {
+                try { callback(response) }
+                catch (e) { message(qsTr("El backend devolvió una respuesta de configuración incompleta o inválida."), "error") }
+            }
+            else if (xhr.status === 401) message(qsTr("La autenticación local falló. Reinicia la aplicación; la clave del proveedor no se ha comprobado."), "error")
+            else message(response.error || (xhr.status === 0 ? qsTr("No se pudo contactar al backend.") : qsTr("El backend rechazó la solicitud (HTTP %1).").arg(xhr.status)), "error")
         }
-        return providerCatalog[0]
+        watchdog.start()
+        xhr.send(body === null ? "" : JSON.stringify(body))
     }
-
-    function cloneMap(src) {
-        var out = ({})
-        if (!src) return out
-        for (var k in src) out[k] = src[k]
-        return out
-    }
-
     function rememberProviderFields() {
-        var keys = cloneMap(root.providerKeys)
-        var urls = cloneMap(root.providerBaseUrls)
-        var models = cloneMap(root.providerModels)
-        keys[root.provider] = apiKeyField.value || ""
-        urls[root.provider] = baseUrlField.value || ""
-        models[root.provider] = modelCombo.editText || ""
-        root.providerKeys = keys
-        root.providerBaseUrls = urls
-        root.providerModels = models
+        var keys = cloneMap(providerKeys), urls = cloneMap(providerBaseUrls), models = cloneMap(providerModels)
+        keys[provider] = apiKeyField.value
+        urls[provider] = baseUrlField.value.trim()
+        models[provider] = modelCombo.editText.trim()
+        providerKeys = keys; providerBaseUrls = urls; providerModels = models
     }
-
-    function applyProviderFields(p) {
-        var profile = providerProfile(p)
-        baseUrlField.value = root.providerBaseUrls[p] !== undefined ? root.providerBaseUrls[p] : profile.url
-        apiKeyField.value = root.providerKeys[p] !== undefined ? root.providerKeys[p] : ((p === "lmstudio" || p === "ollama") ? profile.key : "")
-        modelCombo.editText = root.providerModels[p] !== undefined ? root.providerModels[p] : profile.model
-        root.baseUrl = baseUrlField.value
-        root.apiKey = apiKeyField.value
-        root.model = modelCombo.editText
-        root.modelList = []
-        modelHint.color = Theme.inkMuted
-        modelHint.text = profile.note || ""
+    function applyProviderFields(id) {
+        var profile = providerProfile(id)
+        providerChoice.currentIndex = providerCatalog.findIndex(function(p) { return p.id === id })
+        apiKeyField.value = providerKeys[id] || ""
+        baseUrlField.value = providerBaseUrls[id] !== undefined ? providerBaseUrls[id] : profile.url
+        modelList = []
+        modelCombo.editText = providerModels[id] !== undefined ? providerModels[id] : profile.model
     }
-
-    function switchProvider(p) {
-        if (p === root.provider) return
+    function switchProvider(id) {
+        if (id === provider || busy) return
         rememberProviderFields()
-        root.provider = p
-        applyProviderFields(p)
+        provider = id
+        applyProviderFields(id)
+        markDirty()
     }
-
-    function providerBaseUrl(p) {
-        return providerProfile(p).url
+    function removeCredential() {
+        var keys = cloneMap(providerKeys), deleted = cloneMap(deletedKeys)
+        keys[provider] = ""; deleted[provider] = true
+        providerKeys = keys; deletedKeys = deleted
+        apiKeyField.value = ""
+        dirty = true
+        message(qsTr("La clave de este proveedor se eliminará al guardar. También se desactivará su fallback de entorno."))
     }
-
-    function keyPlaceholder() {
-        return providerProfile(root.provider).key || "sk-..."
+    function credentialText() {
+        if (apiKeyField.value.length > 0) return qsTr("Nueva clave pendiente de guardar")
+        if (deletedKeys[provider]) return qsTr("Eliminación pendiente de guardar")
+        if (credentialStates[provider] === "stored") return qsTr("Clave configurada · guardada en este equipo")
+        if (credentialStates[provider] === "environment") return qsTr("Clave configurada · variable de entorno")
+        return qsTr("Sin clave configurada")
     }
-
-    function providerMatches(profile, query) {
-        var q = String(query || "").trim().toLowerCase()
-        if (q === "") return true
-        var haystack = [
-            profile.id || "",
-            profile.name || "",
-            profile.note || "",
-            profile.url || "",
-            profile.model || ""
-        ].join(" ").toLowerCase()
-        return haystack.indexOf(q) >= 0
-    }
-
-    // Carga la config del backend y rellena los campos (imperativo, sin bindings)
-    function loadConfig() {
-        var xhr = new XMLHttpRequest()
-        xhr.open("GET", backendUrl + "/api/config")
-        setAuth(xhr)
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
-                var cfg = JSON.parse(xhr.responseText)
-                root.rawConfig = cfg
-                if (!cfg.ai) cfg.ai = {}
-                if (!cfg.speech) cfg.speech = {}
-                if (!cfg.ui) cfg.ui = {}
-                if (!cfg.shortcuts) cfg.shortcuts = {}
-                if (!cfg.memory) cfg.memory = {}
-                if (!cfg.character) cfg.character = {}
-                root.provider = cfg.ai.provider || "openrouter"
-                root.model = cfg.ai.model || ""
-                root.baseUrl = cfg.ai.base_url || ""
-                root.providerKeys = cloneMap(cfg.ai.provider_keys || ({}))
-                root.providerBaseUrls = cloneMap(cfg.ai.provider_base_urls || ({}))
-                root.providerModels = cloneMap(cfg.ai.provider_models || ({}))
-                // Migración suave: configs antiguas tenían una sola key/url/modelo.
-                if (Object.keys(root.providerKeys).length === 0 && cfg.ai.api_key)
-                    root.providerKeys[root.provider] = cfg.ai.api_key
-                if (root.providerBaseUrls[root.provider] === undefined && root.baseUrl)
-                    root.providerBaseUrls[root.provider] = root.baseUrl
-                if (root.providerModels[root.provider] === undefined && root.model)
-                    root.providerModels[root.provider] = root.model
-                root.apiKey = root.providerKeys[root.provider] || ""
-                root.toolCallingEnabled = cfg.ai.enable_tool_calling !== false
-                root.autoSpeak = cfg.speech.auto_speak === true
-                root.autoListen = cfg.speech.auto_listen === true
-                root.chimesEnabled = cfg.speech.chimes_enabled !== false
-                root.theme = cfg.ui.theme || "system"
-                root.closeToTray = cfg.ui.close_to_tray !== false
-                root.piperModel = cfg.speech.piper_model || "es_ES-sharvard-medium"
-                root.piperLengthScale = cfg.speech.piper_length_scale || 1.0
-                root.sttLanguage = cfg.speech.stt_language || "auto"
-                root.micDevice = cfg.speech.mic_device || ""
-                root.wakeWord = cfg.speech.wake_word || "hey jarvis"
-                root.wakeThreshold = cfg.speech.wake_word_threshold || 0.5
-                root.wakeGreeting = cfg.speech.wake_greeting || "Sí, dígame"
-                root.sttModel = cfg.speech.stt_model || "base"
-                root.sttBackend = cfg.speech.stt_backend || "auto"
-                root.sttApiModel = cfg.speech.stt_api_model || "whisper-large-v3-turbo"
-                root.shortcutToggle = cfg.shortcuts.toggle || "Super+Shift+A"
-                root.shortcutPtt = cfg.shortcuts.push_to_talk || "Super+Shift+V"
-                root.shortcutNewSession = cfg.shortcuts.new_session || "Ctrl+Shift+K"
-                root.shortcutMenu = cfg.shortcuts.menu || "Super+Shift+M"
-                root.memoryEnabled = cfg.memory.enabled !== false
-                root.autoSummarize = cfg.memory.auto_summarize !== false
-                root.characterEnabled = cfg.character.enabled === true
-                root.characterMode = cfg.character.mode || "companion"
-                root.characterReducedMotion = cfg.character.reduced_motion === true
-                root.characterSleepSecs = parseInt(cfg.character.sleep_timeout_secs) || 240
-                root.characterSize = parseInt(cfg.character.size) || 140
-                root.characterAppearance = cfg.character.appearance || "capsule"
-                root.characterAccentColor = cfg.character.accent_color || "#0094bb"
-                // Volcar a los campos (rompe nada: asignacion directa)
-                applyProviderFields(root.provider)
-                piperField.value = root.piperModel
-                speedSlider.value = root.piperLengthScale
-                wakeField.value = root.wakeWord
-                thresholdSlider.value = root.wakeThreshold
-                greetingField.value = root.wakeGreeting
-                toggleField.value = root.shortcutToggle
-                pttField.value = root.shortcutPtt
-                newSessionField.value = root.shortcutNewSession
-                menuField.value = root.shortcutMenu
-                // Presencia de credenciales y capacidades, sin consultas automáticas.
-                modelHint.text = cfg.ai.has_api_key ? qsTr("Clave guardada; deja el campo vacío para conservarla. Consulta modelos cuando lo necesites.") : qsTr("Falta clave API. Configura proveedor, modelo y clave para conversar.")
-                micHint.text = (cfg.capabilities && cfg.capabilities.detail) || qsTr("Voz diferida")
-                fetchFacts()
-            }
+    function hydrate(cfg) {
+        if (!cfg.ai || !cfg.ui || !cfg.speech || !cfg.tools || !cfg.shortcuts || !cfg.memory) {
+            message(qsTr("La configuración recibida está incompleta. Vuelve a cargarla."), "error"); return
         }
-        xhr.send()
+        rawConfig = cfg
+        provider = cfg.ai.provider
+        providerKeys = ({})
+        providerBaseUrls = cloneMap(cfg.ai.provider_base_urls)
+        providerModels = cloneMap(cfg.ai.provider_models)
+        endpointApprovals = cloneMap(cfg.ai.provider_endpoint_approvals)
+        if (providerBaseUrls[provider] === undefined) providerBaseUrls[provider] = cfg.ai.base_url
+        if (providerModels[provider] === undefined) providerModels[provider] = cfg.ai.model
+        credentialStates = cfg.ai.credential_states || ({})
+        deletedKeys = ({})
+        deleteLegacyKey = false
+        applyProviderFields(provider)
+        closeToTray.active = cfg.ui.close_to_tray
+        themeChoice.currentIndex = Math.max(0, ["system", "dark", "light"].indexOf(cfg.ui.theme))
+        toolCalling.active = cfg.ai.enable_tool_calling
+        autoSpeak.active = cfg.speech.auto_speak
+        autoListen.active = cfg.speech.auto_listen
+        chimes.active = cfg.speech.chimes_enabled
+        piperField.value = cfg.speech.piper_model
+        speedSlider.value = cfg.speech.piper_length_scale
+        languageField.value = cfg.speech.stt_language
+        micField.value = cfg.speech.mic_device
+        sttField.value = cfg.speech.stt_model
+        wakeField.value = cfg.speech.wake_word
+        greetingField.value = cfg.speech.wake_greeting
+        thresholdSlider.value = cfg.speech.wake_word_threshold
+        temperatureField.value = String(cfg.ai.temperature)
+        tokensField.value = String(cfg.ai.max_tokens)
+        memoryEnabled.active = cfg.memory.enabled
+        autoSummarize.active = cfg.memory.auto_summarize
+        toggleField.value = cfg.shortcuts.toggle
+        pttField.value = cfg.shortcuts.push_to_talk
+        newSessionField.value = cfg.shortcuts.new_session
+        menuField.value = cfg.shortcuts.menu
+        sttBackendChoice.currentIndex = Math.max(0, ["local", "auto", "api"].indexOf(cfg.speech.stt_backend))
+        sttApiField.value = cfg.speech.stt_api_model || "whisper-large-v3-turbo"
+        var character = cfg.character || ({})
+        characterEnabled.active = character.enabled === true
+        characterMotion.active = character.reduced_motion === true
+        characterModeChoice.currentIndex = Math.max(0, ["minimal", "reactive", "companion", "cinematic"].indexOf(character.mode))
+        characterShapeChoice.currentIndex = Math.max(0, ["capsule", "round", "pebble", "compact"].indexOf(character.appearance))
+        characterSizeField.value = String(character.size || 140)
+        characterSleepField.value = String(character.sleep_timeout_secs || 240)
+        characterColorField.value = character.accent_color || "#0094bb"
+        loaded = true
+        dirty = false
     }
-
-    // Facts de memoria local (F5): get/add/delete inmediatos.
     function fetchFacts() {
-        var xhr = new XMLHttpRequest()
-        xhr.open("GET", backendUrl + "/api/memory/facts")
-        setAuth(xhr)
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
-                try {
-                    root.memoryFacts = JSON.parse(xhr.responseText)
-                } catch (e) { root.memoryFacts = [] }
-            }
-        }
-        xhr.send()
+        request("GET", "/api/memory/facts", null, function(response) {
+            if (!Array.isArray(response)) { message(qsTr("Respuesta de memoria inválida."), "error"); return }
+            memoryFacts = response; factsLoaded = true; message(qsTr("Memoria local cargada."))
+        })
     }
-
     function addFact() {
-        var k = (factKeyField.value || "").trim()
-        var v = (factValueField.value || "").trim()
-        if (!k || !v) return
-        var xhr = new XMLHttpRequest()
-        xhr.open("POST", backendUrl + "/api/memory/facts")
-        xhr.setRequestHeader("Content-Type", "application/json")
-        setAuth(xhr)
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
-                factKeyField.value = ""
-                factValueField.value = ""
-                fetchFacts()
-            }
-        }
-        xhr.send(JSON.stringify({ key: k, value: v }))
+        if (!factKeyField.value.trim() || !factValueField.value.trim()) { message(qsTr("Escribe una etiqueta y un dato."), "error"); return }
+        request("POST", "/api/memory/facts", {key:factKeyField.value.trim(), value:factValueField.value.trim()}, function(response) {
+            if (response.status !== "ok") { message(qsTr("No se confirmó la escritura de memoria."), "error"); return }
+            factKeyField.value = ""; factValueField.value = ""; fetchFacts()
+        })
     }
-
     function deleteFact(key) {
-        var xhr = new XMLHttpRequest()
-        xhr.open("DELETE", backendUrl + "/api/memory/facts?key=" + encodeURIComponent(key))
-        setAuth(xhr)
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
-                fetchFacts()
-            }
-        }
-        xhr.send()
+        request("DELETE", "/api/memory/facts?key=" + encodeURIComponent(key), null, function(response) {
+            if (response.status !== "ok") { message(qsTr("No se confirmó la eliminación."), "error"); return }
+            fetchFacts()
+        })
     }
-
-    // Lista los micrófonos del sistema (F3-3).
     function fetchAudioDevices() {
-        micHint.text = qsTr("Buscando micrófonos…")
-        var xhr = new XMLHttpRequest()
-        xhr.open("GET", backendUrl + "/api/audio/devices")
-        setAuth(xhr)
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE) {
-                if (xhr.status === 200) {
-                    try {
-                        var resp = JSON.parse(xhr.responseText)
-                        var list = resp.devices || []
-                        root.audioDevices = list
-                        var cur = resp.current || root.micDevice
-                        var idx = list.indexOf(cur)
-                        micCombo.currentIndex = idx >= 0 ? idx : -1
-                        micHint.text = list.length > 0
-                            ? qsTr("%n micrófono(s)", "", list.length)
-                            : qsTr("Sin micrófonos detectados")
-                    } catch (e) {
-                        micHint.text = qsTr("Respuesta inválida del servidor")
-                    }
-                } else {
-                    micHint.text = qsTr("No se pudo contactar al backend")
-                }
-            }
-        }
-        xhr.send()
+        request("GET", "/api/audio/devices", null, function(response) {
+            audioDevices = response.devices || []
+            message(qsTr("%1 micrófonos disponibles.").arg(audioDevices.length))
+        })
     }
-
-    // Pide al backend la lista de modelos de la API (usa los campos actuales,
-    // sin necesidad de haber guardado). Rellena el desplegable.
-    function fetchModels() {
-        modelHint.text = qsTr("Cargando modelos…")
-        var xhr = new XMLHttpRequest()
-        xhr.open("POST", backendUrl + "/api/ai-models")
-        xhr.setRequestHeader("Content-Type", "application/json")
-        setAuth(xhr)
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE) {
-                if (xhr.status === 200) {
-                    try {
-                        var resp = JSON.parse(xhr.responseText)
-                        var list = resp.models || []
-                        // Preservar lo escrito: cambiar el modelo resetea el campo
-                        var keep = modelCombo.editText
-                        root.modelList = list
-                        modelCombo.editText = keep
-                        var toolsNote = root.toolCallingEnabled ? qsTr(" · tools ON") : qsTr(" · tools OFF")
-                        if (list.length > 0) {
-                            modelHint.text = qsTr("%n modelo(s) disponibles", "", list.length) + toolsNote
-                            // El modelo escrito ya no existe en la API (retirado):
-                            // avisarlo claro en vez de un 404 mudo al chatear.
-                            if (keep && list.indexOf(keep) === -1) {
-                                modelHint.text = qsTr("“%1” no está en la API (¿retirado?). Elige uno de la lista.").arg(keep) + toolsNote
-                                modelHint.color = Theme.warn
-                            } else {
-                                modelHint.color = Theme.inkMuted
-                            }
-                        } else if (resp.error) {
-                            modelHint.text = resp.error + toolsNote
-                        } else {
-                            modelHint.text = qsTr("La API no devolvio modelos") + toolsNote
-                        }
-                    } catch (e) {
-                        modelHint.text = qsTr("Respuesta invalida del servidor")
-                    }
-                } else if (xhr.status === 401) {
-                    modelHint.text = qsTr("No autorizado: reinicia la app")
-                } else {
-                    modelHint.text = qsTr("No se pudo contactar al backend")
-                }
-            }
-        }
-        xhr.send(JSON.stringify({
-            base_url: baseUrlField.value,
-            api_key: apiKeyField.value,
-            provider: root.provider
-        }))
+    function loadConfig(keepStatus) {
+        if (busy) return
+        loaded = false
+        if (!keepStatus) message(qsTr("Cargando configuración…"))
+        request("GET", "/api/config", null, function(cfg) {
+            hydrate(cfg)
+            if (loaded && !keepStatus) message("")
+        })
     }
-
-    // Guarda la config en el backend (lee los campos por id)
     function saveConfig() {
-        var cfg = root.rawConfig
-        if (!cfg.ai) cfg.ai = {}
-        if (!cfg.speech) cfg.speech = {}
-        if (!cfg.ui) cfg.ui = {}
-        cfg.ui.close_to_tray = root.closeToTray
-        if (!cfg.shortcuts) cfg.shortcuts = {}
-        if (!cfg.memory) cfg.memory = {}
+        if (!loaded || busy) return
         rememberProviderFields()
-        cfg.ai.provider = root.provider
-        cfg.ai.provider_keys = cloneMap(root.providerKeys)
-        cfg.ai.provider_base_urls = cloneMap(root.providerBaseUrls)
-        cfg.ai.provider_models = cloneMap(root.providerModels)
-        cfg.ai.api_key = root.providerKeys[root.provider] || ""
-        cfg.ai.model = root.providerModels[root.provider] || ""
-        cfg.ai.base_url = root.providerBaseUrls[root.provider] || providerBaseUrl(root.provider)
-        cfg.ai.enable_tool_calling = toolCallingEnabled
-        cfg.speech.auto_speak = autoSpeak
-        cfg.speech.auto_listen = autoListen
-        cfg.speech.chimes_enabled = chimesEnabled
-        cfg.speech.piper_model = piperField.value
+        var cfg = cloneMap(rawConfig)
+        cfg.ai.provider = provider
+        cfg.ai.api_key = ""
+        cfg.ai.provider_keys = cloneMap(providerKeys)
+        cfg.ai.provider_base_urls = cloneMap(providerBaseUrls)
+        cfg.ai.provider_models = cloneMap(providerModels)
+        cfg.ai.provider_endpoint_approvals = cloneMap(endpointApprovals)
+        cfg.ai.base_url = providerBaseUrls[provider]
+        cfg.ai.model = providerModels[provider]
+        cfg.ai.enable_tool_calling = toolCalling.active
+        cfg.ai.temperature = Number(temperatureField.value)
+        cfg.ai.max_tokens = Number(tokensField.value)
+        if (!baseUrlField.value.trim() || !cfg.ai.model || !temperatureField.inputItem.acceptableInput || !tokensField.inputItem.acceptableInput) {
+            message(qsTr("Revisa URL, modelo y parámetros de Avanzado antes de guardar."), "error"); return
+        }
+        cfg.ui.close_to_tray = closeToTray.active
+        cfg.ui.theme = ["system", "dark", "light"][themeChoice.currentIndex]
+        cfg.speech.auto_speak = autoSpeak.active
+        cfg.speech.auto_listen = autoListen.active
+        cfg.speech.chimes_enabled = chimes.active
+        cfg.speech.piper_model = piperField.value.trim()
         cfg.speech.piper_length_scale = speedSlider.value
-        cfg.speech.stt_language = sttLanguage
-        cfg.speech.mic_device = micCombo.currentIndex >= 0 ? root.audioDevices[micCombo.currentIndex] : ""
-        cfg.speech.wake_word = wakeField.value
+        cfg.speech.stt_language = languageField.value.trim()
+        cfg.speech.mic_device = micField.value.trim()
+        cfg.speech.stt_model = sttField.value.trim()
+        cfg.speech.wake_word = wakeField.value.trim()
         cfg.speech.wake_word_threshold = thresholdSlider.value
         cfg.speech.wake_greeting = greetingField.value
-        cfg.speech.stt_model = sttModel
-        cfg.speech.stt_backend = sttBackend
-        cfg.speech.stt_api_model = sttApiModel
-        cfg.shortcuts.toggle = toggleField.value
-        cfg.shortcuts.push_to_talk = pttField.value
-        cfg.shortcuts.new_session = newSessionField.value
-        cfg.shortcuts.menu = menuField.value
-        cfg.memory.enabled = memoryEnabled
-        cfg.memory.auto_summarize = autoSummarize
-        if (!cfg.character) cfg.character = {}
-        cfg.character.enabled = characterEnabled
-        cfg.character.mode = characterMode
-        cfg.character.reduced_motion = characterReducedMotion
-        cfg.character.sleep_timeout_secs = characterSleepSecs
-        cfg.character.size = characterSize
-        cfg.character.appearance = characterAppearance
-        cfg.character.accent_color = characterAccentColor
-        // Refrescar props locales para que la UI quede consistente
-        root.apiKey = cfg.ai.api_key
-        root.model = cfg.ai.model
-        root.baseUrl = cfg.ai.base_url
-        root.piperModel = piperField.value
-        root.piperLengthScale = speedSlider.value
-        root.micDevice = micCombo.currentIndex >= 0 ? root.audioDevices[micCombo.currentIndex] : ""
-        root.wakeWord = wakeField.value
-        root.wakeThreshold = thresholdSlider.value
-        root.wakeGreeting = greetingField.value
-        root.shortcutToggle = toggleField.value
-        root.shortcutPtt = pttField.value
-        root.shortcutNewSession = newSessionField.value
-        root.shortcutMenu = menuField.value
-        root.characterEnabled = characterEnabled
-        root.characterMode = characterMode
-        root.characterReducedMotion = characterReducedMotion
-        root.characterSleepSecs = characterSleepSecs
-        root.characterSize = characterSize
-        root.characterAppearance = characterAppearance
-        root.characterAccentColor = characterAccentColor
-
-        var xhr = new XMLHttpRequest()
-        xhr.open("POST", backendUrl + "/api/config")
-        xhr.setRequestHeader("Content-Type", "application/json")
-        setAuth(xhr)
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE) {
-                if (xhr.status === 200) {
-                    root.saved()
-                    root.hide()
-                } else {
-                    root.activeTab = "general"
-                    modelHint.color = Theme.error
-                    try {
-                        modelHint.text = JSON.parse(xhr.responseText).error || qsTr("No se pudo guardar la configuración")
-                    } catch (e) {
-                        modelHint.text = qsTr("No se pudo guardar la configuración; revisa el backend")
-                    }
-                }
+        cfg.memory.enabled = memoryEnabled.active
+        cfg.memory.auto_summarize = autoSummarize.active
+        cfg.shortcuts.toggle = toggleField.value.trim()
+        cfg.shortcuts.push_to_talk = pttField.value.trim()
+        cfg.shortcuts.new_session = newSessionField.value.trim()
+        cfg.shortcuts.menu = menuField.value.trim()
+        cfg.speech.stt_backend = ["local", "auto", "api"][sttBackendChoice.currentIndex]
+        cfg.speech.stt_api_model = sttApiField.value.trim()
+        if (!characterSizeField.inputItem.acceptableInput || !characterSleepField.inputItem.acceptableInput || !characterColorField.inputItem.acceptableInput) {
+            message(qsTr("Revisa los ajustes del personaje en Apariencia."), "error"); return
+        }
+        cfg.character = cfg.character || ({})
+        cfg.character.enabled = characterEnabled.active
+        cfg.character.reduced_motion = characterMotion.active
+        cfg.character.mode = ["minimal", "reactive", "companion", "cinematic"][characterModeChoice.currentIndex]
+        cfg.character.appearance = ["capsule", "round", "pebble", "compact"][characterShapeChoice.currentIndex]
+        cfg.character.size = Number(characterSizeField.value)
+        cfg.character.sleep_timeout_secs = Number(characterSleepField.value)
+        cfg.character.accent_color = characterColorField.value
+        cfg.delete_legacy_key = deleteLegacyKey
+        cfg.delete_provider_keys = Object.keys(deletedKeys).filter(function(id) { return deletedKeys[id] && !(providerKeys[id] || "").length })
+        message(qsTr("Guardando…"))
+        request("POST", "/api/config", cfg, function(response) {
+            if (response.status !== "ok") { message(qsTr("El backend no confirmó el guardado."), "error"); return }
+            message(qsTr("Guardado. Los cambios se confirmaron en el servidor."), "success")
+            saved()
+            loadConfig(true)
+        })
+    }
+    function providerRequest() {
+        return {provider:provider, base_url:baseUrlField.value.trim(), api_key:apiKeyField.value,
+                model:modelCombo.editText.trim(), approved_endpoint:endpointApprovals[provider] || "", remove_key:deletedKeys[provider] === true && apiKeyField.value.length === 0}
+    }
+    function fetchModels() {
+        message(qsTr("Consultando modelos…"))
+        request("POST", "/api/ai-models", providerRequest(), function(response) {
+            var keep = modelCombo.editText
+            modelList = response.models || []
+            modelCombo.editText = keep
+            message(modelList.indexOf(keep) < 0 ? qsTr("El modelo elegido no aparece en el catálogo. Selecciona un modelo disponible.") : qsTr("%1 modelos disponibles.").arg(modelList.length))
+        })
+    }
+    function testConnection() {
+        message(qsTr("Probando catálogo y streaming…"))
+        request("POST", "/api/ai-test", providerRequest(), function(response) {
+            if (response.status === "ok") message(response.message, "success")
+            else message(qsTr("El backend no confirmó la conexión."), "error")
+        })
+    }
+    function inside(item, ancestor) {
+        while (item) { if (item === ancestor) return true; item = item.parent }
+        return false
+    }
+    Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_Escape) { hide(); event.accepted = true }
+        if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+            var backwards = event.key === Qt.Key_Backtab || (event.modifiers & Qt.ShiftModifier)
+            var current = root.Window.window.activeFocusItem
+            if (current && !inside(current.nextItemInFocusChain(!backwards), panel)) {
+                if (backwards) saveButton.forceActiveFocus(); else closeButton.forceActiveFocus()
+                event.accepted = true
             }
         }
-        xhr.send(JSON.stringify(cfg))
     }
-
-    MouseArea {
-        anchors.fill: parent
-        onClicked: root.hide()
+    Timer {
+        id: watchdog
+        objectName: "settingsWatchdog"
+        interval: 30000
+        onTriggered: {
+            root.generation++
+            if (root.pendingRequest) root.pendingRequest.abort()
+            root.pendingRequest = null
+            root.busy = false
+            root.message(qsTr("El backend no respondió a tiempo. Los cambios no se confirmaron; vuelve a cargar para comprobarlos."), "error")
+        }
     }
-
-    // === Panel de settings ===
+    MouseArea { anchors.fill: parent; onClicked: root.hide() }
     Rectangle {
         id: panel
         objectName: "settingsPanel"
         anchors.centerIn: parent
-        width: Math.min(parent.width - 24, 760)
-        height: Math.min(parent.height - 32, 720)
-        radius: Theme.radiusLg + 2
+        width: Math.min(parent.width - Theme.spacingLg, 900)
+        height: Math.min(parent.height - Theme.spacingXl, 700)
+        radius: Theme.radiusLg
         color: Theme.surface
-        border.width: 1
         border.color: Theme.hairline
-
-        // Sombra
-        Rectangle {
-            anchors.fill: parent
-            anchors.margins: -4
-            z: -1
-            color: Theme.shadowCard
-            opacity: 0.5
-            radius: parent.radius + 4
-        }
-
-        MouseArea {
-            anchors.fill: parent
-            acceptedButtons: Qt.AllButtons
-        }
-
+        MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons }
         ColumnLayout {
             anchors.fill: parent
-            anchors.leftMargin: Theme.spacingLg
-            anchors.topMargin: Theme.spacingLg
-            anchors.bottomMargin: Theme.spacingLg
-            // Margen derecho estrecho (8px): el ScrollBar del form queda
-            // pegado al borde del panel. Header, tabs y footer recuperan
-            // el aire con Layout.rightMargin: 10 para alinearse con el form.
-            anchors.rightMargin: Theme.spacingXs
+            anchors.margins: Theme.spacingLg
             spacing: Theme.spacingMd
-
-            // === Header ===
             RowLayout {
                 Layout.fillWidth: true
-                Layout.rightMargin: 10
-                spacing: Theme.spacingXs
-
-                Text {
-                    text: qsTr("Configuracion")
-                    font: Theme.font(Theme.fontSizeTagline, Theme.weightBold, -0.1)
-                    color: Theme.ink
-                    Layout.fillWidth: true
-                }
-
-                IconButton {
-                    iconName: "x-16"
-                    iconSize: 18
-                    buttonSize: 32
-                    backgroundColor: "transparent"
-                    iconColor: Theme.ink
-                    onClicked: root.hide()
-                }
+                Text { text: qsTr("Configuración"); color: Theme.ink; font: Theme.font(Theme.fontSizeTagline, Theme.weightBold); Layout.fillWidth: true }
+                SettingsButton { id: closeButton; KeyNavigation.backtab: saveButton; KeyNavigation.priority: KeyNavigation.BeforeItem; objectName: "settingsClose"; text: qsTr("Cerrar"); enabled: !root.busy; onClicked: root.hide() }
             }
-
+            Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Theme.hairline }
             RowLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                spacing: Theme.spacingSm
-                ColumnLayout {
-                    Layout.preferredWidth: panel.width < 500 ? 88 : 132
+                spacing: Theme.spacingLg
+                ScrollView {
+                    visible: panel.width >= 650
+                    Layout.preferredWidth: 184
                     Layout.fillHeight: true
-                    spacing: Theme.spacingXs
-                    Repeater {
-                        model: [
-                            {key:"general", label:qsTr("General")},
-                            {key:"voz", label:qsTr("Voz")},
-                            {key:"atajos", label:qsTr("Atajos")},
-                            {key:"memoria", label:qsTr("Memoria")},
-                            {key:"personaje", label:qsTr("Personaje")}
-                        ]
-                        delegate: Button {
-                            required property var modelData
-                            Layout.fillWidth: true
-                            text: modelData.label
-                            checkable: true
-                            checked: root.activeTab === modelData.key
-                            Accessible.name: text
-                            onClicked: {
-                                root.activeTab = modelData.key
-                                formScroll.contentItem.contentY = 0
-                            }
-                            contentItem: Text {
-                                text: parent.text
-                                color: parent.checked ? Theme.inkOnPrimary : Theme.ink
-                                font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0)
-                                elide: Text.ElideRight
-                            }
-                            background: Rectangle {
-                                radius: Theme.radiusSm
-                                color: parent.checked ? Theme.primary : parent.hovered ? Theme.surfaceHover : Theme.surfacePearl
-                                border.color: parent.activeFocus ? Theme.primary : "transparent"
-                            }
-                        }
-                    }
-                    Item { Layout.fillHeight: true }
-                }
-
-            // === Form ===
-            ScrollView {
-                id: formScroll
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                clip: true
-                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-                ScrollBar.vertical: ScrollBar {
-                    policy: ScrollBar.AsNeeded
-                    // El ScrollView no dimensiona ni coloca las barras custom
-                    // (quedan en x=0,h=0): anclas explicitas a la derecha y
-                    // a altura completa del form. En ListView no hace falta.
-                    anchors.top: parent.top
-                    anchors.bottom: parent.bottom
-                    anchors.right: parent.right
-                    anchors.rightMargin: 2
-                    width: 6
-                    padding: 0
-                    // Sin pista ni linea separadora: solo el thumb flotante.
-                    background: Item {}
-                    contentItem: Rectangle {
-                        radius: 3
-                        color: Theme.inkMuted
-                        opacity: parent.active ? 0.65 : 0.35
-                        Behavior on opacity {
-                            NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutCubic }
-                        }
-                    }
-                }
-
-                ColumnLayout {
-                    // 10px de aire a la derecha para el thumb overlay de 6px.
-                    width: formScroll.availableWidth - 10
-                    spacing: Theme.spacingMd
-
-                    // --- TAB: General ---
+                    contentWidth: availableWidth
+                    clip: true
                     ColumnLayout {
-                        visible: root.activeTab === "general"
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingMd
-
-                    // AI section
-                    Text {
-                        text: qsTr("Inteligencia Artificial")
-                        font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0.4)
-                        color: Theme.inkMuted
-                        Layout.fillWidth: true
-                    }
-
-                    Text {
-                        text: qsTr("Proveedor")
-                        font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, -0.05)
-                        color: Theme.inkMuted
-                        Layout.fillWidth: true
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 64
-                        radius: Theme.radiusMd
-                        color: Theme.surfacePearl
-                        border.width: 1
-                        border.color: Theme.hairline
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.margins: Theme.spacingSm
-                            spacing: Theme.spacingSm
-
-                            Rectangle {
-                                Layout.preferredWidth: 36
-                                Layout.preferredHeight: 36
-                                radius: Theme.radiusPill
-                                color: Qt.rgba(0.16, 0.58, 1.0, 0.16)
-                                Octicon {
-                                    anchors.centerIn: parent
-                                    name: "hubot-16"
-                                    size: 16
-                                    color: Theme.primary
-                                }
-                            }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 2
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: providerProfile(root.provider).name
-                                    color: Theme.ink
-                                    font: Theme.font(Theme.fontSizeBody, Theme.weightBold, Theme.lsBody)
-                                    elide: Text.ElideRight
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: providerProfile(root.provider).note
-                                    color: Theme.inkMuted
-                                    font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
-                                    elide: Text.ElideRight
-                                }
-                            }
-
-                            Text {
-                                text: qsTr("Activo")
-                                color: Theme.primary
-                                font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.2)
-                            }
-                        }
-                    }
-
-                    TextField {
-                        id: providerSearchField
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 38
-                        text: root.providerSearch
-                        placeholderText: qsTr("Buscar proveedor por nombre, API o modelo…")
-                        placeholderTextColor: Theme.inkMuted
-                        color: Theme.ink
-                        font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
-                        selectByMouse: true
-                        Accessible.name: qsTr("Buscar proveedor de IA")
-                        onTextChanged: root.providerSearch = text
-                        Keys.onDownPressed: {
-                            providerList.currentIndex = 0
-                            providerList.forceActiveFocus()
-                        }
-                        background: Rectangle {
-                            radius: Theme.radiusMd
-                            color: providerSearchField.activeFocus ? Theme.surface : Theme.surfacePearl
-                            border.width: 1
-                            border.color: providerSearchField.activeFocus ? Theme.primary : Theme.hairline
-                        }
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: Math.min(244, Math.max(48, providerList.count * 48))
-                        radius: Theme.radiusMd
-                        color: Theme.surfacePearl
-                        border.width: 1
-                        border.color: Theme.hairline
-                        clip: true
-
-                        ListView {
-                            id: providerList
-                            anchors.fill: parent
-                            anchors.margins: 4
-                            clip: true
-                            currentIndex: 0
-                            model: root.providerCatalog.filter(function(profile) {
-                                return root.providerMatches(profile, providerSearchField.text)
-                            })
-                            ScrollBar.vertical: ScrollBar {
-                                policy: ScrollBar.AsNeeded
-                            }
-                            Keys.onReturnPressed: {
-                                if (currentIndex >= 0 && currentIndex < count)
-                                    root.switchProvider(model[currentIndex].id)
-                            }
-                            delegate: Button {
-                                id: providerChoice
+                        width: parent.width
+                        spacing: Theme.spacingXs
+                        Repeater {
+                            model: root.navigation
+                            SettingsButton {
                                 required property var modelData
-                                width: providerList.width
-                                height: 48
-                                checkable: true
-                                checked: root.provider === modelData.id
-                                Accessible.name: modelData.name
-                                onClicked: {
-                                    root.switchProvider(modelData.id)
-                                    providerSearchField.forceActiveFocus()
-                                }
-                                contentItem: RowLayout {
-                                    anchors.fill: parent
-                                    anchors.leftMargin: Theme.spacingSm
-                                    anchors.rightMargin: Theme.spacingSm
-                                    spacing: Theme.spacingSm
-                                    ColumnLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 1
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: modelData.name
-                                            color: providerChoice.checked ? Theme.inkOnPrimary : Theme.ink
-                                            font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0)
-                                            elide: Text.ElideRight
-                                        }
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: modelData.url
-                                            color: providerChoice.checked ? Qt.rgba(1,1,1,0.72) : Theme.inkMuted
-                                            font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
-                                            elide: Text.ElideMiddle
-                                        }
-                                    }
-                                    Text {
-                                        text: modelData.model
-                                        color: providerChoice.checked ? Qt.rgba(1,1,1,0.8) : Theme.inkMuted
-                                        font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
-                                        elide: Text.ElideRight
-                                        Layout.maximumWidth: Math.max(84, providerList.width * 0.32)
-                                    }
-                                }
-                                background: Rectangle {
-                                    radius: Theme.radiusSm
-                                    color: parent.checked ? Theme.primary : parent.hovered ? Theme.surfaceHover : Theme.surfacePearl
-                                    Behavior on color {
-                                        ColorAnimation { duration: Theme.animFast; easing.type: Easing.OutCubic }
-                                    }
+                                objectName: "settingsNav_" + modelData.key
+                                Layout.fillWidth: true
+                                implicitHeight: Theme.buttonIconSize + Theme.spacingXs
+                                text: modelData.label
+                                primary: root.activeTab === modelData.key
+                                onClicked: { root.activeTab = modelData.key; formScroll.contentItem.contentY = 0 }
+                                contentItem: Text {
+                                    text: parent.text; wrapMode: Text.Wrap; verticalAlignment: Text.AlignVCenter
+                                    font: Theme.font(Theme.fontSizeBodySmall, Theme.weightBold)
+                                    color: parent.primary ? Theme.inkOnPrimary : Theme.ink
                                 }
                             }
                         }
-
-                        Text {
-                            anchors.centerIn: parent
-                            visible: providerList.count === 0
-                            text: qsTr("Sin proveedores para esa búsqueda")
-                            color: Theme.inkMuted
-                            font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
-                        }
                     }
-
-                    SettingsField {
-                        id: baseUrlField
-                        Layout.fillWidth: true
-                        label: qsTr("API URL")
-                        placeholder: "https://..."
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    SettingsChoice {
+                        visible: panel.width < 650
+                        objectName: "settingsNavigation"
+                        model: root.navigation
+                        textRole: "label"
+                        currentIndex: root.navigation.findIndex(function(p) { return p.key === root.activeTab })
+                        onActivated: { root.activeTab = root.navigation[currentIndex].key; formScroll.contentItem.contentY = 0 }
                     }
-
-                    SettingsField {
-                        id: apiKeyField
+                    Text { text: root.tabInfo().label; font: Theme.font(Theme.fontSizeBodyStrong, Theme.weightBold); color: Theme.ink; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                    Text { text: root.tabInfo().help; font: Theme.font(Theme.fontSizeBodySmall); color: Theme.inkMuted80; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                    ScrollView {
+                        id: formScroll
+                        objectName: "settingsScroll"
                         Layout.fillWidth: true
-                        label: qsTr("API Key")
-                        placeholder: keyPlaceholder()
-                        isPassword: true
-                    }
-
-                    // Modelo: un solo control editable (muestra, escribe y elige)
-                    Text {
-                        text: qsTr("Modelo")
-                        font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, -0.05)
-                        color: Theme.inkMuted
-                        Layout.fillWidth: true
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingXs
-
-                        ModelPicker {
-                            id: modelCombo
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 40
-                            models: root.modelList
-                        }
-
-                        IconButton {
-                            iconName: "sync-16"
-                            iconSize: 18
-                            buttonSize: 36
-                            backgroundColor: Theme.surfacePearl
-                            iconColor: Theme.ink
-                            onClicked: fetchModels()
-                        }
-                    }
-
-                    Text {
-                        id: modelHint
-                        text: ""
-                        font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
-                        color: Theme.inkMuted
-                        wrapMode: Text.Wrap
-                        Layout.fillWidth: true
-                    }
-
-                    SettingsToggle {
-                        Layout.fillWidth: true
-                        label: qsTr("Tool calling (agente)")
-                        description: qsTr("Permitir al asistente ejecutar herramientas")
-                        active: root.toolCallingEnabled
-                        onToggled: root.toolCallingEnabled = !root.toolCallingEnabled
-                    }
-
-                    // Tema
-                    SettingsToggle {
-                        Layout.fillWidth: true
-                        label: qsTr("Cerrar a la bandeja")
-                        description: qsTr("Al cerrar la ventana, mantener el asistente disponible en la bandeja")
-                        active: root.closeToTray
-                        onToggled: root.closeToTray = !root.closeToTray
-                    }
-                    Text {
-                        text: qsTr("Apariencia")
-                        font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0.4)
-                        color: Theme.inkMuted
-                        Layout.topMargin: Theme.spacingMd
-                        Layout.fillWidth: true
-                    }
-
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingXs
-                        PillButton {
-                            text: qsTr("Sistema")
-                            active: root.theme === "system"
-                            onClicked: root.theme = "system"
-                        }
-                        PillButton {
-                            text: qsTr("Oscuro")
-                            active: root.theme === "dark"
-                            onClicked: root.theme = "dark"
-                        }
-                        PillButton {
-                            text: qsTr("Claro")
-                            active: root.theme === "light"
-                            onClicked: root.theme = "light"
-                        }
-                    }
-
-                    } // General
-
-                    // --- TAB: Voz ---
-                    ColumnLayout {
-                        visible: root.activeTab === "voz"
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingSm
-
-                    // Voz
-                    Text {
-                        text: qsTr("Voz (piper-tts neural)")
-                        font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0.4)
-                        color: Theme.inkMuted
-                        Layout.fillWidth: true
-                    }
-
-                    Text {
-                        text: qsTr("Reconocimiento (STT)")
-                        font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
-                        color: Theme.inkMuted
-                        Layout.fillWidth: true
-                    }
-
-                    // Idioma STT
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingXs
-                        PillButton {
-                            text: qsTr("Auto")
-                            active: root.sttLanguage === "auto"
-                            onClicked: root.sttLanguage = "auto"
-                        }
-                        PillButton {
-                            text: qsTr("Español")
-                            active: root.sttLanguage === "es"
-                            onClicked: root.sttLanguage = "es"
-                        }
-                        PillButton {
-                            text: qsTr("Inglés")
-                            active: root.sttLanguage === "en"
-                            onClicked: root.sttLanguage = "en"
-                        }
-                    }
-
-                    Text {
-                        text: qsTr("Motor STT (transcripción de voz)")
-                        font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
-                        color: Theme.inkMuted
-                        Layout.topMargin: Theme.spacingSm
-                        Layout.fillWidth: true
-                    }
-
-                    // Motor STT: Groq API (rápido, ~1s) o whisper local.
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingXs
-                        PillButton {
-                            text: qsTr("Auto")
-                            active: root.sttBackend === "auto"
-                            onClicked: root.sttBackend = "auto"
-                        }
-                        PillButton {
-                            text: qsTr("API Groq (rápido)")
-                            active: root.sttBackend === "api"
-                            onClicked: root.sttBackend = "api"
-                        }
-                        PillButton {
-                            text: qsTr("Local (sin nube)")
-                            active: root.sttBackend === "local"
-                            onClicked: root.sttBackend = "local"
-                        }
-                    }
-                    Text {
-                        text: qsTr("Auto usa la API de Groq si hay key; si no, whisper local. El audio de tus turnos de voz sale a Groq en modo API.")
-                        font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
-                        color: Theme.inkMuted
-                        wrapMode: Text.Wrap
-                        Layout.fillWidth: true
-                    }
-
-                    // Modelo del API (solo cuando el backend no es local)
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingXs
-                        visible: root.sttBackend !== "local"
-
-                        ComboBox {
-                            id: sttApiModelCombo
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 36
-                            model: ["whisper-large-v3-turbo", "whisper-large-v3"]
-                            Component.onCompleted: {
-                                currentIndex = root.sttApiModel === "whisper-large-v3" ? 1 : 0
-                            }
-                            onActivated: root.sttApiModel = currentText
-                            font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
-                            background: Rectangle {
-                                radius: Theme.radiusMd
-                                color: sttApiModelCombo.hovered || sttApiModelCombo.activeFocus ? Theme.surface : Theme.surfacePearl
-                                border.width: 1
-                                border.color: sttApiModelCombo.activeFocus ? Theme.primary : Theme.hairline
-                            }
-                        }
-                    }
-                    Text {
-                        visible: root.sttBackend !== "local"
-                        text: qsTr("turbo: ~0.2x tiempo real, $0.04/h. large-v3: un poco más preciso, $0.111/h.")
-                        font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
-                        color: Theme.inkMuted
-                        wrapMode: Text.Wrap
-                        Layout.fillWidth: true
-                    }
-
-                    Text {
-                        text: qsTr("Modelo STT local (sin nube, requiere reiniciar)")
-                        font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
-                        color: Theme.inkMuted
-                        Layout.topMargin: Theme.spacingSm
-                        Layout.fillWidth: true
-                    }
-
-                    // Modelo STT: tiny rápido, base preciso.
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingXs
-                        PillButton {
-                            text: qsTr("tiny (rápido)")
-                            active: root.sttModel === "tiny"
-                            onClicked: root.sttModel = "tiny"
-                        }
-                        PillButton {
-                            text: qsTr("base (preciso)")
-                            active: root.sttModel === "base"
-                            onClicked: root.sttModel = "base"
-                        }
-                    }
-                    Text {
-                        text: qsTr("tiny ≈ 75MB, base ≈ 140MB. Solo se usa con motor Local o como respaldo si la API falla.")
-                        font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
-                        color: Theme.inkMuted
-                        wrapMode: Text.Wrap
-                        Layout.fillWidth: true
-                    }
-
-                    Text {
-                        text: qsTr("Micrófono (se aplica al reiniciar)")
-                        font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
-                        color: Theme.inkMuted
-                        Layout.topMargin: Theme.spacingSm
-                        Layout.fillWidth: true
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingXs
-
-                        ComboBox {
-                            id: micCombo
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 36
-                            model: root.audioDevices
-                            font: Theme.font(Theme.fontSizeBody, Theme.weightNormal, Theme.lsBody)
-                            background: Rectangle {
-                                radius: Theme.radiusMd
-                                color: micCombo.hovered || micCombo.activeFocus ? Theme.surface : Theme.surfacePearl
-                                border.width: 1
-                                border.color: micCombo.activeFocus ? Theme.primary : Theme.hairline
-                            }
-                        }
-
-                        IconButton {
-                            iconName: "sync-16"
-                            iconSize: 18
-                            buttonSize: 36
-                            backgroundColor: Theme.surfacePearl
-                            iconColor: Theme.ink
-                            onClicked: fetchAudioDevices()
-                        }
-                    }
-
-                    Text {
-                        id: micHint
-                        text: ""
-                        font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
-                        color: Theme.inkMuted
-                        wrapMode: Text.Wrap
-                        Layout.fillWidth: true
-                    }
-
-                    // VU del micro en vivo (viene de Main por SSE).
-                    Item {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 28
-                        RowLayout {
-                            anchors.fill: parent
-                            spacing: Theme.spacingSm
-                            Text {
-                                text: qsTr("Nivel")
-                                font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, -0.05)
-                                color: Theme.ink
-                                Layout.preferredWidth: 80
-                            }
-                            ProgressBar {
-                                Layout.fillWidth: true
-                                from: 0
-                                to: 1
-                                value: root.micLevel
-                            }
-                        }
-                    }
-
-                    Text {
-                        text: qsTr("Sintesis (TTS)")
-                        font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
-                        color: Theme.inkMuted
-                        Layout.topMargin: Theme.spacingSm
-                        Layout.fillWidth: true
-                    }
-
-                    SettingsField {
-                        id: piperField
-                        Layout.fillWidth: true
-                        label: qsTr("Modelo de voz")
-                        placeholder: "es_ES-sharvard-medium"
-                    }
-
-                    Text {
-                        text: qsTr("Descarga modelos desde huggingface.co/rhasspy/piper-voices y copialos a ~/.local/share/kde-assistant/models/piper/")
-                        font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
-                        color: Theme.inkMuted
-                        wrapMode: Text.Wrap
-                        Layout.fillWidth: true
-                    }
-
-                    // Speed slider
-                    Item {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 36
-                        RowLayout {
-                            anchors.fill: parent
-                            spacing: Theme.spacingSm
-
-                            Text {
-                                text: qsTr("Velocidad")
-                                font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, -0.05)
-                                color: Theme.ink
-                                Layout.preferredWidth: 80
-                            }
-
-                            Slider {
-                                id: speedSlider
-                                Layout.fillWidth: true
-                                from: 0.5
-                                to: 1.5
-                                value: 1.0
-                            }
-
-                            Text {
-                                text: speedSlider.value.toFixed(2) + "x"
-                                font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
-                                color: Theme.inkMuted
-                                Layout.preferredWidth: 40
-                            }
-                        }
-                    }
-
-                    SettingsToggle {
-                        Layout.fillWidth: true
-                        label: qsTr("Hablar también las respuestas escritas")
-                        description: qsTr("Las respuestas por voz siempre se dictan")
-                        active: root.autoSpeak
-                        onToggled: root.autoSpeak = !root.autoSpeak
-                    }
-
-                    SettingsToggle {
-                        Layout.fillWidth: true
-                        label: qsTr("Escucha continua")
-                        description: qsTr("Tras responder por voz, sigue escuchando (sin wake word)")
-                        active: root.autoListen
-                        onToggled: root.autoListen = !root.autoListen
-                    }
-
-                    SettingsToggle {
-                        Layout.fillWidth: true
-                        label: qsTr("Reproducir chimes")
-                        description: qsTr("Sonidos sutiles al activar/desactivar voz")
-                        active: root.chimesEnabled
-                        onToggled: root.chimesEnabled = !root.chimesEnabled
-                    }
-
-                    Text {
-                        text: qsTr("Wake word (requiere reiniciar)")
-                        font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
-                        color: Theme.inkMuted
-                        Layout.topMargin: Theme.spacingSm
-                        Layout.fillWidth: true
-                    }
-                    SettingsField {
-                        id: wakeField
-                        Layout.fillWidth: true
-                        label: qsTr("Palabra de activación")
-                        placeholder: "hey jarvis"
-                    }
-                    SettingsField {
-                        id: greetingField
-                        Layout.fillWidth: true
-                        label: qsTr("Saludo al activar")
-                        placeholder: "Sí, dígame"
-                    }
-                    Item {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 36
-                        RowLayout {
-                            anchors.fill: parent
-                            spacing: Theme.spacingSm
-                            Text {
-                                text: qsTr("Umbral")
-                                font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, -0.05)
-                                color: Theme.ink
-                                Layout.preferredWidth: 80
-                            }
-                            Slider {
-                                id: thresholdSlider
-                                Layout.fillWidth: true
-                                from: 0.1
-                                to: 0.95
-                                value: 0.5
-                            }
-                            Text {
-                                text: thresholdSlider.value.toFixed(2)
-                                font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
-                                color: Theme.inkMuted
-                                Layout.preferredWidth: 40
-                            }
-                        }
-                    }
-                    Text {
-                        text: qsTr("Umbral alto = más exigente (menos falsos positivos).")
-                        font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
-                        color: Theme.inkMuted
-                        wrapMode: Text.Wrap
-                        Layout.fillWidth: true
-                    }
-                    } // Voz
-
-                    // --- TAB: Atajos ---
-                    ColumnLayout {
-                        visible: root.activeTab === "atajos"
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingSm
-
-                        Text {
-                            text: qsTr("Atajos globales")
-                            font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0.4)
-                            color: Theme.inkMuted
-                            Layout.fillWidth: true
-                        }
-                        SettingsField {
-                            id: toggleField
-                            Layout.fillWidth: true
-                            label: qsTr("Mostrar / ocultar")
-                            placeholder: "Super+Shift+A"
-                        }
-                        SettingsField {
-                            id: pttField
-                            Layout.fillWidth: true
-                            label: qsTr("Dictar (mantener)")
-                            placeholder: "Super+Shift+V"
-                        }
-                        SettingsField {
-                            id: newSessionField
-                            Layout.fillWidth: true
-                            label: qsTr("Nueva sesión")
-                            placeholder: "Ctrl+Shift+K"
-                        }
-                        SettingsField {
-                            id: menuField
-                            Layout.fillWidth: true
-                            label: qsTr("Abrir menú")
-                            placeholder: "Super+Shift+M"
-                        }
-                        Text {
-                            text: qsTr("Formato: Super/Shift/Ctrl/Alt + letra, dígito o F1-F12. Se aplican al guardar (sin reiniciar). En Wayland algunos atajos los reserva el compositor.")
-                            font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
-                            color: Theme.inkMuted
-                            wrapMode: Text.Wrap
-                            Layout.fillWidth: true
-                        }
-                    } // Atajos
-
-                    // --- TAB: Memoria (F5) ---
-                    ColumnLayout {
-                        visible: root.activeTab === "memoria"
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingSm
-
-                        Text {
-                            text: qsTr("Memoria local")
-                            font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0.4)
-                            color: Theme.inkMuted
-                            Layout.fillWidth: true
-                        }
-                        Text {
-                            text: qsTr("Todo se guarda en SQLite local. Solo el prompt actual viaja a la API.")
-                            font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
-                            color: Theme.inkMuted
-                            wrapMode: Text.Wrap
-                            Layout.fillWidth: true
-                        }
-
-                        SettingsToggle {
-                            Layout.fillWidth: true
-                            label: qsTr("Recordar datos")
-                            description: qsTr("Inyectar mis datos en las respuestas")
-                            active: root.memoryEnabled
-                            onToggled: root.memoryEnabled = !root.memoryEnabled
-                        }
-
-                        SettingsToggle {
-                            Layout.fillWidth: true
-                            label: qsTr("Resumir hilos largos")
-                            description: qsTr("Resumen automático en segundo plano")
-                            active: root.autoSummarize
-                            onToggled: root.autoSummarize = !root.autoSummarize
-                        }
-
-                        Text {
-                            text: qsTr("Mis datos")
-                            font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
-                            color: Theme.inkMuted
-                            Layout.fillWidth: true
-                        }
-
+                        Layout.fillHeight: true
+                        contentWidth: availableWidth
+                        clip: true
+                        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
                         ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingXs
-                            visible: root.memoryFacts.length > 0
-
-                            Repeater {
-                                model: root.memoryFacts
-                                delegate: RowLayout {
-                                    required property var modelData
+                            id: formContent
+                            width: formScroll.availableWidth - Theme.spacingSm
+                            spacing: Theme.spacingLg
+                            enabled: root.loaded && !root.busy
+                            ColumnLayout {
+                                visible: root.activeTab === "general"
+                                Layout.fillWidth: true
+                                SettingsToggle { id: closeToTray; label: qsTr("Cerrar a la bandeja"); description: qsTr("La aplicación sigue disponible desde el icono de Plasma."); onToggled: { active = !active; root.markDirty() } }
+                                Help { text: qsTr("Ctrl+, abre Configuración. El atajo global se gestiona mediante el portal de Plasma; su configuración actual se conserva.") }
+                            }
+                            ColumnLayout {
+                                visible: root.activeTab === "ia"
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingMd
+                                LabelText { text: qsTr("Proveedor") }
+                                SettingsChoice { id: providerChoice; objectName: "settingsProvider"; model: root.providerCatalog; textRole: "name"; onActivated: root.switchProvider(root.providerCatalog[currentIndex].id) }
+                                DraftField { id: baseUrlField; objectName: "settingsBaseUrl"; label: qsTr("URL base"); placeholder: "https://api.groq.com/openai/v1" }
+                                ColumnLayout {
+                                    visible: root.endpointMismatch()
                                     Layout.fillWidth: true
                                     spacing: Theme.spacingXs
-
-                                    Text {
-                                        text: (modelData.key || "") + ": " + (modelData.value || "")
-                                        font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, -0.05)
-                                        color: Theme.ink
-                                        elide: Text.ElideRight
-                                        Layout.fillWidth: true
-                                    }
-                                    IconButton {
-                                        Layout.preferredWidth: 28
-                                        Layout.preferredHeight: 28
-                                        iconName: "trash-16"
-                                        iconSize: 14
-                                        buttonSize: 28
-                                        backgroundColor: "transparent"
-                                        iconColor: Theme.inkMuted
-                                        onClicked: root.deleteFact(modelData.key)
+                                    Help { text: qsTr("Destino distinto del proveedor. El destino oficial es %1. La clave y los mensajes se enviarán a la URL indicada arriba.").arg(root.providerProfile(root.provider).url) }
+                                    SettingsToggle {
+                                        objectName: "settingsApproveEndpoint"
+                                        label: qsTr("Confirmar esta URL alternativa")
+                                        description: qsTr("Decisión explícita para este proveedor y esta URL. Cambiar la URL requiere confirmarla de nuevo.")
+                                        active: root.endpointApprovals[root.provider] === baseUrlField.value.trim().replace(/\/+$/, "")
+                                        onToggled: root.approveEndpoint()
                                     }
                                 }
-                            }
-                        }
-                        Text {
-                            visible: root.memoryFacts.length === 0
-                            text: qsTr("Sin datos guardados. Añade p. ej. nombre → tu nombre.")
-                            font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
-                            color: Theme.inkMuted
-                            wrapMode: Text.Wrap
-                            Layout.fillWidth: true
-                        }
-
-                        SettingsField {
-                            id: factKeyField
-                            Layout.fillWidth: true
-                            label: qsTr("Clave (p. ej. nombre)")
-                            placeholder: "nombre"
-                        }
-                        SettingsField {
-                            id: factValueField
-                            Layout.fillWidth: true
-                            label: qsTr("Valor")
-                            placeholder: qsTr("Tu valor")
-                        }
-                        PillButton {
-                            text: qsTr("Añadir dato")
-                            iconName: "plus-16"
-                            onClicked: root.addFact()
-                        }
-                    } // Memoria
-
-                    // --- TAB: Personaje (F8: Desktop Agent) ---
-                    ColumnLayout {
-                        visible: root.activeTab === "personaje"
-                        Layout.fillWidth: true
-                        spacing: Theme.spacingSm
-
-                        Text {
-                            text: qsTr("Personaje de escritorio")
-                            font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0.4)
-                            color: Theme.inkMuted
-                            Layout.fillWidth: true
-                        }
-                        Text {
-                            text: qsTr("Requiere reinicio de la app para aplicar cambios.")
-                            font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
-                            color: Theme.warn
-                            wrapMode: Text.Wrap
-                            Layout.fillWidth: true
-                        }
-
-                        SettingsToggle {
-                            Layout.fillWidth: true
-                            label: qsTr("Activar personaje")
-                            description: qsTr("Muestra el agente visual en el escritorio")
-                            active: root.characterEnabled
-                            onToggled: root.characterEnabled = !root.characterEnabled
-                        }
-
-                        Text {
-                            text: qsTr("Modo de presencia")
-                            font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
-                            color: Theme.inkMuted
-                            Layout.topMargin: Theme.spacingSm
-                            Layout.fillWidth: true
-                        }
-
-                        Flow {
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingXs
-                            PillButton {
-                                text: qsTr("Mínimo")
-                                active: root.characterMode === "minimal"
-                                onClicked: root.characterMode = "minimal"
-                            }
-                            PillButton {
-                                text: qsTr("Reactivo")
-                                active: root.characterMode === "reactive"
-                                onClicked: root.characterMode = "reactive"
-                            }
-                            PillButton {
-                                text: qsTr("Compañero")
-                                active: root.characterMode === "companion"
-                                onClicked: root.characterMode = "companion"
-                            }
-                            PillButton {
-                                text: qsTr("Cinemático")
-                                active: root.characterMode === "cinematic"
-                                onClicked: root.characterMode = "cinematic"
-                            }
-                        }
-                        Text {
-                            text: qsTr("Mínimo: solo expresiones clave. Reactivo: mira al cursor. Compañero: se mueve e interactúa. Cinemático: escenas completas.")
-                            font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
-                            color: Theme.inkMuted
-                            wrapMode: Text.Wrap
-                            Layout.fillWidth: true
-                        }
-
-                        SettingsToggle {
-                            Layout.fillWidth: true
-                            label: qsTr("Reducir movimiento")
-                            description: qsTr("Desactiva animaciones complejas para accesibilidad")
-                            active: root.characterReducedMotion
-                            onToggled: root.characterReducedMotion = !root.characterReducedMotion
-                        }
-
-                        Text {
-                            text: qsTr("Tiempo de sueño (segundos)")
-                            font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
-                            color: Theme.inkMuted
-                            Layout.topMargin: Theme.spacingSm
-                            Layout.fillWidth: true
-                        }
-                        Item {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 36
-                            RowLayout {
-                                anchors.fill: parent
-                                spacing: Theme.spacingSm
-                                Text {
-                                    text: qsTr("Inactividad")
-                                    font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, -0.05)
-                                    color: Theme.ink
-                                    Layout.preferredWidth: 80
-                                }
-                                Slider {
-                                    id: sleepSlider
+                                DraftField { id: apiKeyField; objectName: "settingsApiKey"; label: qsTr("Reemplazar clave API"); isPassword: true; placeholder: qsTr("Deja vacío para conservar la clave configurada") }
+                                Help { objectName: "settingsCredentialState"; text: root.credentialText() }
+                                SettingsButton { text: root.deletedKeys[root.provider] ? qsTr("Deshacer eliminación") : qsTr("Eliminar clave"); destructive: true; onClicked: {
+                                    if (root.deletedKeys[root.provider]) { var next = root.cloneMap(root.deletedKeys); delete next[root.provider]; root.deletedKeys = next; root.markDirty() }
+                                    else root.removeCredential()
+                                } }
+                                LabelText { text: qsTr("Modelo de chat") }
+                                SettingsChoice { id: modelCombo; onEditTextChanged: root.markDirty(); objectName: "settingsModel"; editable: true; model: root.modelList }
+                                GridLayout {
                                     Layout.fillWidth: true
-                                    from: 30
-                                    to: 600
-                                    value: root.characterSleepSecs
-                                    stepSize: 30
-                                    onValueChanged: root.characterSleepSecs = sleepSlider.value
+                                    columns: formContent.width >= 440 ? 2 : 1
+                                    columnSpacing: Theme.spacingSm
+                                    rowSpacing: Theme.spacingSm
+                                    SettingsButton { objectName: "settingsModels"; text: qsTr("Consultar modelos"); Layout.fillWidth: true; onClicked: root.fetchModels() }
+                                    SettingsButton { text: qsTr("Probar conexión"); objectName: "settingsTestConnection"; Layout.fillWidth: true; onClicked: root.testConnection() }
                                 }
-                                Text {
-                                    text: sleepSlider.value + "s"
-                                    font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
-                                    color: Theme.inkMuted
-                                    Layout.preferredWidth: 50
-                                }
+                                Help { text: qsTr("Probar conexión envía una petición breve de chat al proveedor y puede consumir cuota o saldo. No guarda cambios ni prueba herramientas. Groq es distinto de Grok/xAI.") }
                             }
-                        }
-
-                        Text {
-                            text: qsTr("Tamaño (píxeles)")
-                            font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
-                            color: Theme.inkMuted
-                            Layout.topMargin: Theme.spacingSm
-                            Layout.fillWidth: true
-                        }
-                        Item {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 36
-                            RowLayout {
-                                anchors.fill: parent
-                                spacing: Theme.spacingSm
-                                Text {
-                                    text: qsTr("Tamaño")
-                                    font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, -0.05)
-                                    color: Theme.ink
-                                    Layout.preferredWidth: 80
-                                }
-                                Slider {
-                                    id: sizeSlider
+                            ColumnLayout {
+                                visible: root.activeTab === "apariencia"
+                                Layout.fillWidth: true
+                                LabelText { text: qsTr("Tema") }
+                                SettingsChoice { id: themeChoice; onActivated: root.markDirty(); objectName: "settingsTheme"; model: [qsTr("Sistema"), qsTr("Oscuro"), qsTr("Claro")] }
+                                Help { text: qsTr("El tema se aplica al guardar. El seguimiento automático de cambios del sistema depende de la integración de escritorio existente.") }
+                                SettingsButton { text: root.characterDetails ? qsTr("Ocultar ajustes del personaje") : qsTr("Ajustes del personaje"); onClicked: root.characterDetails = !root.characterDetails }
+                                ColumnLayout {
+                                    visible: root.characterDetails
                                     Layout.fillWidth: true
-                                    from: 80
-                                    to: 240
-                                    value: root.characterSize
-                                    stepSize: 10
-                                    onValueChanged: root.characterSize = sizeSlider.value
+                                    spacing: Theme.spacingMd
+                                    SettingsToggle { id: characterEnabled; label: qsTr("Mostrar personaje"); description: qsTr("Integración heredada opcional; puede requerir reiniciar la aplicación."); onToggled: { active = !active; root.markDirty() } }
+                                    SettingsToggle { id: characterMotion; label: qsTr("Reducir movimiento"); onToggled: { active = !active; root.markDirty() } }
+                                    LabelText { text: qsTr("Presencia") }
+                                    SettingsChoice { id: characterModeChoice; onActivated: root.markDirty(); objectName: "settingsCharacterMode"; model: [qsTr("Mínima"), qsTr("Reactiva"), qsTr("Compañero"), qsTr("Cinemática")] }
+                                    LabelText { text: qsTr("Forma") }
+                                    SettingsChoice { id: characterShapeChoice; onActivated: root.markDirty(); objectName: "settingsCharacterShape"; model: [qsTr("Cápsula"), qsTr("Redonda"), qsTr("Piedra"), qsTr("Compacta")] }
+                                    DraftField { id: characterSizeField; label: qsTr("Tamaño (px)"); validator: IntValidator { bottom: 64; top: 320 } }
+                                    DraftField { id: characterSleepField; label: qsTr("Inactividad antes de dormir (s)"); validator: IntValidator { bottom: 15; top: 3600 } }
+                                    DraftField { id: characterColorField; label: qsTr("Color del personaje (#RRGGBB)"); validator: RegularExpressionValidator { regularExpression: /^#[0-9a-fA-F]{6}$/ } }
                                 }
-                                Text {
-                                    text: sizeSlider.value + "px"
-                                    font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, 0)
-                                    color: Theme.inkMuted
-                                    Layout.preferredWidth: 50
+                            }
+                            ColumnLayout {
+                                visible: root.activeTab === "voz"
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingMd
+                                Help { text: (root.rawConfig.capabilities && root.rawConfig.capabilities.detail) || qsTr("Voz opcional diferida") }
+                                SettingsToggle { id: autoSpeak; label: qsTr("Leer respuestas en voz alta"); onToggled: { active = !active; root.markDirty() } }
+                                SettingsToggle { id: autoListen; label: qsTr("Continuar escuchando tras responder"); onToggled: { active = !active; root.markDirty() } }
+                                SettingsToggle { id: chimes; label: qsTr("Sonidos de activación"); onToggled: { active = !active; root.markDirty() } }
+                                DraftField { id: piperField; label: qsTr("Voz Piper local"); placeholder: "es_ES-sharvard-medium" }
+                                LabelText { text: qsTr("Duración de voz · %1×").arg(speedSlider.value.toFixed(2)) }
+                                Slider { id: speedSlider; onMoved: root.markDirty(); Layout.fillWidth: true; from: 0.5; to: 2; stepSize: 0.05; Accessible.name: qsTr("Duración de voz") }
+                                DraftField { id: languageField; label: qsTr("Idioma de transcripción"); placeholder: "auto / es / en" }
+                                DraftField { id: micField; label: qsTr("Micrófono preferido"); placeholder: qsTr("Vacío: dispositivo predeterminado") }
+                                SettingsButton { text: qsTr("Consultar micrófonos"); onClicked: root.fetchAudioDevices() }
+                                SettingsChoice { visible: root.audioDevices.length > 0; objectName: "settingsMicrophone"; model: root.audioDevices; onActivated: micField.value = root.audioDevices[currentIndex] }
+                            }
+                            ColumnLayout {
+                                visible: root.activeTab === "herramientas"
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingMd
+                                SettingsToggle { id: toolCalling; label: qsTr("Permitir llamadas a herramientas"); description: qsTr("El modelo también debe admitir tool calling. Las operaciones sensibles siguen requiriendo consentimiento individual."); onToggled: { active = !active; root.markDirty() } }
+                                Help { text: qsTr("Las herramientas restringidas permanecen deshabilitadas por F2. Este panel conserva la selección individual y las rutas autorizadas existentes; no concede permisos nuevos.") }
+                            }
+                            ColumnLayout {
+                                visible: root.activeTab === "privacidad"
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingMd
+                                Help { text: qsTr("Las claves se almacenan en archivos privados (0600). Nunca se devuelven a este formulario. Al conversar se envían mensajes y contexto al proveedor seleccionado; los historiales y la memoria permanecen en SQLite local.") }
+                                SettingsToggle { id: memoryEnabled; label: qsTr("Usar memoria local"); description: qsTr("Los datos usados como contexto pueden incluirse en el prompt enviado al proveedor."); onToggled: { active = !active; root.markDirty() } }
+                                SettingsToggle { id: autoSummarize; label: qsTr("Resumir conversaciones largas"); description: qsTr("Generar resúmenes utiliza el proveedor de IA y puede consumir cuota."); onToggled: { active = !active; root.markDirty() } }
+                                Help { text: qsTr("Eliminar una clave desactiva su uso actual. config.json.bak puede conservar claves anteriores; no es un borrado forense.") }
+                                ColumnLayout {
+                                    visible: !!root.rawConfig.ai && root.rawConfig.ai.has_unassigned_legacy_key === true
+                                    Layout.fillWidth: true
+                                    Help { text: qsTr("Se conservó una clave antigua sin proveedor inequívoco. Está inactiva y no se envía. Puedes reemplazar la clave de cada proveedor en IA y proveedores.") }
+                                    SettingsButton {
+                                        text: root.deleteLegacyKey ? qsTr("Deshacer eliminación de clave antigua") : qsTr("Eliminar clave antigua sin asignar")
+                                        destructive: true
+                                        onClicked: { root.deleteLegacyKey = !root.deleteLegacyKey; root.markDirty() }
+                                    }
                                 }
-                            }
-                        }
-
-                        Text {
-                            text: qsTr("Aspecto")
-                            font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
-                            color: Theme.inkMuted
-                            Layout.topMargin: Theme.spacingSm
-                            Layout.fillWidth: true
-                        }
-                        Flow {
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingXs
-                            PillButton {
-                                text: qsTr("Cápsula")
-                                active: root.characterAppearance === "capsule"
-                                onClicked: root.characterAppearance = "capsule"
-                            }
-                            PillButton {
-                                text: qsTr("Redondo")
-                                active: root.characterAppearance === "round"
-                                onClicked: root.characterAppearance = "round"
-                            }
-                            PillButton {
-                                text: qsTr("Pebble")
-                                active: root.characterAppearance === "pebble"
-                                onClicked: root.characterAppearance = "pebble"
-                            }
-                            PillButton {
-                                text: qsTr("Compacto")
-                                active: root.characterAppearance === "compact"
-                                onClicked: root.characterAppearance = "compact"
-                            }
-                        }
-
-                        Text {
-                            text: qsTr("Color")
-                            font: Theme.font(Theme.fontSizeMicro, Theme.weightBold, 0.4)
-                            color: Theme.inkMuted
-                            Layout.topMargin: Theme.spacingSm
-                            Layout.fillWidth: true
-                        }
-                        Flow {
-                            Layout.fillWidth: true
-                            spacing: Theme.spacingXs
-                            Repeater {
-                                model: [
-                                    { name: qsTr("Cian"), value: "#0094bb" },
-                                    { name: qsTr("Azul"), value: "#2997ff" },
-                                    { name: qsTr("Violeta"), value: "#5e5ce6" },
-                                    { name: qsTr("Rosa"), value: "#bf5af2" },
-                                    { name: qsTr("Verde"), value: "#30d158" },
-                                    { name: qsTr("Naranja"), value: "#ff9f0a" }
-                                ]
-                                delegate: Button {
-                                    required property var modelData
-                                    text: modelData.name
-                                    checkable: true
-                                    checked: root.characterAccentColor.toLowerCase() === modelData.value
-                                    onClicked: root.characterAccentColor = modelData.value
-                                    contentItem: Row {
-                                        spacing: 6
-                                        Rectangle {
-                                            width: 14
-                                            height: 14
-                                            radius: 7
-                                            color: modelData.value
-                                            anchors.verticalCenter: parent.verticalCenter
-                                        }
-                                        Text {
-                                            text: parent.parent.text
-                                            color: parent.parent.checked ? Theme.inkOnPrimary : Theme.ink
-                                            font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, 0)
-                                            anchors.verticalCenter: parent.verticalCenter
+                                SettingsButton { text: qsTr("Consultar memoria guardada"); onClicked: root.fetchFacts() }
+                                ColumnLayout {
+                                    visible: root.factsLoaded
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spacingMd
+                                    Help { visible: root.memoryFacts.length === 0; text: qsTr("No hay datos de memoria guardados.") }
+                                    Repeater {
+                                        model: root.memoryFacts
+                                        ColumnLayout {
+                                            required property var modelData
+                                            Layout.fillWidth: true
+                                            LabelText { text: modelData.key; textFormat: Text.PlainText }
+                                            Help { text: modelData.value }
+                                            SettingsButton { text: qsTr("Eliminar dato ahora"); destructive: true; onClicked: root.deleteFact(modelData.key) }
                                         }
                                     }
-                                    background: Rectangle {
-                                        radius: Theme.radiusSm
-                                        color: parent.checked ? Theme.primary : parent.hovered ? Theme.surfaceHover : Theme.surfacePearl
-                                        border.color: parent.activeFocus ? Theme.primary : "transparent"
-                                    }
+                                    SettingsField { id: factKeyField; label: qsTr("Etiqueta de memoria") }
+                                    SettingsField { id: factValueField; label: qsTr("Dato que deseas recordar") }
+                                    SettingsButton { text: qsTr("Guardar dato ahora"); onClicked: root.addFact() }
+                                    Help { text: qsTr("Las acciones de memoria se aplican inmediatamente, por separado del botón Guardar cambios.") }
                                 }
+                                Help { text: qsTr("El borrado de conversaciones y la revisión de resultados inciertos se realizan desde el historial. Una configuración corrupta bloquea el arranque y se conserva para recuperación manual con config.json.bak.") }
+                            }
+                            ColumnLayout {
+                                visible: root.activeTab === "avanzado"
+                                Layout.fillWidth: true
+                                spacing: Theme.spacingMd
+                                DraftField { id: temperatureField; label: qsTr("Temperatura (0–2)"); validator: DoubleValidator { bottom: 0; top: 2; locale: "C"; notation: DoubleValidator.StandardNotation } }
+                                DraftField { id: tokensField; label: qsTr("Máximo de tokens de salida"); validator: IntValidator { bottom: 1; top: 131072 } }
+                                Help { text: qsTr("El modelo puede imponer límites adicionales. Groq usa max_completion_tokens. La prueba de conexión limita su salida a 64 tokens.") }
+                                DraftField { id: sttField; label: qsTr("Modelo Whisper local"); placeholder: "base" }
+                                DraftField { id: wakeField; label: qsTr("Palabra de activación") }
+                                DraftField { id: greetingField; label: qsTr("Saludo de activación") }
+                                LabelText { text: qsTr("Umbral de activación · %1").arg(thresholdSlider.value.toFixed(2)) }
+                                Slider { id: thresholdSlider; onMoved: root.markDirty(); Layout.fillWidth: true; from: 0.1; to: 1; stepSize: 0.05; Accessible.name: qsTr("Umbral de activación") }
+                                LabelText { text: qsTr("Motor de transcripción") }
+                                SettingsChoice { id: sttBackendChoice; onActivated: root.markDirty(); objectName: "settingsSttBackend"; model: [qsTr("Whisper local"), qsTr("Automático (puede usar Groq)"), qsTr("API de Groq con fallback local")] }
+                                Help { text: qsTr("Automático y API pueden enviar audio a Groq y consumir cuota. Local mantiene la transcripción en el equipo.") }
+                                DraftField { id: sttApiField; label: qsTr("Modelo de transcripción API") }
+                                LabelText { text: qsTr("Atajos guardados") }
+                                Help { text: qsTr("El portal sólo registra Mostrar/Ocultar cuando se inicia con --enable-shortcuts. Editar no concede acceso al teclado; requiere reiniciar y autorización del sistema. Los demás valores heredados se conservan sin prometer registro global.") }
+                                DraftField { id: toggleField; label: qsTr("Mostrar / ocultar"); placeholder: "Super+Shift+A" }
+                                DraftField { id: pttField; label: qsTr("Pulsar para hablar (heredado)") }
+                                DraftField { id: newSessionField; label: qsTr("Nueva sesión") }
+                                DraftField { id: menuField; label: qsTr("Menú de bandeja") }
                             }
                         }
-                        Text {
-                            text: qsTr("Se mantiene la misma librería/identidad Blobatar; estos controles solo cambian forma visual y tinte local.")
-                            font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, 0)
-                            color: Theme.inkMuted
-                            wrapMode: Text.Wrap
-                            Layout.fillWidth: true
-                        }
-
-                    } // Personaje
-                }
-            }
-
-            } // Sidebar + form
-
-            // === Footer ===
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.rightMargin: 10
-                spacing: Theme.spacingXs
-
-                PillButton {
-                    text: qsTr("Cancelar")
-                    onClicked: root.hide()
-                }
-                Item { Layout.fillWidth: true }
-                AppleButton {
-                    text: qsTr("Guardar")
-                    iconName: "check-16"
-                    variant: "primary"
-                    onClicked: {
-                        root.saveConfig()
                     }
                 }
             }
+            Text {
+                visible: root.dirty
+                Layout.fillWidth: true
+                text: qsTr("Cambios pendientes de guardar")
+                color: Theme.inkMuted80
+                font: Theme.font(Theme.fontSizeBodySmall)
+            }
+            Rectangle {
+                visible: root.statusText.length > 0
+                Layout.fillWidth: true
+                implicitHeight: statusLabel.implicitHeight + Theme.spacingSm * 2
+                radius: Theme.radiusMd
+                color: root.statusKind === "error" ? Theme.errorTint : root.statusKind === "success" ? Theme.successTint : Theme.surfacePearl
+                Text {
+                    id: statusLabel
+                    objectName: "settingsStatus"
+                    anchors.fill: parent; anchors.margins: Theme.spacingSm
+                    text: root.statusText
+                    textFormat: Text.PlainText
+                    wrapMode: Text.Wrap
+                    font: Theme.font(Theme.fontSizeBodySmall)
+                    color: Theme.ink
+                    Accessible.role: Accessible.AlertMessage
+                    Accessible.name: text
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.spacingSm
+                SettingsButton { objectName: "settingsReload"; text: panel.width < 500 ? qsTr("Recargar") : qsTr("Volver a cargar"); enabled: !root.busy; onClicked: root.loadConfig() }
+                Item { Layout.fillWidth: true }
+                SettingsButton { id: saveButton; KeyNavigation.tab: closeButton; KeyNavigation.priority: KeyNavigation.BeforeItem; objectName: "settingsSave"; text: root.busy ? qsTr("Espera…") : panel.width < 500 ? qsTr("Guardar") : qsTr("Guardar cambios"); primary: true; enabled: root.loaded && !root.busy; onClicked: root.saveConfig() }
+            }
         }
+    }
+    Connections {
+        target: root.Window.window
+        function onActiveFocusItemChanged() {
+            var item = root.Window.window.activeFocusItem
+            if (!item || !root.inside(item, formContent)) return
+            var point = item.mapToItem(formContent, 0, 0)
+            var flick = formScroll.contentItem
+            if (point.y < flick.contentY) flick.contentY = Math.max(0, point.y - Theme.spacingXs)
+            else if (point.y + item.height > flick.contentY + flick.height)
+                flick.contentY = Math.min(Math.max(0, flick.contentHeight - flick.height), point.y + item.height - flick.height + Theme.spacingXs)
+        }
+    }
+    component DraftField: SettingsField {
+        onValueChanged: root.markDirty()
+    }
+    component Help: Text {
+        Layout.fillWidth: true
+        wrapMode: Text.Wrap
+        textFormat: Text.PlainText
+        color: Theme.inkMuted80
+        font: Theme.font(Theme.fontSizeBodySmall)
+    }
+    component LabelText: Text {
+        Layout.fillWidth: true
+        wrapMode: Text.Wrap
+        color: Theme.ink
+        font: Theme.font(Theme.fontSizeBodySmall, Theme.weightBold)
     }
 }

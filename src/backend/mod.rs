@@ -19,6 +19,7 @@ pub mod model_downloader;
 pub mod operation_journal;
 pub mod permission_engine;
 pub(crate) mod private_files;
+pub mod provider_connection;
 mod safe_fs;
 pub mod session_manager;
 pub mod speech_service;

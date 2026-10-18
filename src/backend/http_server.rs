@@ -192,6 +192,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/messages", get(list_messages))
         .route("/api/config", get(get_config).post(update_config))
         .route("/api/ai-models", post(list_ai_models))
+        .route("/api/ai-test", post(test_ai_connection))
         .route("/api/voice/last", get(voice_last))
         .route("/api/voice/stream", get(voice_stream))
         .route("/api/agent/stream", get(agent_stream))
@@ -1199,28 +1200,94 @@ async fn set_audio_device(
     }
     let mut cfg = state.config.write().await;
     let changed = cfg.speech.mic_device != name;
-    cfg.speech.mic_device = name;
-    match cfg.save().await {
-        Ok(()) => (
-            StatusCode::OK,
-            Json(serde_json::json!({ "status": "ok", "restart_required": changed })),
-        ),
-        Err(e) => (
+    let mut candidate = cfg.clone();
+    candidate.speech.mic_device = name;
+    match candidate.save().await {
+        Ok(()) => {
+            *cfg = candidate;
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "status": "ok", "restart_required": changed })),
+            )
+        }
+        Err(_) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
+            Json(
+                serde_json::json!({ "error": "No se pudo guardar el micrófono preferido; los cambios no se confirmaron." }),
+            ),
         ),
     }
+}
+
+// An opaque process-local revision detects changes even to redacted secrets.
+// JSON Value orders map keys; the private nonce prevents a public key-hash oracle.
+fn config_revision(cfg: &Config) -> anyhow::Result<String> {
+    use sha2::{Digest, Sha256};
+    static NONCE: once_cell::sync::Lazy<String> =
+        once_cell::sync::Lazy::new(|| uuid::Uuid::new_v4().to_string());
+    let canonical = serde_json::to_vec(&serde_json::to_value(cfg)?)?;
+    let mut digest = Sha256::new();
+    digest.update(NONCE.as_bytes());
+    digest.update(canonical);
+    Ok(hex::encode(digest.finalize()))
 }
 
 /// Configuración sin secretos: la UI recibe presencia y estado, nunca claves guardadas.
 async fn get_config(State(state): State<AppState>) -> impl IntoResponse {
     let cfg = state.config.read().await.clone();
-    let mut public = serde_json::to_value(&cfg).unwrap_or_default();
+    let (Ok(mut public), Ok(revision)) = (serde_json::to_value(&cfg), config_revision(&cfg)) else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error":"No se pudo leer la configuración"})),
+        )
+            .into_response();
+    };
+    public["config_revision"] = serde_json::json!(revision);
     public["ai"]["api_key"] = serde_json::json!("");
     public["ai"]["provider_keys"] = serde_json::json!({});
+    public["ai"]["has_unassigned_legacy_key"] =
+        serde_json::json!(!cfg.ai.api_key.is_empty() && !cfg.ai.provider_keys.is_empty());
     public["ai"]["has_api_key"] = serde_json::json!(!cfg.ai.effective_api_key().trim().is_empty());
-    public["ai"]["configured_provider_keys"] =
-        serde_json::json!(cfg.ai.provider_keys.keys().collect::<Vec<_>>());
+    let mut states = serde_json::Map::new();
+    for id in [
+        "openrouter",
+        "groq",
+        "openai",
+        "deepseek",
+        "mistral",
+        "xai",
+        "together",
+        "fireworks",
+        "cerebras",
+        "sambanova",
+        "lmstudio",
+        "ollama",
+        "custom",
+    ] {
+        let mut ai = cfg.ai.clone();
+        if ai.provider_id() != id {
+            ai.api_key.clear();
+        }
+        ai.provider = id.into();
+        let source = if ai.provider_keys.get(id).is_some_and(|k| !k.is_empty())
+            || (!ai.api_key.is_empty() && ai.provider_keys.is_empty())
+        {
+            "stored"
+        } else if !ai.effective_api_key().is_empty() {
+            "environment"
+        } else {
+            "none"
+        };
+        states.insert(id.into(), serde_json::json!(source));
+    }
+    public["ai"]["credential_states"] = states.into();
+    public["ai"]["configured_provider_keys"] = serde_json::json!(cfg
+        .ai
+        .provider_keys
+        .iter()
+        .filter(|(_, v)| !v.is_empty())
+        .map(|(k, _)| k)
+        .collect::<Vec<_>>());
     public["capabilities"] = serde_json::json!({
         "text": "ready", "voice": if state.voice_enabled.load(std::sync::atomic::Ordering::Relaxed) { "active" } else { "deferred" },
         "whisper_model_present": state.speech.stt_model_exists(),
@@ -1235,191 +1302,175 @@ async fn get_config(State(state): State<AppState>) -> impl IntoResponse {
     Json(public).into_response()
 }
 
-/// Campos de credenciales vacíos de la vista redactada conservan claves previas.
-/// Sólo entradas no vacías sustituyen una clave; no hay borrado implícito.
+#[derive(Deserialize)]
+struct ConfigUpdate {
+    #[serde(flatten)]
+    config: Config,
+    #[serde(default)]
+    delete_provider_keys: Vec<String>,
+    #[serde(default)]
+    delete_legacy_key: bool,
+    #[serde(default)]
+    config_revision: Option<String>,
+}
+
 async fn update_config(
     State(state): State<AppState>,
-    Json(mut new_cfg): Json<Config>,
+    Json(body): Json<ConfigUpdate>,
 ) -> impl IntoResponse {
     let mut cfg = state.config.write().await;
-    let mut keys = cfg.ai.provider_keys.clone();
-    if keys
-        .get(cfg.ai.provider_id())
-        .is_none_or(|key| key.trim().is_empty())
-        && !cfg.ai.api_key.trim().is_empty()
-    {
-        keys.insert(cfg.ai.provider_id().to_owned(), cfg.ai.api_key.clone());
+    let Some(expected) = body.config_revision else {
+        return (
+            StatusCode::PRECONDITION_REQUIRED,
+            Json(
+                serde_json::json!({"error":"Vuelve a cargar la configuración antes de guardar; falta su revisión."}),
+            ),
+        );
+    };
+    let Ok(actual) = config_revision(&cfg) else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error":"No se pudo comprobar la configuración actual."})),
+        );
+    };
+    if expected != actual {
+        return (
+            StatusCode::CONFLICT,
+            Json(
+                serde_json::json!({"error":"La configuración cambió desde otra acción. No se guardó nada; vuelve a cargarla y revisa tus cambios."}),
+            ),
+        );
     }
+    let mut new_cfg = body.config;
+    let mut previous = cfg.ai.clone();
+    previous.migrate_profiles();
+    let legacy = if body.delete_legacy_key {
+        String::new()
+    } else {
+        previous.api_key.clone()
+    };
+    // A provider-only switch cannot borrow the previous profile's flat mirrors.
+    if new_cfg.ai.provider_id() != previous.provider_id() {
+        let id = new_cfg.ai.provider_id().to_owned();
+        if !new_cfg.ai.provider_base_urls.contains_key(&id)
+            && new_cfg.ai.base_url == previous.base_url
+        {
+            new_cfg.ai.base_url = crate::models::AiConfig::provider_preset_url(&id).into();
+        }
+        if !new_cfg.ai.provider_models.contains_key(&id) && new_cfg.ai.model == previous.model {
+            new_cfg.ai.model.clear();
+        }
+    }
+    let mut keys = previous.provider_keys;
     for (provider, key) in &new_cfg.ai.provider_keys {
         if !key.trim().is_empty() {
-            keys.insert(provider.clone(), key.clone());
+            keys.insert(provider.clone(), key.trim().into());
         }
     }
     if !new_cfg.ai.api_key.trim().is_empty() {
         keys.insert(
-            new_cfg.ai.provider_id().to_owned(),
-            new_cfg.ai.api_key.clone(),
+            new_cfg.ai.provider_id().into(),
+            new_cfg.ai.api_key.trim().into(),
         );
     }
-    new_cfg.ai.provider_keys = keys;
-    if new_cfg.ai.api_key.trim().is_empty() {
-        // La vista redactada no autoriza borrar/reemplazar un valor legacy,
-        // incluso si el mapa activo contiene otra clave o cambia el proveedor.
-        new_cfg.ai.api_key = cfg.ai.api_key.clone();
+    for provider in body.delete_provider_keys {
+        if crate::models::AiConfig::normalize_provider_id(&provider) != provider {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error":"Proveedor de credencial inválido"})),
+            );
+        }
+        keys.insert(provider, String::new());
     }
+    new_cfg.ai.provider_keys = keys;
+    new_cfg.ai.api_key = legacy;
+    new_cfg.ai.migrate_profiles();
+    // Keep legacy mirrors aligned with the selected scoped profile.
+    new_cfg.ai.base_url = new_cfg.ai.effective_base_url();
+    new_cfg.ai.model = new_cfg.ai.effective_model();
     if let Err(e) = new_cfg.validate() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e.to_string() })),
+            Json(serde_json::json!({"error": e.to_string()})),
         );
     }
     match new_cfg.save().await {
         Ok(()) => {
             *cfg = new_cfg;
-            (StatusCode::OK, Json(serde_json::json!({ "status": "ok" })))
+            (StatusCode::OK, Json(serde_json::json!({"status":"ok"})))
         }
-        Err(e) => (
+        Err(_) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
+            Json(
+                serde_json::json!({"error":"No se pudo escribir la configuración. Revisa permisos y espacio; los cambios no se confirmaron."}),
+            ),
         ),
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 pub struct AiModelsRequest {
-    #[serde(default)]
     pub base_url: Option<String>,
-    #[serde(default)]
     pub api_key: Option<String>,
-    #[serde(default)]
     pub provider: Option<String>,
+    pub model: Option<String>,
+    #[serde(default)]
+    pub remove_key: bool,
+    pub approved_endpoint: Option<String>,
 }
-
-#[derive(Debug, Serialize)]
-pub struct AiModelsResponse {
-    pub models: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
+fn selected_provider(cfg: &Config, body: AiModelsRequest) -> crate::models::AiConfig {
+    let mut ai = cfg.ai.clone();
+    ai.migrate_profiles();
+    if let Some(provider) = body.provider {
+        if ai.provider_id() != provider {
+            ai.base_url = crate::models::AiConfig::provider_preset_url(&provider).into();
+            ai.model.clear();
+        }
+        ai.provider = provider;
+    }
+    let id = ai.provider_id().to_owned();
+    if let Some(url) = body.base_url {
+        ai.provider_base_urls.insert(id.clone(), url);
+    }
+    if let Some(model) = body.model {
+        ai.provider_models.insert(id.clone(), model);
+    }
+    if let Some(approved) = body.approved_endpoint {
+        ai.provider_endpoint_approvals.insert(id.clone(), approved);
+    }
+    if body.remove_key {
+        ai.provider_keys.insert(id, String::new());
+    } else if let Some(key) = body.api_key.filter(|k| !k.trim().is_empty()) {
+        ai.provider_keys.insert(id, key.trim().into());
+    }
+    ai
 }
-
-/// Modelos que claramente no son de chat (audio, embeddings, imagen, moderacion).
-fn is_non_chat_model(id: &str) -> bool {
-    let lower = id.to_lowercase();
-    [
-        "whisper",
-        "tts",
-        "embed",
-        "moderation",
-        "guard",
-        "dall-e",
-        "dall·e",
-    ]
-    .iter()
-    .any(|k| lower.contains(k))
-}
-
-/// Lista los modelos que ofrece la API del proveedor (`GET {base}/models`).
-/// Acepta overrides opcionales para probar credenciales sin guardar.
-/// Siempre responde 200 con `{models, error?}` para que la UI lo parsee facil.
 async fn list_ai_models(
     State(state): State<AppState>,
     Json(body): Json<AiModelsRequest>,
-) -> impl IntoResponse {
-    use crate::models::AiConfig;
-
-    let cfg = state.config.read().await.clone();
-    let provider_id: String = match body.provider.as_deref().map(str::trim) {
-        Some(s) if !s.is_empty() => AiConfig::normalize_provider_id(s).to_string(),
-        _ => cfg.ai.provider_id().to_string(),
-    };
-    let provider_name = AiConfig::provider_name(&provider_id);
-
-    let mut selected_ai = cfg.ai.clone();
-    if selected_ai.provider_id() != provider_id {
-        selected_ai.api_key.clear();
-        selected_ai.base_url.clear();
-    }
-    selected_ai.provider = provider_id.clone();
-    let base_url = match body.base_url.as_deref().map(str::trim) {
-        Some(u) if !u.is_empty() => u.to_string(),
-        _ => selected_ai.effective_base_url(),
-    };
-    let api_key = match body.api_key.as_deref().map(str::trim) {
-        Some(k) if !k.is_empty() => k.to_string(),
-        _ => selected_ai.effective_api_key(),
-    };
-    if api_key.trim().is_empty() {
-        let env_var = AiConfig::provider_env_var(&provider_id);
-        return Json(AiModelsResponse {
-            models: vec![],
-            error: Some(format!("Falta API key (campo o variable {env_var})")),
-        });
-    }
-
-    let url = format!("{}/models", base_url.trim_end_matches('/'));
-    let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(20))
-        .user_agent("KDE-Assistant/2.0")
-        .build()
+) -> axum::response::Response {
+    let ai = selected_provider(&*state.config.read().await, body);
+    match crate::backend::provider_connection::models(&ai, std::time::Duration::from_secs(20)).await
     {
-        Ok(c) => c,
-        Err(e) => {
-            return Json(AiModelsResponse {
-                models: vec![],
-                error: Some(format!("No se pudo crear cliente HTTP: {e}")),
-            })
-        }
-    };
-
-    let response = match client
-        .get(&url)
-        .header("Authorization", format!("Bearer {api_key}"))
-        .send()
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            return Json(AiModelsResponse {
-                models: vec![],
-                error: Some(format!("No se pudo contactar {provider_name}: {e}")),
-            })
-        }
-    };
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        let snippet: String = body.chars().take(200).collect();
-        return Json(AiModelsResponse {
-            models: vec![],
-            error: Some(format!("{provider_name} {status}: {snippet}")),
-        });
+        Ok(models) => Json(serde_json::json!({"models": models})).into_response(),
+        Err(e) => (StatusCode::BAD_GATEWAY, Json(e)).into_response(),
     }
-
-    let json: serde_json::Value = match response.json().await {
-        Ok(v) => v,
-        Err(e) => {
-            return Json(AiModelsResponse {
-                models: vec![],
-                error: Some(format!("Respuesta inesperada de {provider_name}: {e}")),
-            })
-        }
-    };
-    let mut models: Vec<String> = json
-        .get("data")
-        .and_then(|d| d.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|m| m.get("id").and_then(|id| id.as_str()).map(str::to_string))
-                .filter(|id| !is_non_chat_model(id))
-                .collect()
-        })
-        .unwrap_or_default();
-    models.sort();
-    models.dedup();
-    Json(AiModelsResponse {
-        models,
-        error: None,
-    })
+}
+async fn test_ai_connection(
+    State(state): State<AppState>,
+    Json(body): Json<AiModelsRequest>,
+) -> axum::response::Response {
+    let ai = selected_provider(&*state.config.read().await, body);
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(25),
+        crate::backend::provider_connection::probe(&ai, std::time::Duration::from_secs(12)),
+    )
+    .await;
+    match result {
+        Ok(Ok(outcome)) => Json(serde_json::json!({"status":"ok", "limited":outcome.limited, "message":if outcome.limited { "Conexión y streaming recibidos; la salida alcanzó el límite de prueba. Respuesta completa y herramientas no comprobadas." } else { "Conexión y streaming verificados para este modelo. Herramientas no comprobadas." }})).into_response(),
+        Ok(Err(e)) => (StatusCode::BAD_GATEWAY, Json(e)).into_response(),
+        Err(_) => (StatusCode::BAD_GATEWAY, Json(crate::backend::provider_connection::error("timeout", "La prueba agotó el tiempo de espera."))).into_response(),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1806,6 +1857,15 @@ fn start_turn(
 }
 
 fn error_code(error: &anyhow::Error) -> &'static str {
+    if let Some(provider) =
+        error.downcast_ref::<crate::backend::provider_connection::ProviderError>()
+    {
+        return match provider.category {
+            "timeout" => "provider_timeout",
+            "network" => "provider_transport",
+            _ => "provider_error",
+        };
+    }
     let detail = format!("{error:#}");
     if detail.contains("context_invalid") {
         "context_invalid"
