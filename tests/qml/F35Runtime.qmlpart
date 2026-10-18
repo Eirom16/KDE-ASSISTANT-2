@@ -1,0 +1,42 @@
+// Injected only into a private copy of Main.qml by validate_f35.py.
+property bool f35Saved: false
+property int f35Phase: 0
+function f35Find(item, name) {
+    if (item.objectName === name) return item
+    for (var i=0;i<item.children.length;i++) { var found=f35Find(item.children[i],name); if(found) return found }
+    return null
+}
+function f35Fail() { console.error("F35_UI_FAIL phase="+f35Phase); Qt.exit(1) }
+Connections { target: settings; function onSaved() { root.f35Saved=true } }
+Timer {
+    interval:100; repeat:true; running:root.f35Phase < 4
+    property int ticks:0
+    onTriggered: {
+        ticks++
+        if(ticks>180) { root.f35Fail(); return }
+        if(root.f35Phase===0 && root.backendOnline) {
+            root.width=1000; root.height=740
+            settings.show(); settings.activeTab="ia"; root.f35Phase=1
+        } else if(root.f35Phase===1 && settings.loaded && !settings.busy) {
+            if("F35_MODE"==="save") {
+                settings.switchProvider("groq")
+                root.f35Find(settings,"settingsBaseUrl").value="F35_PROVIDER"
+                root.f35Find(settings,"settingsModel").editText="fixture-chat"
+                root.f35Find(settings,"settingsApiKey").value="synthetic-f35-not-a-real-key"
+                settings.approveEndpoint()
+                settings.saveConfig(); root.f35Phase=2
+            } else {
+                var ai=settings.rawConfig.ai
+                if(settings.provider!=="groq" || ai.base_url!=="F35_PROVIDER" || ai.model!=="fixture-chat" || ai.credential_states.groq!=="stored" || root.f35Find(settings,"settingsApiKey").value!=="") {root.f35Fail();return}
+                console.log("F35_UI_RESTART_PASS provider,url,model,masked_credential")
+                root.f35Phase=4
+            }
+        } else if(root.f35Phase===2 && root.f35Saved && !settings.busy) {
+            settings.hide(); settings.show(); root.f35Phase=3
+        } else if(root.f35Phase===3 && settings.loaded && !settings.busy) {
+            if(settings.rawConfig.ai.credential_states.groq!=="stored") {root.f35Fail();return}
+            console.log("F35_UI_SAVE_PASS server_ack,close,reopen,masked_credential")
+            root.f35Phase=4
+        }
+    }
+}

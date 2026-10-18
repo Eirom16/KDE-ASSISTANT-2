@@ -1,0 +1,16 @@
+    Blocking waiting for file lock on build directory
+   Compiling kde-assistant v0.1.0 (/home/eirom/KDE-ASSISTANT-2)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 41s
+     Running tests/f1b1_text_startup.rs (target/debug/deps/f1b1_text_startup-bc6fbc185d55c96a)
+
+running 1 test
+
+running 1 test
+test f35_audit_audio_preference_write_failure_keeps_memory_and_disk ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.03s
+
+test f35_audit_audio_preference_write_failure_keeps_memory_and_disk ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.04s
+

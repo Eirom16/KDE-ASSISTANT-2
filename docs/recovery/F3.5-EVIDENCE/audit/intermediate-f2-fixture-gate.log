@@ -1,0 +1,309 @@
+fmt: PASS (1.07s)
+check: PASS (22.66s)
+clippy: PASS (24.71s)
+clippy-fixtures: PASS (26.42s)
+f1a: PASS (85.4s)
+f1b1: FAIL (55.33s)
+   Compiling kde-assistant v0.1.0 (/home/eirom/KDE-ASSISTANT-2)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 53.80s
+     Running tests/f1b1_text_startup.rs (target/debug/deps/f1b1_text_startup-bc6fbc185d55c96a)
+
+running 17 tests
+test corrupt_configuration_is_recoverable_and_never_replaced ... 
+running 1 test
+test corrupt_configuration_is_recoverable_and_never_replaced ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.02s
+
+ok
+test exclusive_bootstrap_only_tolerates_an_existing_winner ... 
+running 1 test
+test exclusive_bootstrap_only_tolerates_an_existing_winner ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.00s
+
+ok
+test existing_configuration_is_preserved ... 
+running 1 test
+test existing_configuration_is_preserved ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.02s
+
+ok
+test f35_audit_audio_preference_write_failure_keeps_memory_and_disk ... 
+running 1 test
+
+thread 'f35_audit_audio_preference_write_failure_keeps_memory_and_disk' (141367) panicked at tests/f1b1_text_startup.rs:1167:9:
+assertion `left == right` failed
+  left: 503
+ right: 500
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test f35_audit_audio_preference_write_failure_keeps_memory_and_disk ... FAILED
+
+failures:
+
+failures:
+    f35_audit_audio_preference_write_failure_keeps_memory_and_disk
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.02s
+
+FAILED
+test f35_audit_environment_redaction_and_explicit_deletion ... 
+running 1 test
+test f35_audit_environment_redaction_and_explicit_deletion ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.04s
+
+ok
+test f35_audit_stale_updates_are_rejected ... 
+running 1 test
+test f35_audit_stale_updates_are_rejected ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.04s
+
+ok
+test first_run_without_piper_whisper_onnx_or_wake ... 
+running 1 test
+test first_run_without_piper_whisper_onnx_or_wake ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.02s
+
+ok
+test hostile_authorities_are_rejected_over_http ... 
+running 1 test
+test hostile_authorities_are_rejected_over_http ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.06s
+
+ok
+test invalid_tokens_fail_closed ... 
+running 1 test
+test invalid_tokens_fail_closed ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.02s
+
+ok
+test missing_api_key_never_contacts_provider ... 
+running 1 test
+test missing_api_key_never_contacts_provider ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.07s
+
+ok
+test model_catalog_uses_selected_provider_credentials_and_url ... 
+running 1 test
+test model_catalog_uses_selected_provider_credentials_and_url ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.03s
+
+ok
+test private_files_redaction_and_failed_update_preserve_secrets ... 
+running 1 test
+test private_files_redaction_and_failed_update_preserve_secrets ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.05s
+
+ok
+test qml_offscreen_settings_and_two_visible_turns ... ignored, requiere Qt/QML offscreen; no certifica Plasma Wayland
+test real_binary_lifecycle_and_critical_failure_leave_no_listener_or_foreign_victim ... 
+running 1 test
+test real_binary_lifecycle_and_critical_failure_leave_no_listener_or_foreign_victim ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.32s
+
+ok
+test redacted_updates_preserve_legacy_and_provider_credentials ... 
+running 1 test
+test redacted_updates_preserve_legacy_and_provider_credentials ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.11s
+
+ok
+test startup_has_no_download_or_global_process_cleanup_calls ... ok
+test two_turns_with_mock_and_persistence_after_backend_restart ... 
+running 1 test
+test two_turns_with_mock_and_persistence_after_backend_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.15s
+
+ok
+
+failures:
+
+---- f35_audit_audio_preference_write_failure_keeps_memory_and_disk stdout ----
+
+thread 'f35_audit_audio_preference_write_failure_keeps_memory_and_disk' (141365) panicked at tests/f1b1_text_startup.rs:60:5:
+fixture f35_audit_audio_preference_write_failure_keeps_memory_and_disk: exit status: 101
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    f35_audit_audio_preference_write_failure_keeps_memory_and_disk
+
+test result: FAILED. 15 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.12s
+
+error: test failed, to rerun pass `--test f1b1_text_startup`
+
+f1b2: PASS (16.75s)
+f1b3a: PASS (16.36s)
+f1b3b: PASS (10.95s)
+f2: PASS (49.01s)
+f2-http: PASS (55.89s)
+f2-qml: PASS (2.01s)
+gate-w1r: PASS (22.9s)
+{
+  "results": [
+    {
+      "name": "fmt",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 1.07,
+      "counts": null,
+      "log": "/tmp/kda-f2-validation-2ncn9lha/fmt.log"
+    },
+    {
+      "name": "check",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 22.66,
+      "counts": null,
+      "log": "/tmp/kda-f2-validation-2ncn9lha/check.log"
+    },
+    {
+      "name": "clippy",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 24.71,
+      "counts": null,
+      "log": "/tmp/kda-f2-validation-2ncn9lha/clippy.log"
+    },
+    {
+      "name": "clippy-fixtures",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 26.42,
+      "counts": null,
+      "log": "/tmp/kda-f2-validation-2ncn9lha/clippy-fixtures.log"
+    },
+    {
+      "name": "f1a",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 85.4,
+      "counts": {
+        "pass": 19,
+        "fail": 0,
+        "ignored": 1,
+        "filtered": 0
+      },
+      "log": "/tmp/kda-f2-validation-2ncn9lha/f1a.log"
+    },
+    {
+      "name": "f1b1",
+      "status": "FAIL",
+      "exit": 101,
+      "seconds": 55.33,
+      "counts": {
+        "pass": 15,
+        "fail": 1,
+        "ignored": 1,
+        "filtered": 0
+      },
+      "log": "/tmp/kda-f2-validation-2ncn9lha/f1b1.log"
+    },
+    {
+      "name": "f1b2",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 16.75,
+      "counts": {
+        "pass": 20,
+        "fail": 0,
+        "ignored": 3,
+        "filtered": 0
+      },
+      "log": "/tmp/kda-f2-validation-2ncn9lha/f1b2.log"
+    },
+    {
+      "name": "f1b3a",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 16.36,
+      "counts": {
+        "pass": 26,
+        "fail": 0,
+        "ignored": 1,
+        "filtered": 0
+      },
+      "log": "/tmp/kda-f2-validation-2ncn9lha/f1b3a.log"
+    },
+    {
+      "name": "f1b3b",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 10.95,
+      "counts": {
+        "pass": 33,
+        "fail": 0,
+        "ignored": 3,
+        "filtered": 0
+      },
+      "log": "/tmp/kda-f2-validation-2ncn9lha/f1b3b.log"
+    },
+    {
+      "name": "f2",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 49.01,
+      "counts": {
+        "pass": 17,
+        "fail": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      "log": "/tmp/kda-f2-validation-2ncn9lha/f2.log"
+    },
+    {
+      "name": "f2-http",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 55.89,
+      "counts": {
+        "pass": 1,
+        "fail": 0,
+        "ignored": 0,
+        "filtered": 158
+      },
+      "log": "/tmp/kda-f2-validation-2ncn9lha/f2-http.log"
+    },
+    {
+      "name": "f2-qml",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 2.01,
+      "counts": {
+        "pass": 4,
+        "fail": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      "log": "/tmp/kda-f2-validation-2ncn9lha/f2-qml.log"
+    },
+    {
+      "name": "gate-w1r",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 22.9,
+      "counts": {
+        "pass": 12,
+        "fail": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      "log": "/tmp/kda-f2-validation-2ncn9lha/gate-w1r.log"
+    }
+  ],
+  "external_services": "NOT_TESTED",
+  "models_microphone": "NOT_TESTED",
+  "plasma_wayland": "NOT_TESTED"
+}

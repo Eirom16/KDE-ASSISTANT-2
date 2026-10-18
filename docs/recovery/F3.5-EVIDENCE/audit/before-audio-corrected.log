@@ -1,0 +1,37 @@
+    Blocking waiting for file lock on build directory
+   Compiling kde-assistant v0.1.0 (/home/eirom/KDE-ASSISTANT-2)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 51.08s
+     Running tests/f1b1_text_startup.rs (target/debug/deps/f1b1_text_startup-bc6fbc185d55c96a)
+
+running 1 test
+
+running 1 test
+
+thread 'f35_audit_audio_preference_write_failure_keeps_memory_and_disk' (143884) panicked at tests/f1b1_text_startup.rs:1171:9:
+assertion `left == right` failed
+  left: ""
+ right: "synthetic-old-microphone"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test f35_audit_audio_preference_write_failure_keeps_memory_and_disk ... FAILED
+
+failures:
+
+failures:
+    f35_audit_audio_preference_write_failure_keeps_memory_and_disk
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.03s
+
+
+thread 'f35_audit_audio_preference_write_failure_keeps_memory_and_disk' (143882) panicked at tests/f1b1_text_startup.rs:60:5:
+fixture f35_audit_audio_preference_write_failure_keeps_memory_and_disk: exit status: 101
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test f35_audit_audio_preference_write_failure_keeps_memory_and_disk ... FAILED
+
+failures:
+
+failures:
+    f35_audit_audio_preference_write_failure_keeps_memory_and_disk
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `--test f1b1_text_startup`

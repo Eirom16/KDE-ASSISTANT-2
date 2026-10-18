@@ -1,0 +1,14 @@
+A	qml/components/SettingsButton.qml
+A	qml/components/SettingsChoice.qml
+M	qml/components/SettingsDialog.qml
+M	qml/components/SettingsField.qml
+M	qml/components/SettingsToggle.qml
+M	qml/components/qmldir
+M	src/backend/ai_service.rs
+M	src/backend/http_server.rs
+M	src/backend/mod.rs
+A	src/backend/provider_connection.rs
+M	src/backend/speech_service.rs
+M	src/backend/sse_parser.rs
+M	src/backend/stt_api.rs
+M	src/models/config.rs

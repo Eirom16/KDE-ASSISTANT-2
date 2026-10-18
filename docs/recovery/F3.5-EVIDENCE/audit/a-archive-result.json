@@ -1,0 +1,15 @@
+{
+  "tree": "6f6f898515b1aba190791b488dd2c9ea65e3abea",
+  "files": 270,
+  "command": [
+    "cargo",
+    "build",
+    "--locked",
+    "--bin",
+    "kde-assistant"
+  ],
+  "cwd": "/var/tmp/kda-f35-audit-ztgkqi19/archive-a",
+  "exit": 0,
+  "seconds": 69.506,
+  "source_blobs_modes_before_after": "PASS"
+}

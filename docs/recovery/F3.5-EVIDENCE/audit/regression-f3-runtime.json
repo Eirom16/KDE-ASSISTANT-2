@@ -1,0 +1,176 @@
+{
+  "results": [
+    {
+      "name": "qml_created_by_main_thread",
+      "status": "PASS",
+      "category": "AUTOMATED_QML",
+      "backend_pid": 151678,
+      "spawning_tid": 151678
+    },
+    {
+      "name": "startup_other_cwd",
+      "status": "PASS",
+      "category": "AUTOMATED_KWIN",
+      "health_seconds": 0.084,
+      "ui_control_seconds": 1.331,
+      "backend_pid": 151678,
+      "qml_pid": 151685,
+      "port": 41855
+    },
+    {
+      "name": "single_instance_activation",
+      "status": "PASS",
+      "category": "AUTOMATED_QML"
+    },
+    {
+      "name": "independent_profiles",
+      "status": "PASS",
+      "category": "AUTOMATED_QML"
+    },
+    {
+      "name": "tray_dbusmenu_minimize_restore_one_activation",
+      "status": "PASS",
+      "category": "AUTOMATED_KWIN",
+      "state": {
+        "found": true,
+        "pid": 151685,
+        "active": true,
+        "minimized": false,
+        "at_ms": 1792294520514,
+        "stacking_index": 3,
+        "x": 395,
+        "y": 10,
+        "width": 575,
+        "height": 708,
+        "keepAbove": false
+      }
+    },
+    {
+      "name": "maximized_state_preserved",
+      "status": "PASS",
+      "category": "AUTOMATED_KWIN",
+      "state": {
+        "found": true,
+        "pid": 151685,
+        "active": true,
+        "minimized": false,
+        "at_ms": 1792294522699,
+        "stacking_index": 3,
+        "x": 0,
+        "y": 0,
+        "width": 1366,
+        "height": 728,
+        "keepAbove": false
+      }
+    },
+    {
+      "name": "unfocused_synthetic_activation",
+      "status": "PASS",
+      "category": "AUTOMATED_KWIN",
+      "state": {
+        "found": true,
+        "pid": 151685,
+        "active": true,
+        "minimized": false,
+        "at_ms": 1792294524905,
+        "stacking_index": 4,
+        "x": 0,
+        "y": 0,
+        "width": 1366,
+        "height": 728,
+        "keepAbove": false
+      },
+      "limitation": "Synthetic SNI call has no real input token; human tray/focus verification remains NOT_TESTED"
+    },
+    {
+      "name": "close_to_tray_restore",
+      "status": "PASS",
+      "category": "AUTOMATED_KWIN"
+    },
+    {
+      "name": "resource_samples",
+      "category": "AUTOMATED_KWIN",
+      "status": "PASS",
+      "samples": {
+        "visible_idle": {
+          "seconds": 3.027,
+          "processes": {
+            "151678": {
+              "rss_kib": 30376,
+              "pss_kib": 26706,
+              "cpu_one_core_percent": 0.33
+            },
+            "151685": {
+              "rss_kib": 190096,
+              "pss_kib": 161370,
+              "cpu_one_core_percent": 13.21
+            }
+          }
+        },
+        "hidden_idle": {
+          "seconds": 3.021,
+          "processes": {
+            "151678": {
+              "rss_kib": 30376,
+              "pss_kib": 26706,
+              "cpu_one_core_percent": 0.0
+            },
+            "151685": {
+              "rss_kib": 190104,
+              "pss_kib": 161378,
+              "cpu_one_core_percent": 1.99
+            }
+          }
+        },
+        "five_open_close_cycles": {
+          "seconds": 6.106,
+          "processes": {
+            "151678": {
+              "rss_kib": 30376,
+              "pss_kib": 26594,
+              "cpu_one_core_percent": 0.0
+            },
+            "151685": {
+              "rss_kib": 190108,
+              "pss_kib": 161382,
+              "cpu_one_core_percent": 11.96
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "qml_failure_owned_cleanup_socket_release",
+      "status": "PASS",
+      "category": "AUTOMATED_QML"
+    },
+    {
+      "name": "parent_death_kills_own_qml",
+      "status": "PASS",
+      "category": "AUTOMATED_QML"
+    },
+    {
+      "name": "xdg_launcher",
+      "status": "PASS",
+      "category": "AUTOMATED_QML",
+      "backend_pid": 152278,
+      "qml_pid": 152288
+    },
+    {
+      "name": "missing_assets_fail_explicitly",
+      "status": "PASS",
+      "category": "AUTOMATED_QML"
+    },
+    {
+      "name": "qml_loss_pending_consent_revoke_restart_no_replay",
+      "status": "PASS",
+      "category": "AUTOMATED_QML/AUTOMATED_KWIN",
+      "provider_calls": 2,
+      "final_permission": "revoked",
+      "tray_new_session_and_quit": "PASS"
+    }
+  ],
+  "human_verified": "NOT_TESTED",
+  "real_shortcut_registration": "NOT_TESTED",
+  "plasma_wayland": "REQUESTED"
+}

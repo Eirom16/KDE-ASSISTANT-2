@@ -1,0 +1,188 @@
+{
+  "results": [
+    {
+      "name": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check"
+      ],
+      "category": "UNIT",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 1.041,
+      "rust_counts": [],
+      "qml_counts": [],
+      "log": "/tmp/kda-f3-validation-p_981tha/fmt.log"
+    },
+    {
+      "name": "f3-unit",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--test",
+        "f3_desktop",
+        "--",
+        "--test-threads=1"
+      ],
+      "category": "UNIT",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 7.148,
+      "rust_counts": [
+        [
+          "21",
+          "0",
+          "0",
+          "0"
+        ]
+      ],
+      "qml_counts": [],
+      "log": "/tmp/kda-f3-validation-p_981tha/f3-unit.log"
+    },
+    {
+      "name": "owner-thread",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--test",
+        "f3_process_owner"
+      ],
+      "category": "UNIT",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 2.366,
+      "rust_counts": [
+        [
+          "1",
+          "0",
+          "0",
+          "0"
+        ]
+      ],
+      "qml_counts": [],
+      "log": "/tmp/kda-f3-validation-p_981tha/owner-thread.log"
+    },
+    {
+      "name": "desktop-http",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--lib",
+        "f3_http_desktop",
+        "--",
+        "--test-threads=1"
+      ],
+      "category": "UNIT",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 0.542,
+      "rust_counts": [
+        [
+          "1",
+          "0",
+          "0",
+          "157"
+        ]
+      ],
+      "qml_counts": [],
+      "log": "/tmp/kda-f3-validation-p_981tha/desktop-http.log"
+    },
+    {
+      "name": "paths",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--test",
+        "app_paths"
+      ],
+      "category": "UNIT",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 2.164,
+      "rust_counts": [
+        [
+          "3",
+          "0",
+          "0",
+          "0"
+        ]
+      ],
+      "qml_counts": [],
+      "log": "/tmp/kda-f3-validation-p_981tha/paths.log"
+    },
+    {
+      "name": "theme-unit",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--lib",
+        "backend::kde_integration::tests",
+        "--",
+        "--test-threads=1"
+      ],
+      "category": "UNIT",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 0.434,
+      "rust_counts": [
+        [
+          "3",
+          "0",
+          "0",
+          "155"
+        ]
+      ],
+      "qml_counts": [],
+      "log": "/tmp/kda-f3-validation-p_981tha/theme-unit.log"
+    },
+    {
+      "name": "f3-qml",
+      "command": [
+        "/tmp/kda-f3-validation-p_981tha/qmltest-qapplication",
+        "-import",
+        "/home/eirom/KDE-ASSISTANT-2",
+        "-input",
+        "/home/eirom/KDE-ASSISTANT-2/tests/qml/tst_f3_desktop.qml",
+        "-o",
+        "-,txt"
+      ],
+      "category": "AUTOMATED_QML",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 2.484,
+      "rust_counts": [],
+      "qml_counts": [
+        [
+          "12",
+          "0",
+          "0"
+        ]
+      ],
+      "log": "/tmp/kda-f3-validation-p_981tha/f3-qml.log"
+    },
+    {
+      "name": "build",
+      "command": [
+        "cargo",
+        "build",
+        "--locked",
+        "--bin",
+        "kde-assistant"
+      ],
+      "category": "UNIT",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 0.438,
+      "rust_counts": [],
+      "qml_counts": [],
+      "log": "/tmp/kda-f3-validation-p_981tha/build.log"
+    }
+  ],
+  "source_runtime_failed": "hidden sample was not hidden; separate final repeat below"
+}

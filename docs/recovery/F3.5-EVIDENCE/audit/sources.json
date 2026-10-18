@@ -1,0 +1,6 @@
+{
+  "current_f35_root": "/tmp/kda-f35-validation-8gk4fljl",
+  "historical_f35_evidence": "parent directory, pre-audit",
+  "secrets": "synthetic only; no config/token/database/auth-module copied",
+  "compact_error_footer": "PASS, Qt suite 15 passed"
+}

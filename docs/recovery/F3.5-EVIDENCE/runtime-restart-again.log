@@ -1,0 +1,20 @@
+[2026-10-17T23:17:17Z INFO  kde_assistant] KDE Assistant v2 starting...
+[2026-10-17T23:17:17Z INFO  kde_assistant_lib::backend] Inicializando Backend...
+[2026-10-17T23:17:17Z INFO  kde_assistant_lib::backend] Config cargada desde ~/.config/kde-assistant/config.json
+[2026-10-17T23:17:17Z INFO  kde_assistant_lib::backend::ai_service] AiService: cliente Groq listo
+[2026-10-17T23:17:17Z INFO  kde_assistant_lib::backend::session_manager] SQLite DB: /tmp/kda-f35-validation-7ldjgozr/runtime/data/kde-assistant/sessions.db
+[2026-10-17T23:17:17Z INFO  kde_assistant_lib::backend::resource_cache] Owned resource cache maintenance: {"failures":0,"max_bytes":268435456,"max_workspaces":1024,"removed":0,"skipped":0}
+[2026-10-17T23:17:17Z WARN  kde_assistant_lib::backend::speech_service] whisper sin modelo en '/tmp/kda-f35-validation-7ldjgozr/runtime/data/kde-assistant/models/ggml-base.bin'. STT no disponible; instalación manual requerida.
+[2026-10-17T23:17:17Z INFO  kde_assistant_lib::backend] Todos los subservicios inicializados
+[2026-10-17T23:17:17Z INFO  kde_assistant] Backend inicializado correctamente
+[2026-10-17T23:17:17Z INFO  kde_assistant] Núcleo de texto listo en http://127.0.0.1:37621; voz diferida, descargas desactivadas
+[2026-10-17T23:17:17Z INFO  kde_assistant] Voz diferida; requiere --enable-voice y dependencias locales. Usa el InputBar para escribir mensajes.
+[2026-10-17T23:17:17Z INFO  kde_assistant] Tema KDE: Dark
+[2026-10-17T23:17:17Z INFO  kde_assistant] Atajos globales deshabilitados; registro opt-in mediante --enable-shortcuts
+[2026-10-17T23:17:17Z INFO  kde_assistant] Lanzando UI QML (qml6)...
+[2026-10-17T23:17:17Z INFO  kde_assistant] UI: usando Wayland nativo (QT_QPA_PLATFORM=wayland)
+[2026-10-17T23:17:17Z INFO  kde_assistant] UI QML lanzada (pid 71938)
+qml: F3_WINDOW_READY 1792279038396 true false 575 680
+qml: F35_UI_RESTART_PASS provider,url,model,masked_credential
+[2026-10-17T23:17:19Z INFO  kde_assistant] Apagando UI QML (pid 71938)...
+[2026-10-17T23:17:19Z INFO  kde_assistant] Apagando KDE Assistant v2...

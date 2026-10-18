@@ -1,0 +1,24 @@
+   Compiling kde-assistant v0.1.0 (/home/eirom/KDE-ASSISTANT-2)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.10s
+     Running tests/f35_providers.rs (target/debug/deps/f35_providers-602fb9935312daee)
+
+running 2 tests
+
+thread 'f35_audit_known_provider_does_not_send_key_to_unapproved_origin' (128026) panicked at tests/f35_providers.rs:281:5:
+known provider must require explicit approval for a different destination
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test f35_audit_known_provider_does_not_send_key_to_unapproved_origin ... FAILED
+
+thread 'f35_audit_probe_rejects_malformed_choice_and_terminal_sequences' (128027) panicked at tests/f35_providers.rs:315:9:
+malformed SSE choices are not a successful diagnostic
+test f35_audit_probe_rejects_malformed_choice_and_terminal_sequences ... FAILED
+
+failures:
+
+failures:
+    f35_audit_known_provider_does_not_send_key_to_unapproved_origin
+    f35_audit_probe_rejects_malformed_choice_and_terminal_sequences
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--test f35_providers`

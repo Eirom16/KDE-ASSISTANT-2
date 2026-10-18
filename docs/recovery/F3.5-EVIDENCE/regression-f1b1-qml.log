@@ -1,0 +1,18 @@
+    Blocking waiting for file lock on build directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.24s
+     Running tests/f1b1_text_startup.rs (target/debug/deps/f1b1_text_startup-bc6fbc185d55c96a)
+
+running 1 test
+
+running 1 test
+F1B1_UI_PASS; QML terminado y recogido; cuatro mensajes persistidos
+F1B1_BINARY_UI_PASS; hijo QML propio recogido; QML ajeno sigue vivo; puerto liberado
+F1B1_QML_FAILURE_PASS; fallo real de carga QML visible; puerto liberado; QML ajeno vivo
+test qml_offscreen_settings_and_two_visible_turns ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 2.52s
+
+test qml_offscreen_settings_and_two_visible_turns ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 2.53s
+

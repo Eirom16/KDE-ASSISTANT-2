@@ -1,0 +1,26 @@
+/tmp/kda-f35-ui-before-w0j97x9y
+Traceback (most recent call last):
+  File "<stdin>", line 9, in <module>
+  File "/home/eirom/KDE-ASSISTANT-2/scripts/validate_f35.py", line 46, in qml_tests
+    assert result.returncode==0, result.stdout[-6000:]
+           ^^^^^^^^^^^^^^^^^^^^
+AssertionError: ********* Start testing of kde_assistant *********
+Config: Using QtTest library 6.12.0, Qt 6.12.0 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : kde_assistant::F35Settings::initTestCase()
+PASS   : kde_assistant::F35Settings::test_credential_and_provider_drafts()
+FAIL!  : kde_assistant::F35Settings::test_f35_audit_pending_after_save() editing after save must clear the success state
+   Actual   (): success
+   Expected (): info
+   Loc: [/tmp/kda-f35-ui-before-w0j97x9y/tst_f35_settings.qml(88)]
+PASS   : kde_assistant::F35Settings::test_failed_save_stays_open_then_success()
+PASS   : kde_assistant::F35Settings::test_keyboard_and_scroll()
+PASS   : kde_assistant::F35Settings::test_layout(desktop-dark)
+PASS   : kde_assistant::F35Settings::test_layout(desktop-light)
+PASS   : kde_assistant::F35Settings::test_layout(compact)
+PASS   : kde_assistant::F35Settings::test_layout(minimum)
+PASS   : kde_assistant::F35Settings::test_models_and_connection_buttons_do_not_save()
+PASS   : kde_assistant::F35Settings::test_read_failure_disables_save()
+PASS   : kde_assistant::F35Settings::cleanupTestCase()
+Totals: 11 passed, 1 failed, 0 skipped, 0 blacklisted, 3437ms
+********* Finished testing of kde_assistant *********
+

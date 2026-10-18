@@ -1,0 +1,1355 @@
+{
+  "tree": "6f6f898515b1aba190791b488dd2c9ea65e3abea",
+  "entries": [
+    {
+      "path": ".agents/skills/handoff/SKILL.md",
+      "mode": "100644",
+      "blob": "2eb98a51b97bb5bac461a26ad14828eeac827909"
+    },
+    {
+      "path": ".agents/skills/handoff/agents/openai.yaml",
+      "mode": "100644",
+      "blob": "6e1d8da121beceddc2f9ec7fa8714c1d914dd11a"
+    },
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "blob": "1cf4b799612679b44d6c74b7df995d989bb3e8d7"
+    },
+    {
+      "path": ".opencode/skills/design-system/SKILL.md",
+      "mode": "100644",
+      "blob": "aa62149809742f2ae04a21b06484bd4767e622d5"
+    },
+    {
+      "path": ".opencode/skills/grill-me/SKILL.md",
+      "mode": "100644",
+      "blob": "3947ff9c4ad980d14fc07fccbf659d47c114e81d"
+    },
+    {
+      "path": ".opencode/skills/grill-me/agents/openai.yaml",
+      "mode": "100644",
+      "blob": "4d6fb0c746c5d21364dce5d0cf8c51eab9712e7b"
+    },
+    {
+      "path": ".opencode/skills/kde-integration/SKILL.md",
+      "mode": "100644",
+      "blob": "4ecc9e6fbe2ee7b2df8b0b99992329e1e9b9087e"
+    },
+    {
+      "path": ".opencode/skills/qml-frontend/SKILL.md",
+      "mode": "100644",
+      "blob": "115d163910ed38b88e9afb9673597b995646e2f0"
+    },
+    {
+      "path": ".opencode/skills/rust-backend/SKILL.md",
+      "mode": "100644",
+      "blob": "9ef518175db0651966a110b39d8efade05831afc"
+    },
+    {
+      "path": ".opencode/skills/tool-calling/SKILL.md",
+      "mode": "100644",
+      "blob": "6dfc29607952c9870184620b0c8c69457762ea70"
+    },
+    {
+      "path": ".opencode/skills/voice-pipeline/SKILL.md",
+      "mode": "100644",
+      "blob": "3fea57a49fd67a442086baecf52a3f80844e46c5"
+    },
+    {
+      "path": "AGENTS.md",
+      "mode": "100644",
+      "blob": "6ea051bca68d27722cf3b1c48e00ac7ef913b28d"
+    },
+    {
+      "path": "Cargo.lock",
+      "mode": "100644",
+      "blob": "ad2086ad179465a6044e5a055d920833bf02482e"
+    },
+    {
+      "path": "Cargo.toml",
+      "mode": "100644",
+      "blob": "1238baa7089b5fb5c7e4870f1b089a40e26b02d4"
+    },
+    {
+      "path": "DESKTOP-AGENT-DESIGN.md",
+      "mode": "100644",
+      "blob": "5d96c290ef104556d105b10f7d40763314bfbf3e"
+    },
+    {
+      "path": "KDE-ASSISTANT-2-Voice-Conversation-Plan.md",
+      "mode": "100644",
+      "blob": "23fd5360bf98995c21bbdd0202391873cf962bfb"
+    },
+    {
+      "path": "KDE-ASSISTANT-2_Desktop-Agent-Prompt-v2.md",
+      "mode": "100644",
+      "blob": "b289c4259e756cc429209b9a1bcb6b33c5b7d736"
+    },
+    {
+      "path": "KDE-ASSISTANT-V2-PLAN.md",
+      "mode": "100644",
+      "blob": "e38250bf11488be48f5e146c3bdcf6a9aedf7e17"
+    },
+    {
+      "path": "KDE-ASSISTANT-V2-PROMPT.md",
+      "mode": "100644",
+      "blob": "74f5f8b2c5f7a8a133941384652cc10c7c2c2254"
+    },
+    {
+      "path": "KDE-ASSISTANT-V3-PLAN.md",
+      "mode": "100644",
+      "blob": "48c7c831e32e2af2778f9d1db41a0778a4c87859"
+    },
+    {
+      "path": "MCP-GUIDE.md",
+      "mode": "100644",
+      "blob": "cbe1ff66335da5a76344db55cb54dbf8bc59b962"
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "blob": "a451817e1d2d8c9913c363bb794986518df128f5"
+    },
+    {
+      "path": "apple-DESIGN.md",
+      "mode": "100644",
+      "blob": "09267343e46b407ac0eae4e33f06b2d62099dc49"
+    },
+    {
+      "path": "assets/character/ATTRIBUTION.md",
+      "mode": "100644",
+      "blob": "3d33b238d62e47f730e3b69fedde35ded3059c81"
+    },
+    {
+      "path": "assets/character/LICENSE.blobatar",
+      "mode": "100644",
+      "blob": "800b40f51d8a1f899a9ef19fd60dcbc57e670681"
+    },
+    {
+      "path": "assets/character/char_happy.svg",
+      "mode": "100644",
+      "blob": "7ae78895817e0a3f76e4f1b6256dcaa4fa1b6049"
+    },
+    {
+      "path": "assets/character/char_idle.svg",
+      "mode": "100644",
+      "blob": "60541346e22ecb20f10a08e72ca0acb86459e32d"
+    },
+    {
+      "path": "assets/character/char_love.svg",
+      "mode": "100644",
+      "blob": "e1edbc833b36afb9d13ff95b6247a675ab8b2952"
+    },
+    {
+      "path": "assets/character/char_mad.svg",
+      "mode": "100644",
+      "blob": "090403e34652e8f1359f073a2b2af897a4386327"
+    },
+    {
+      "path": "assets/character/char_sad.svg",
+      "mode": "100644",
+      "blob": "2e4c2bfa112adf19bf20a23e20126abf7ee4ace2"
+    },
+    {
+      "path": "assets/character/char_scared.svg",
+      "mode": "100644",
+      "blob": "efd3dd9c222541a4616dff4acd5ee99890264952"
+    },
+    {
+      "path": "assets/character/char_shy.svg",
+      "mode": "100644",
+      "blob": "14f2a6776c54d2556180fa174ae243c08232e8e7"
+    },
+    {
+      "path": "assets/character/char_sick.svg",
+      "mode": "100644",
+      "blob": "3440348422662b77126a1d6e7d38d69acbec0866"
+    },
+    {
+      "path": "assets/character/char_sleepy.svg",
+      "mode": "100644",
+      "blob": "992e47ce5dcbad8aa38b0c28684b8b5145a5e592"
+    },
+    {
+      "path": "assets/character/char_smug.svg",
+      "mode": "100644",
+      "blob": "d11ca595c3411be754a8ef75521801af2ae5bc47"
+    },
+    {
+      "path": "assets/character/char_surprised.svg",
+      "mode": "100644",
+      "blob": "7384d9f26526dc9106eda5809b5a86a44ebf43d3"
+    },
+    {
+      "path": "assets/character/char_thinking.svg",
+      "mode": "100644",
+      "blob": "05e02ab6ad07557f166295728804df4f0023ded7"
+    },
+    {
+      "path": "assets/character/char_unsure.svg",
+      "mode": "100644",
+      "blob": "71684d4b7d40419825a54662eabf344e88d77a07"
+    },
+    {
+      "path": "assets/character/char_wink.svg",
+      "mode": "100644",
+      "blob": "b247f01b5b484f407e4eb2255d8127d4787ecfd6"
+    },
+    {
+      "path": "assets/character/layout.json",
+      "mode": "100644",
+      "blob": "ce93d94693ee713ed48c186ad94a32912ab0b7cb"
+    },
+    {
+      "path": "assets/icons/kde-assistant.svg",
+      "mode": "100644",
+      "blob": "c7a9195cf91903da99467f80fde60411585cb6ee"
+    },
+    {
+      "path": "assets/octicons/alert-16.svg",
+      "mode": "100644",
+      "blob": "b901c5167036ad5132a6de971e605d81a3a4197d"
+    },
+    {
+      "path": "assets/octicons/arrow-up-16.svg",
+      "mode": "100644",
+      "blob": "5a49e6e7c862d1747306dce6fb3376756384efe5"
+    },
+    {
+      "path": "assets/octicons/bell-16.svg",
+      "mode": "100644",
+      "blob": "632efe9cbf871028d1d18a6dc65ff01105243424"
+    },
+    {
+      "path": "assets/octicons/bookmark-16.svg",
+      "mode": "100644",
+      "blob": "34198cd73f7a612819a46ec9c2d151b092b807b6"
+    },
+    {
+      "path": "assets/octicons/check-16.svg",
+      "mode": "100644",
+      "blob": "9c694600f2a800178c4733df8f0ad292f752dcd0"
+    },
+    {
+      "path": "assets/octicons/copy-16.svg",
+      "mode": "100644",
+      "blob": "e3f0222b4635a3010e4fa0ae118f12c103316cb4"
+    },
+    {
+      "path": "assets/octicons/dash-16.svg",
+      "mode": "100644",
+      "blob": "27ad20da3294c69d5edaa0d55716fba3f1b59e66"
+    },
+    {
+      "path": "assets/octicons/eye-16.svg",
+      "mode": "100644",
+      "blob": "17b8b28813450168de420fadf9043c3dc8e98a80"
+    },
+    {
+      "path": "assets/octicons/file-16.svg",
+      "mode": "100644",
+      "blob": "9ee2281004328886ea360adf0b933d41c7bc3b7c"
+    },
+    {
+      "path": "assets/octicons/file-added-16.svg",
+      "mode": "100644",
+      "blob": "b1e2d8547594c63ef790b8a286e8449b2af7cdb8"
+    },
+    {
+      "path": "assets/octicons/gear-16.svg",
+      "mode": "100644",
+      "blob": "72de92d8509604ba3d7f70b4acef822b3088bd96"
+    },
+    {
+      "path": "assets/octicons/grabber-16.svg",
+      "mode": "100644",
+      "blob": "cd0a3e92c2c5e2eaed28d56cb71934455ea107e2"
+    },
+    {
+      "path": "assets/octicons/heart-16.svg",
+      "mode": "100644",
+      "blob": "20a465782ef0fd3d3a757596f5d37867f77e23b2"
+    },
+    {
+      "path": "assets/octicons/history-16.svg",
+      "mode": "100644",
+      "blob": "6df3775e47fb63dfa985652b03bd469306621632"
+    },
+    {
+      "path": "assets/octicons/hubot-16.svg",
+      "mode": "100644",
+      "blob": "f9bbcac1f5862b5106d1db621b7a6f01ff32c703"
+    },
+    {
+      "path": "assets/octicons/image-16.svg",
+      "mode": "100644",
+      "blob": "a8944fdf1cb72d25d57f05c7e4d675b25617e0aa"
+    },
+    {
+      "path": "assets/octicons/kebab-horizontal-16.svg",
+      "mode": "100644",
+      "blob": "59005581f327f91b597863484d2769bad9bd352e"
+    },
+    {
+      "path": "assets/octicons/light-bulb-16.svg",
+      "mode": "100644",
+      "blob": "46c1f70987e30dba3590540cd6e0a087c35e1014"
+    },
+    {
+      "path": "assets/octicons/link-16.svg",
+      "mode": "100644",
+      "blob": "e7fdb6cdd36c1c7714be3345624aef36bc096beb"
+    },
+    {
+      "path": "assets/octicons/microphone-16.svg",
+      "mode": "100644",
+      "blob": "4377491c7b324edabe8a29c41ea84b0951facfc9"
+    },
+    {
+      "path": "assets/octicons/paper-airplane-16.svg",
+      "mode": "100644",
+      "blob": "e339f01fe0cc63d984607b7e53a1df73dbc2c151"
+    },
+    {
+      "path": "assets/octicons/pencil-16.svg",
+      "mode": "100644",
+      "blob": "cb38a41c700fb42f48d0d6fffcd27abef303226a"
+    },
+    {
+      "path": "assets/octicons/play-16.svg",
+      "mode": "100644",
+      "blob": "6715458aa06de77ae050e8558566327b6c6a7217"
+    },
+    {
+      "path": "assets/octicons/plus-16.svg",
+      "mode": "100644",
+      "blob": "41517f2226e6311aef1f9eb0086531841fa9d89a"
+    },
+    {
+      "path": "assets/octicons/rocket-16.svg",
+      "mode": "100644",
+      "blob": "fce7d13496614842162fad635046b99127cbc943"
+    },
+    {
+      "path": "assets/octicons/search-16.svg",
+      "mode": "100644",
+      "blob": "d8d6f395536b65b595ea8ce1c8531240c8fd055e"
+    },
+    {
+      "path": "assets/octicons/sidebar-collapse-16.svg",
+      "mode": "100644",
+      "blob": "fe4aec9f9e9e837b0e94ce9f5d2786ce6548966e"
+    },
+    {
+      "path": "assets/octicons/sidebar-expand-16.svg",
+      "mode": "100644",
+      "blob": "6d4c7b422c84bae491739ee271dc714a5922f692"
+    },
+    {
+      "path": "assets/octicons/sign-out-16.svg",
+      "mode": "100644",
+      "blob": "b6c8b0f2870a5340cf0c04355a8b0597cdac2d4f"
+    },
+    {
+      "path": "assets/octicons/square-16.svg",
+      "mode": "100644",
+      "blob": "de94c385ad747f1b30c45c9657ab7e860a9eeebb"
+    },
+    {
+      "path": "assets/octicons/star-16.svg",
+      "mode": "100644",
+      "blob": "08adb3e775d339e77d5afad79bf25675199781cd"
+    },
+    {
+      "path": "assets/octicons/stop-16.svg",
+      "mode": "100644",
+      "blob": "2baa8a2d510b6049965e52a8f08e4f26efed6786"
+    },
+    {
+      "path": "assets/octicons/sync-16.svg",
+      "mode": "100644",
+      "blob": "9b047bdc1b3c95a597e98cb972f462277cdbdc83"
+    },
+    {
+      "path": "assets/octicons/terminal-16.svg",
+      "mode": "100644",
+      "blob": "e6e5566be9c9597c8bc17a2af684b835b000fee0"
+    },
+    {
+      "path": "assets/octicons/thumbsdown-16.svg",
+      "mode": "100644",
+      "blob": "be54cb71b7364cf652df252c1ee53a68bc363d0a"
+    },
+    {
+      "path": "assets/octicons/thumbsup-16.svg",
+      "mode": "100644",
+      "blob": "3e837d1c170ccf1d1eff7ac0e3f11371dd8f5410"
+    },
+    {
+      "path": "assets/octicons/tools-16.svg",
+      "mode": "100644",
+      "blob": "038892798a6f10ff87f1d2d2320e36fdd4489a35"
+    },
+    {
+      "path": "assets/octicons/trash-16.svg",
+      "mode": "100644",
+      "blob": "b52a5fc43b8fb7f1dc698efcdd27090924a03cf7"
+    },
+    {
+      "path": "assets/octicons/unmute-16.svg",
+      "mode": "100644",
+      "blob": "52ecd4393979876fcc256e0bb35f9025eda7ea78"
+    },
+    {
+      "path": "assets/octicons/upload-16.svg",
+      "mode": "100644",
+      "blob": "6da3cb1a604df81d17445796b10ff32cdab325b4"
+    },
+    {
+      "path": "assets/octicons/x-16.svg",
+      "mode": "100644",
+      "blob": "f41541e585d9415d17f941ab12044be4f6590d92"
+    },
+    {
+      "path": "build.rs",
+      "mode": "100644",
+      "blob": "ba97e93c38cc980bc653dcf6495df2a92e5c6bd9"
+    },
+    {
+      "path": "docs/recovery/F1A-TOOLCHAIN.md",
+      "mode": "100644",
+      "blob": "3acc3c2b4f107a5eacd167b4559baae9f5cb388b"
+    },
+    {
+      "path": "docs/recovery/F1B1-ARCHITECTURE.md",
+      "mode": "100644",
+      "blob": "316e0222a6dca2eccde7650bcbcde4f4262ccbbc"
+    },
+    {
+      "path": "docs/recovery/F1B1-REPORT.md",
+      "mode": "100644",
+      "blob": "3e700d443e33973de76fccfe77fc2e2e1a6aa9b4"
+    },
+    {
+      "path": "docs/recovery/F1B1-RESULTS.md",
+      "mode": "100644",
+      "blob": "94b24dcab7a1a3d8f1ba171838051e77e5323b86"
+    },
+    {
+      "path": "docs/recovery/F1B2-CONTRACT.md",
+      "mode": "100644",
+      "blob": "17e89c7d9ed3bf2e6a2affeaa540435baf856823"
+    },
+    {
+      "path": "docs/recovery/F1B2-REPORT.md",
+      "mode": "100644",
+      "blob": "25711ef0556425e23093051ba2f7e1beb2a9813b"
+    },
+    {
+      "path": "docs/recovery/F1B2-RESULTS.md",
+      "mode": "100644",
+      "blob": "9286806b9dae5d625b9ad065bf926ca1fe76f676"
+    },
+    {
+      "path": "docs/recovery/F1B3A-JOURNAL-CONTRACT.md",
+      "mode": "100644",
+      "blob": "962574c0da2ea0e8b5116893317f3f3500085ae9"
+    },
+    {
+      "path": "docs/recovery/F1B3A-REPORT.md",
+      "mode": "100644",
+      "blob": "7d548fda021b61f80589f923f94358a102b39ecc"
+    },
+    {
+      "path": "docs/recovery/F1B3A-RESULTS.md",
+      "mode": "100644",
+      "blob": "3e89936013f2902bc38c2ce217fbe5a711e82ae3"
+    },
+    {
+      "path": "docs/recovery/F1B3B-REPORT.md",
+      "mode": "100644",
+      "blob": "af15e1155749c3982d11e0720d0bd3016fcbcb72"
+    },
+    {
+      "path": "docs/recovery/F1B3B-RESULTS.md",
+      "mode": "100644",
+      "blob": "b62d524b3b1e17c40cd45263ad50b07d5498d803"
+    },
+    {
+      "path": "docs/recovery/F1B3B-STORAGE-CONTRACT.md",
+      "mode": "100644",
+      "blob": "3670e226856ec45f9051214340c4eefb2c97be69"
+    },
+    {
+      "path": "docs/recovery/F2-PERMISSION-CONTRACT.md",
+      "mode": "100644",
+      "blob": "49f61233bbdb07c8a08641a177b1c41d056a283d"
+    },
+    {
+      "path": "docs/recovery/F2-REPORT.md",
+      "mode": "100644",
+      "blob": "41635f41399a7644b1891cc1806f8c363d2e2c56"
+    },
+    {
+      "path": "docs/recovery/F2-RESULTS.md",
+      "mode": "100644",
+      "blob": "239a232042f89f73f3830e0c546a37b1fdf3af58"
+    },
+    {
+      "path": "docs/recovery/F2-THREAT-MODEL.md",
+      "mode": "100644",
+      "blob": "878d9f2a9184185b215765a711a7499fe2114615"
+    },
+    {
+      "path": "docs/recovery/F2-TOOL-MATRIX.md",
+      "mode": "100644",
+      "blob": "497396edbbfdb8577df84ec49f209065465e2ed0"
+    },
+    {
+      "path": "docs/recovery/F3-ADAPTER-MATRIX.md",
+      "mode": "100644",
+      "blob": "a826897e58b9941d1dcd2373e8c8b32712dcd65e"
+    },
+    {
+      "path": "docs/recovery/F3-ISSUES.md",
+      "mode": "100644",
+      "blob": "f68bf9d838c009f7ca925e9c19045c5cae28cbfe"
+    },
+    {
+      "path": "docs/recovery/F3-KDE-CONTRACT.md",
+      "mode": "100644",
+      "blob": "7555afda13eef1050a48ad2080c3f28cd0c00462"
+    },
+    {
+      "path": "docs/recovery/F3-REPORT.md",
+      "mode": "100644",
+      "blob": "3df1698dd20f90d6b4feb0938656d64954325b92"
+    },
+    {
+      "path": "docs/recovery/F3-RESULTS.md",
+      "mode": "100644",
+      "blob": "b4e8497b86f1a5d426cbe42542bb84f97f0aba22"
+    },
+    {
+      "path": "docs/recovery/GATE-W1R-ISSUES.md",
+      "mode": "100644",
+      "blob": "5d17172afc247861fc9da531728c08efbdf259bf"
+    },
+    {
+      "path": "docs/recovery/GATE-W1R-REPORT.md",
+      "mode": "100644",
+      "blob": "ae738e2bfaca42ecdc6057fde1ac580764a110e9"
+    },
+    {
+      "path": "docs/recovery/GATE-W1R-RESULTS.md",
+      "mode": "100644",
+      "blob": "88a2fb63caf4a3b536d8df950789ed29288065ec"
+    },
+    {
+      "path": "kde-assistant.desktop",
+      "mode": "100644",
+      "blob": "0f11866da7adbad005a76f79ed6bdb539ddc6a6e"
+    },
+    {
+      "path": "migrations/003_operation_journal.sql",
+      "mode": "100644",
+      "blob": "c0f58406c24158fdb046cc1114c72b779a329c64"
+    },
+    {
+      "path": "migrations/004_storage_retention.sql",
+      "mode": "100644",
+      "blob": "1eff673a64864318d72f54676997cc6b4b9f0e59"
+    },
+    {
+      "path": "migrations/005_permission_engine.sql",
+      "mode": "100644",
+      "blob": "37cf6a6e113efad90b2ea6b5bd2eeb83c077c9e3"
+    },
+    {
+      "path": "opencode.jsonc",
+      "mode": "100644",
+      "blob": "94b8500553232a352ee77b5046933cb168c665ed"
+    },
+    {
+      "path": "qml/Main.qml",
+      "mode": "100644",
+      "blob": "5fd56872cd42357d8b7447b4f8ad765fc8bf3a48"
+    },
+    {
+      "path": "qml/Octicon.qml",
+      "mode": "100644",
+      "blob": "113559478a0a4cc507ee0b171dd38f89c64b07ed"
+    },
+    {
+      "path": "qml/Theme.qml",
+      "mode": "100644",
+      "blob": "68310cda2ac115c4c595ece9d11fb8a6e9054612"
+    },
+    {
+      "path": "qml/agent/AgentAnimationController.qml",
+      "mode": "100644",
+      "blob": "adc73a3e1262d010651ccfa5b8ae65002a4cc586"
+    },
+    {
+      "path": "qml/agent/AgentMain.qml",
+      "mode": "100644",
+      "blob": "aa32d335a3234da999c3e59fe2624a7ffcec4310"
+    },
+    {
+      "path": "qml/agent/AgentOverlay.qml",
+      "mode": "100644",
+      "blob": "da60dc5cac67aea88f4fce09a23a6776d3ab6fcc"
+    },
+    {
+      "path": "qml/agent/AgentWindow.qml",
+      "mode": "100644",
+      "blob": "d1e3f901668459ebe89ebab760a4c0d9998d2587"
+    },
+    {
+      "path": "qml/agent/AgentWindowStandalone.qml",
+      "mode": "100644",
+      "blob": "c86414002cf25df5a143c7d45d5b71b715221715"
+    },
+    {
+      "path": "qml/agent/AssistantCharacter.qml",
+      "mode": "100644",
+      "blob": "8a4e4e886d25e65fa539bb99c123da26c95f9278"
+    },
+    {
+      "path": "qml/agent/CharacterController.qml",
+      "mode": "100644",
+      "blob": "d28404e5b7ab49a00aef1747d03ce03add6016cf"
+    },
+    {
+      "path": "qml/agent/CharacterData.js",
+      "mode": "100644",
+      "blob": "ef96965e8d3c90d69ab721c93b127907465b36e3"
+    },
+    {
+      "path": "qml/agent/DebugPanel.qml",
+      "mode": "100644",
+      "blob": "4452b8c8223be9d687d32b89e21f7dbde1f502c1"
+    },
+    {
+      "path": "qml/agent/DevPreview.qml",
+      "mode": "100644",
+      "blob": "db1524abec85d51a2a131f2a6a369e0d5706394f"
+    },
+    {
+      "path": "qml/agent/DownloadScene.qml",
+      "mode": "100644",
+      "blob": "e96fcb6413a0081ed65c8c0c542adc5f6d24cf6a"
+    },
+    {
+      "path": "qml/agent/ErrorScene.qml",
+      "mode": "100644",
+      "blob": "2d07fedf970a36e20dda4b275ee08ed33e41e2fe"
+    },
+    {
+      "path": "qml/agent/ExpressionController.qml",
+      "mode": "100644",
+      "blob": "09908245ed8aaa77cc4d715b76db8f0b1c8f903e"
+    },
+    {
+      "path": "qml/agent/FileScene.qml",
+      "mode": "100644",
+      "blob": "53797470a8de4b2459787191692e9ffb1b6c881e"
+    },
+    {
+      "path": "qml/agent/GazeController.qml",
+      "mode": "100644",
+      "blob": "624f61ca95fd249ea861c547b945e327f8c22b48"
+    },
+    {
+      "path": "qml/agent/IdleBehavior.qml",
+      "mode": "100644",
+      "blob": "067f3ff9bf792fd3b6481f134db733ece3026268"
+    },
+    {
+      "path": "qml/agent/IntentRouter.qml",
+      "mode": "100644",
+      "blob": "0cff9ad631c7121860b8b8822439eed8e6ce9416"
+    },
+    {
+      "path": "qml/agent/MoodController.qml",
+      "mode": "100644",
+      "blob": "8ce84c50c680842e7a9847279a096147e7c15373"
+    },
+    {
+      "path": "qml/agent/MovementController.qml",
+      "mode": "100644",
+      "blob": "f560a4519f13651dc5f3b11224420b55b27d6191"
+    },
+    {
+      "path": "qml/agent/OpenAppScene.qml",
+      "mode": "100644",
+      "blob": "20b71ec5b330ecf376de2c58f06974265350a1b4"
+    },
+    {
+      "path": "qml/agent/SceneController.qml",
+      "mode": "100644",
+      "blob": "79a065735c6c4fac1bf190629a2d01fff32a76ed"
+    },
+    {
+      "path": "qml/agent/ScreenshotScene.qml",
+      "mode": "100644",
+      "blob": "ef7bb8acbe2439815ae8b5362bf8ca70bf743b80"
+    },
+    {
+      "path": "qml/agent/SearchScene.qml",
+      "mode": "100644",
+      "blob": "ed563d544a398f88840e1c9a5878f60a51458296"
+    },
+    {
+      "path": "qml/agent/SuccessScene.qml",
+      "mode": "100644",
+      "blob": "45337714edcfba100d55226aa028c2c23686380b"
+    },
+    {
+      "path": "qml/agent/SystemScene.qml",
+      "mode": "100644",
+      "blob": "ce8ae70c6fe24c1d42ccce20ee7522ae3eef492a"
+    },
+    {
+      "path": "qml/agent/VisualGuide.qml",
+      "mode": "100644",
+      "blob": "adf9c2f5fd149a6dd613bc0d86f92da8f3fadf77"
+    },
+    {
+      "path": "qml/agent/qmldir",
+      "mode": "100644",
+      "blob": "a7063bde6c40743f3d74b0832ad57c8558853a55"
+    },
+    {
+      "path": "qml/auth/AuthToken.qml",
+      "mode": "100644",
+      "blob": "27396ff1be45412e884924067903b0119b8a89ee"
+    },
+    {
+      "path": "qml/auth/qmldir",
+      "mode": "100644",
+      "blob": "f26be4f7722dd19a3a69ba473f17e0604586b039"
+    },
+    {
+      "path": "qml/components/AgentDashboard.qml",
+      "mode": "100644",
+      "blob": "4f107c74ee49bdf0069ca29495aae454742a2090"
+    },
+    {
+      "path": "qml/components/AppleButton.qml",
+      "mode": "100644",
+      "blob": "90db3fff04440d081022c4e9f660427d83ee433f"
+    },
+    {
+      "path": "qml/components/AuditDialog.qml",
+      "mode": "100644",
+      "blob": "c276779852275652b88e03694d525c806c935047"
+    },
+    {
+      "path": "qml/components/ChatView.qml",
+      "mode": "100644",
+      "blob": "912d29aadf0b35fcecbf8b70426bd82af3424a37"
+    },
+    {
+      "path": "qml/components/DesktopWindowController.qml",
+      "mode": "100644",
+      "blob": "bb407e3494b4becef75507d99610cfbdab5b109f"
+    },
+    {
+      "path": "qml/components/ErrorBanner.qml",
+      "mode": "100644",
+      "blob": "9200ab2312ff16991812c938a416a576e762c963"
+    },
+    {
+      "path": "qml/components/IconButton.qml",
+      "mode": "100644",
+      "blob": "72d3b9708773993c09071fe03a41a950170a2392"
+    },
+    {
+      "path": "qml/components/ImageCard.qml",
+      "mode": "100644",
+      "blob": "76d4598140ad4343a3ef3aac0b95d43a5539427b"
+    },
+    {
+      "path": "qml/components/ImagePreviewDialog.qml",
+      "mode": "100644",
+      "blob": "c733ba24b3a10d1984fd728fabc31b43eaa93fbe"
+    },
+    {
+      "path": "qml/components/InputBar.qml",
+      "mode": "100644",
+      "blob": "4454fab3f55431ae9aff4c385839a1bb016dbae6"
+    },
+    {
+      "path": "qml/components/KdeWindowActivation.qml",
+      "mode": "100644",
+      "blob": "fa56da566c146287e091e1a58fcc2c0c49f8b9b8"
+    },
+    {
+      "path": "qml/components/MessageBubble.qml",
+      "mode": "100644",
+      "blob": "dde3cc128edd1afb03346668feaa8b81fb634fc1"
+    },
+    {
+      "path": "qml/components/ModelPicker.qml",
+      "mode": "100644",
+      "blob": "177f1650494f8e1bdfb1d9b4cbcf51264dbc1dec"
+    },
+    {
+      "path": "qml/components/PillButton.qml",
+      "mode": "100644",
+      "blob": "92179804de1fffeb69363c7df3e45fc512645128"
+    },
+    {
+      "path": "qml/components/RecoveryHistory.qml",
+      "mode": "100644",
+      "blob": "499396a871fbdb5617d9826a2e0a89cbd824910a"
+    },
+    {
+      "path": "qml/components/SessionDrawer.qml",
+      "mode": "100644",
+      "blob": "2c30bca01f5d760a24d2e00a790542f1ecc72c14"
+    },
+    {
+      "path": "qml/components/SettingsButton.qml",
+      "mode": "100644",
+      "blob": "b12eed76a530a70b8538862fdc3720c7e25f9aec"
+    },
+    {
+      "path": "qml/components/SettingsChoice.qml",
+      "mode": "100644",
+      "blob": "07883ea270981d86afc328c6eed6938012ccce55"
+    },
+    {
+      "path": "qml/components/SettingsDialog.qml",
+      "mode": "100644",
+      "blob": "2d0104a9e240e1bae4f695eb92ac715e00ed7fcf"
+    },
+    {
+      "path": "qml/components/SettingsField.qml",
+      "mode": "100644",
+      "blob": "e3603797e2b542f33393bb06b46efa1be205c2d8"
+    },
+    {
+      "path": "qml/components/SettingsToggle.qml",
+      "mode": "100644",
+      "blob": "03dea1d4ede24827b6385c9935b5764c577693f4"
+    },
+    {
+      "path": "qml/components/ToolCallBadge.qml",
+      "mode": "100644",
+      "blob": "b248b2f5c459db825567c8f48ebde3e56bc25960"
+    },
+    {
+      "path": "qml/components/ToolDetailDialog.qml",
+      "mode": "100644",
+      "blob": "624499c9e9e403d013300556250c3f8f5d648215"
+    },
+    {
+      "path": "qml/components/TrayMenu.qml",
+      "mode": "100644",
+      "blob": "f3907a87079aae58dcefd5c0a81a30650544a7ec"
+    },
+    {
+      "path": "qml/components/TypingIndicator.qml",
+      "mode": "100644",
+      "blob": "57a792cb7fcdeff01109494e46b3edf8c6cdb683"
+    },
+    {
+      "path": "qml/components/VoiceOrb.qml",
+      "mode": "100644",
+      "blob": "322dce12288c0497ba69964336e2e3c510d97d55"
+    },
+    {
+      "path": "qml/components/WelcomeScreen.qml",
+      "mode": "100644",
+      "blob": "e4b875bc2be98aff5224376f5524f45f513d8b5f"
+    },
+    {
+      "path": "qml/components/qmldir",
+      "mode": "100644",
+      "blob": "1157297a6467432855e1a9ed4684cd72a8b83d2a"
+    },
+    {
+      "path": "qml/qmldir",
+      "mode": "100644",
+      "blob": "fbf449a43c53750a72e64cc3a903355f6c9d6a6a"
+    },
+    {
+      "path": "resources.qrc",
+      "mode": "100644",
+      "blob": "85ee18496e9f679e628cd8dbc36ebbfaf8902966"
+    },
+    {
+      "path": "roadmap-auditoria.md",
+      "mode": "100644",
+      "blob": "c9af41b7669cebc783177e5313afab17224dc302"
+    },
+    {
+      "path": "rust-toolchain.toml",
+      "mode": "100644",
+      "blob": "b432996f101609389fcd631582395680520eb494"
+    },
+    {
+      "path": "scripts/f3_runtime.py",
+      "mode": "100644",
+      "blob": "d2c3163dac2dcd12fef1c36f1e1647898db71d82"
+    },
+    {
+      "path": "scripts/qml_test_harness.py",
+      "mode": "100644",
+      "blob": "82ff91c54ee5655eaa99756a227ca83dc0b764f5"
+    },
+    {
+      "path": "scripts/validate_f1a.py",
+      "mode": "100644",
+      "blob": "b56334f575cac2b5584e06b924f2fc6d638ceb82"
+    },
+    {
+      "path": "scripts/validate_f1b1.py",
+      "mode": "100644",
+      "blob": "50f9730c008f546c70e2e366ae9bc9b576f18d19"
+    },
+    {
+      "path": "scripts/validate_f1b2.py",
+      "mode": "100644",
+      "blob": "ba4ca391f2c72557f0c567d05ea89413b44c5814"
+    },
+    {
+      "path": "scripts/validate_f1b3a.py",
+      "mode": "100644",
+      "blob": "58837a6f3f233d0288701615ee6e1fcba32dc645"
+    },
+    {
+      "path": "scripts/validate_f1b3b.py",
+      "mode": "100644",
+      "blob": "95dec02d01497e72815d4430f75d5f32b4359754"
+    },
+    {
+      "path": "scripts/validate_f2.py",
+      "mode": "100644",
+      "blob": "0caf43b882a9ac89089ea261ccbe53fb6bd0e0c7"
+    },
+    {
+      "path": "scripts/validate_f3.py",
+      "mode": "100644",
+      "blob": "35d73c006d80a5815d0aebfc3eb505cee5fd50cc"
+    },
+    {
+      "path": "scripts/validate_gate_w1r.py",
+      "mode": "100644",
+      "blob": "56d1812fcd812d515fdaa0926e87966ea02f02d2"
+    },
+    {
+      "path": "skills-lock.json",
+      "mode": "100644",
+      "blob": "c6e623e045f63dd83394e8c1710886a5bcbd8cbe"
+    },
+    {
+      "path": "src/app_paths.rs",
+      "mode": "100644",
+      "blob": "b4d72116b27b60dd699c335a81e739f5f2231a5c"
+    },
+    {
+      "path": "src/backend/agent_activity.rs",
+      "mode": "100644",
+      "blob": "14b1e094fc9d59d929be92516a5aa718a0a6ec3f"
+    },
+    {
+      "path": "src/backend/ai_service.rs",
+      "mode": "100644",
+      "blob": "842588925cc3112a155ee058148371e5984c2bcd"
+    },
+    {
+      "path": "src/backend/approvals.rs",
+      "mode": "100644",
+      "blob": "19c2703b5f70d597681d22533ec0f9d837a20c94"
+    },
+    {
+      "path": "src/backend/audio_capture.rs",
+      "mode": "100644",
+      "blob": "aa7e770151e3ca77d1a0338fab3555ca8bf2e5c5"
+    },
+    {
+      "path": "src/backend/auth.rs",
+      "mode": "100644",
+      "blob": "3b0fd497c01aa4b1a4eeadec873cc44102c3545a"
+    },
+    {
+      "path": "src/backend/chime_player.rs",
+      "mode": "100644",
+      "blob": "b254affcf6e1d7244f0700b1c07e478819a43a7c"
+    },
+    {
+      "path": "src/backend/conversation_turn.rs",
+      "mode": "100644",
+      "blob": "f0633d2da742f752d143c96cbfdc57a44d8e26ec"
+    },
+    {
+      "path": "src/backend/document_suite.rs",
+      "mode": "100644",
+      "blob": "d340eb9e1ccb21d2119b7f088a6d31d5b35de82e"
+    },
+    {
+      "path": "src/backend/global_shortcuts.rs",
+      "mode": "100644",
+      "blob": "45cb7e382c4cccc2f025464956859c0f3cd28039"
+    },
+    {
+      "path": "src/backend/history_context.rs",
+      "mode": "100644",
+      "blob": "cc5cb48812968a443a99206df4027d8b1312d67e"
+    },
+    {
+      "path": "src/backend/hotkey_listener.rs",
+      "mode": "100644",
+      "blob": "5a8dc6a5c15a3676c3bb08746ace83421706ba7f"
+    },
+    {
+      "path": "src/backend/hotword.rs",
+      "mode": "100644",
+      "blob": "b56aed99680a390ffd33f9506c87bf2fe87b1ddc"
+    },
+    {
+      "path": "src/backend/http_server.rs",
+      "mode": "100644",
+      "blob": "46ca263a72f399a10666376d29c8d24936d590e1"
+    },
+    {
+      "path": "src/backend/kde_integration.rs",
+      "mode": "100644",
+      "blob": "34dfe629ab15ff4ff5026e5f390dc28e8b5367b3"
+    },
+    {
+      "path": "src/backend/mod.rs",
+      "mode": "100644",
+      "blob": "b181346e5c744800c8b5f9267cab9b9aeb2dffc7"
+    },
+    {
+      "path": "src/backend/model_downloader.rs",
+      "mode": "100644",
+      "blob": "897754a67f051af74b7733392c49c810e962dda4"
+    },
+    {
+      "path": "src/backend/operation_journal.rs",
+      "mode": "100644",
+      "blob": "676e1b2a5ef0b2006076a314de79aaa5a0c56155"
+    },
+    {
+      "path": "src/backend/permission_engine.rs",
+      "mode": "100644",
+      "blob": "5dbadf0a35c6d23fe446333e7c47b3080a736991"
+    },
+    {
+      "path": "src/backend/private_files.rs",
+      "mode": "100644",
+      "blob": "687b03516349efc8bb0ce481df80e2f3eed099fe"
+    },
+    {
+      "path": "src/backend/provider_connection.rs",
+      "mode": "100644",
+      "blob": "9911b1addebcf828b65d6a702f5022f90c6f4bc5"
+    },
+    {
+      "path": "src/backend/resource_cache.rs",
+      "mode": "100644",
+      "blob": "8928745150cec4b58b59cfd7e1db42a60db55e41"
+    },
+    {
+      "path": "src/backend/safe_fs.rs",
+      "mode": "100644",
+      "blob": "1508ebc0dc00719c92b9e96af49e327712b23806"
+    },
+    {
+      "path": "src/backend/session_manager.rs",
+      "mode": "100644",
+      "blob": "ccff021b179acaad33c752eba8bdb2a8ec96de9a"
+    },
+    {
+      "path": "src/backend/speech_service.rs",
+      "mode": "100644",
+      "blob": "e25c20e942c6190ec87440391babba4e81350f33"
+    },
+    {
+      "path": "src/backend/sse_parser.rs",
+      "mode": "100644",
+      "blob": "53191f02d830dccfb61317e322cc16ed2b7c2760"
+    },
+    {
+      "path": "src/backend/storage_retention.rs",
+      "mode": "100644",
+      "blob": "60551124782531cccaa48d2c2f95a95d5dbe7d7c"
+    },
+    {
+      "path": "src/backend/stt.rs",
+      "mode": "100644",
+      "blob": "50a5234e0cb6a0b4de4809b6d46e1ea1bfa61693"
+    },
+    {
+      "path": "src/backend/stt_api.rs",
+      "mode": "100644",
+      "blob": "f8f2787970ada2f0a28dcd2597520cbeca98510d"
+    },
+    {
+      "path": "src/backend/tool_executor.rs",
+      "mode": "100644",
+      "blob": "8dbe04c21f8dbd9e33f9f5cb14a6d8b1b293402a"
+    },
+    {
+      "path": "src/backend/tool_registry.rs",
+      "mode": "100644",
+      "blob": "190172aedd1b80c6a16314bf0368ea1c3d424430"
+    },
+    {
+      "path": "src/backend/tts/mod.rs",
+      "mode": "100644",
+      "blob": "ab16806fc681a4ddba2caf890417e4ff10a06996"
+    },
+    {
+      "path": "src/backend/tts/piper.rs",
+      "mode": "100644",
+      "blob": "5ee8a87b8427d55572499d9a78e4164adb659939"
+    },
+    {
+      "path": "src/backend/tts_stream.rs",
+      "mode": "100644",
+      "blob": "a4fbf006ef3fcb0754cbba88a7ba7cf535eed33e"
+    },
+    {
+      "path": "src/backend/vad.rs",
+      "mode": "100644",
+      "blob": "b92ef9e186381353ad18f84606d954c7571994c3"
+    },
+    {
+      "path": "src/backend/voice_pipeline.rs",
+      "mode": "100644",
+      "blob": "2763bffc7e44a7fc1ec3c2e57354cb372510fc8c"
+    },
+    {
+      "path": "src/backend/voice_state.rs",
+      "mode": "100644",
+      "blob": "19a56565e993b2757ab7188fde380e9f38dc80b5"
+    },
+    {
+      "path": "src/backend/wakeword_ml.rs",
+      "mode": "100644",
+      "blob": "4417abf7c7567520c40fe977ed125ac1ca054ee7"
+    },
+    {
+      "path": "src/bin/snap_ui.rs",
+      "mode": "100644",
+      "blob": "6f2ce159c11921ce717b816da3e43a344724a710"
+    },
+    {
+      "path": "src/bin/test_stt.rs",
+      "mode": "100644",
+      "blob": "e02e8b234831132083c418779ecf300709ab9a1b"
+    },
+    {
+      "path": "src/bin/test_voice.rs",
+      "mode": "100644",
+      "blob": "7e2b60cb3350e5b1af6b9a6b4cc5fe333f6526b4"
+    },
+    {
+      "path": "src/bin/test_wakeword.rs",
+      "mode": "100644",
+      "blob": "081e121a480d744b5a5ad5ce9b21c6084356ea35"
+    },
+    {
+      "path": "src/bin/valida_agent.rs",
+      "mode": "100644",
+      "blob": "ed50a0bbf36ac66b8e19cb603ed9f62b3201be5c"
+    },
+    {
+      "path": "src/bin/valida_agent_ui.rs",
+      "mode": "100644",
+      "blob": "30f785c2f16334c8745f90d8da62d1aa28d394ed"
+    },
+    {
+      "path": "src/bin/valida_qml.rs",
+      "mode": "100644",
+      "blob": "28bfd2a134df07bb9bfb8bfd295258c6497a82e4"
+    },
+    {
+      "path": "src/desktop.rs",
+      "mode": "100644",
+      "blob": "57292d879cc2a27d2256ca9586ff5a6a57152a69"
+    },
+    {
+      "path": "src/lib.rs",
+      "mode": "100644",
+      "blob": "d006861d6574dee9a7d59ac8e829d0fd8b22da17"
+    },
+    {
+      "path": "src/main.rs",
+      "mode": "100644",
+      "blob": "8a862290df898f28c1672c5c132e89c743511123"
+    },
+    {
+      "path": "src/models/config.rs",
+      "mode": "100644",
+      "blob": "af7cf0135fc106fce8504f5c8edce6c8b5474a8e"
+    },
+    {
+      "path": "src/models/message.rs",
+      "mode": "100644",
+      "blob": "ab908fd4cbf64a0fbafc955716e821d4d77e366a"
+    },
+    {
+      "path": "src/models/mod.rs",
+      "mode": "100644",
+      "blob": "91b3ab649604280a7d482492037cae9f4c214a2d"
+    },
+    {
+      "path": "src/models/tool_call.rs",
+      "mode": "100644",
+      "blob": "f33223f920cbdc2f0ab62620ab4c58fb78db346a"
+    },
+    {
+      "path": "src/owned_process.rs",
+      "mode": "100644",
+      "blob": "344c2d77b37078f63ec59c90c61b5ffad671a7a0"
+    },
+    {
+      "path": "tests/agent_smoke.rs",
+      "mode": "100644",
+      "blob": "7bd51dde36d18103e6203f199b15fa1f579dbc68"
+    },
+    {
+      "path": "tests/app_paths.rs",
+      "mode": "100644",
+      "blob": "f9733b83d5d0509eb96fdf0fb3ac00d3e66cd534"
+    },
+    {
+      "path": "tests/f1a_security.rs",
+      "mode": "100644",
+      "blob": "b4ff0538150223a90975c50d3e394060b2f4b224"
+    },
+    {
+      "path": "tests/f1b1_text_startup.rs",
+      "mode": "100644",
+      "blob": "5a6d6806f8731f18b6ef44340a3106ee8c930590"
+    },
+    {
+      "path": "tests/f1b2_conversation.rs",
+      "mode": "100644",
+      "blob": "86fac8e89d321a34c82be7a8356b2ea11fbec3aa"
+    },
+    {
+      "path": "tests/f1b3a_persistence.rs",
+      "mode": "100644",
+      "blob": "82ed4b00a3ac5620a4eb1c6fe8959adc8001dcb0"
+    },
+    {
+      "path": "tests/f1b3b_storage.rs",
+      "mode": "100644",
+      "blob": "f878493b3368a72aecb7f67899fa117744139357"
+    },
+    {
+      "path": "tests/f2_permissions.rs",
+      "mode": "100644",
+      "blob": "4cdf644658554d2630f1bbd1706d29f89e940be8"
+    },
+    {
+      "path": "tests/f3_desktop.rs",
+      "mode": "100644",
+      "blob": "efa04031b0318d582fc4ff0c6d04bfd1ceefd7c8"
+    },
+    {
+      "path": "tests/f3_process_owner.rs",
+      "mode": "100644",
+      "blob": "ca0873c098121aea209f6066907bbaa66e21eff6"
+    },
+    {
+      "path": "tests/fixtures/f1b2/groq.sse",
+      "mode": "100644",
+      "blob": "35638ecf7b5c6ea215c89dfc9738686419d0e248"
+    },
+    {
+      "path": "tests/fixtures/f1b2/openai.sse",
+      "mode": "100644",
+      "blob": "cf2c5c8d7f3f1b009a4432ef3fcae7e94cf4328c"
+    },
+    {
+      "path": "tests/fixtures/f1b2/openrouter.sse",
+      "mode": "100644",
+      "blob": "e8be77062301bedb5fdee075934f7ca349332d03"
+    },
+    {
+      "path": "tests/qml/AgentUiHarness.qml",
+      "mode": "100644",
+      "blob": "0a126b7b54c6163a53c9da7200645dfea245edd1"
+    },
+    {
+      "path": "tests/qml/F1B1Text.qml",
+      "mode": "100644",
+      "blob": "96795b4f10765ea95d005cec4828129bd7e9ce18"
+    },
+    {
+      "path": "tests/qml/F1B2Review.qml",
+      "mode": "100644",
+      "blob": "c226420975f9de32667f92fcc3c42a7e12f337d4"
+    },
+    {
+      "path": "tests/qml/F1B3BMain.qml",
+      "mode": "100644",
+      "blob": "afd7be62da66018a703699a4d6fa8560f2e595e0"
+    },
+    {
+      "path": "tests/qml/F1B3BRecovery.qml",
+      "mode": "100644",
+      "blob": "80b448663143cdde3896b1a31ed4fd71743c9985"
+    },
+    {
+      "path": "tests/qml/tst_f2_consent.qml",
+      "mode": "100644",
+      "blob": "35d925b4cf038e37a505c3df7cf9171648b6ee4d"
+    },
+    {
+      "path": "tests/qml/tst_f3_desktop.qml",
+      "mode": "100644",
+      "blob": "b5938240176609243f4ea87aa60e5930c48916b2"
+    },
+    {
+      "path": "tests/qml/tst_gate_w1r.qml",
+      "mode": "100644",
+      "blob": "3c8fb7a4f0717a24478c0d01c9d4c3984125ebb8"
+    },
+    {
+      "path": "tests/qt/quicktest_main.cpp",
+      "mode": "100644",
+      "blob": "727e3622b8bae1c962252c9dd1ea61c0090b9ba9"
+    },
+    {
+      "path": "tests/tts_stream_smoke.rs",
+      "mode": "100644",
+      "blob": "24e7b838186750f0e123c44570bceb9ddc399f67"
+    },
+    {
+      "path": "tests/wake_resample_sim.rs",
+      "mode": "100644",
+      "blob": "c88289c2b236b3ea520a45f39ae4729fa8014f44"
+    },
+    {
+      "path": "voice_agent/__pycache__/main.cpython-314.pyc",
+      "mode": "100644",
+      "blob": "788fe6197280b999f1f951dce4e69ebd7604a562"
+    },
+    {
+      "path": "voice_agent/__pycache__/spike_bot.cpython-314.pyc",
+      "mode": "100644",
+      "blob": "c7ed96c8770e883746ff9710a1701709cf28ee93"
+    },
+    {
+      "path": "voice_agent/main.py",
+      "mode": "100644",
+      "blob": "d6612241deaab491c22c5de70e993be96802932b"
+    },
+    {
+      "path": "voice_agent/spike_bot.py",
+      "mode": "100644",
+      "blob": "1b5f662e0b3acf7741ac9cfefeca23a57c9fee21"
+    }
+  ]
+}

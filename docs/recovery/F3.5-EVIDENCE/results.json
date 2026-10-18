@@ -1,0 +1,121 @@
+{
+  "results": [
+    {
+      "name": "fmt",
+      "status": "PASS",
+      "exit": 0
+    },
+    {
+      "name": "providers",
+      "status": "PASS",
+      "exit": 0
+    },
+    {
+      "name": "build",
+      "status": "PASS",
+      "exit": 0
+    },
+    {
+      "name": "qml_layout_keyboard_save_errors",
+      "status": "PASS",
+      "counts": [
+        "Totals: 11 passed, 0 failed, 0 skipped, 0 blacklisted, 3106ms"
+      ],
+      "screenshots": 9
+    },
+    {
+      "name": "genuine_backend_qml_restart_http_storage_recovery",
+      "status": "PASS",
+      "platform": "wayland",
+      "processes": [
+        {
+          "mode": "save",
+          "backend": 71820,
+          "qml": 71829,
+          "marker": "F35_UI_SAVE_PASS",
+          "kwin": {
+            "found": true,
+            "pid": 71829,
+            "active": true,
+            "minimized": false,
+            "at_ms": 1792279035087,
+            "stacking_index": 3,
+            "x": 182.5,
+            "y": 0,
+            "width": 1000,
+            "height": 768,
+            "keepAbove": false
+          }
+        },
+        {
+          "mode": "restart",
+          "backend": 71885,
+          "qml": 71893,
+          "marker": "F35_UI_RESTART_PASS",
+          "kwin": {
+            "found": true,
+            "pid": 71893,
+            "active": true,
+            "minimized": false,
+            "at_ms": 1792279037035,
+            "stacking_index": 3,
+            "x": 182.5,
+            "y": 0,
+            "width": 1000,
+            "height": 768,
+            "keepAbove": false
+          }
+        },
+        {
+          "mode": "restart-again",
+          "backend": 71931,
+          "qml": 71938,
+          "marker": "F35_UI_RESTART_PASS",
+          "kwin": {
+            "found": true,
+            "pid": 71938,
+            "active": true,
+            "minimized": false,
+            "at_ms": 1792279038908,
+            "stacking_index": 3,
+            "x": 182.5,
+            "y": 0,
+            "width": 1000,
+            "height": 768,
+            "keepAbove": false
+          }
+        },
+        {
+          "mode": "restart-recovered",
+          "backend": 71983,
+          "qml": 71990,
+          "marker": "F35_UI_RESTART_PASS",
+          "kwin": {
+            "found": true,
+            "pid": 71990,
+            "active": true,
+            "minimized": false,
+            "at_ms": 1792279040567,
+            "stacking_index": 3,
+            "x": 182.5,
+            "y": 0,
+            "width": 1000,
+            "height": 768,
+            "keepAbove": false
+          }
+        }
+      ],
+      "provider_calls": [
+        "models",
+        "chat"
+      ],
+      "invalid_save": 400,
+      "failed_write": 500,
+      "local_auth_rejection": 401,
+      "manual_corrupt_recovery": "PASS",
+      "config_sha256_before_restart": "027d33359f43dee70a6e08bd23b06bc0024490b00c62c69f2ccde12b927e95c6"
+    }
+  ],
+  "real_groq": "NOT_TESTED",
+  "human_keyboard": "NOT_TESTED"
+}

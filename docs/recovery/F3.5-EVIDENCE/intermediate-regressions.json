@@ -1,0 +1,30 @@
+[
+  {
+    "name": "f2",
+    "status": "NEEDS_FIXES",
+    "exit": 1,
+    "seconds": 213.77,
+    "log": "/tmp/kda-f35-regressions-dowiv6k1/f2.log"
+  },
+  {
+    "name": "f3",
+    "status": "NEEDS_FIXES",
+    "exit": 1,
+    "seconds": 75.55,
+    "log": "/tmp/kda-f35-regressions-dowiv6k1/f3.log"
+  },
+  {
+    "name": "unit-safe",
+    "status": "PASS",
+    "exit": 0,
+    "seconds": 12.86,
+    "log": "/tmp/kda-f35-regressions-dowiv6k1/unit-safe.log"
+  },
+  {
+    "name": "f1b1-qml",
+    "status": "PASS",
+    "exit": 0,
+    "seconds": 3.88,
+    "log": "/tmp/kda-f35-regressions-dowiv6k1/f1b1-qml.log"
+  }
+]

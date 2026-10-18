@@ -1,0 +1,67 @@
+[
+  {
+    "name": "validate-f35",
+    "command": [
+      "python3",
+      "scripts/validate_f35.py",
+      "--plasma"
+    ],
+    "exit": 0,
+    "evidence": "/tmp/kda-f35-validation-8gk4fljl",
+    "qml_pass": 15,
+    "providers_pass": 10
+  },
+  {
+    "name": "validate-f2",
+    "command": [
+      "python3",
+      "scripts/validate_f2.py"
+    ],
+    "exit": 0,
+    "seconds": 150.57
+  },
+  {
+    "name": "unit-safe",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--lib",
+      "--",
+      "--test-threads=1",
+      "--skip",
+      "backend::wakeword_ml::tests::download_and_extract_onnx_runtime",
+      "--skip",
+      "backend::tool_executor::tests::show_image_huge_url_is_rejected_before_download"
+    ],
+    "exit": 0,
+    "seconds": 6.18
+  },
+  {
+    "name": "f1b1-qml",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "f1b1_text_startup",
+      "qml_offscreen_settings_and_two_visible_turns",
+      "--",
+      "--ignored",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 8.5
+  },
+  {
+    "name": "validate-f3-runtime",
+    "command": [
+      "python3",
+      "scripts/validate_f3.py",
+      "--runtime-only",
+      "--plasma"
+    ],
+    "exit": 0,
+    "seconds": 34.12
+  }
+]

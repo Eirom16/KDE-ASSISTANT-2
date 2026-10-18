@@ -475,3 +475,28 @@ mod tests {
         assert!(svc.is_ok());
     }
 }
+
+#[cfg(test)]
+mod f35_audit_tests {
+    use super::*;
+    #[tokio::test]
+    async fn stt_uses_the_same_destination_approval_before_cached_credentials() {
+        let mut cfg = Config::first_run();
+        cfg.ai.provider = "groq".into();
+        cfg.ai.base_url = "http://127.0.0.1:9/v1".into();
+        cfg.ai.api_key = "synthetic-stt-test".into();
+        let service = SpeechService::new(Arc::new(RwLock::new(cfg)))
+            .await
+            .unwrap();
+        let err = service
+            .transcribe_via_api(&[0.0; 16], None)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err.downcast_ref::<crate::backend::provider_connection::ProviderError>()
+                .unwrap()
+                .category,
+            "untrusted_endpoint"
+        );
+    }
+}

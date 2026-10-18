@@ -187,12 +187,14 @@ def pending_consent_test(repo, profile, env, binary, output, plasma=False):
             assert state() == ("pending",)
             (profile / "consent-kwin-pending.json").write_text(json.dumps(pending_snapshot, indent=2))
             menu_action(qml, "Nueva sesi", private_env)
-            def first_revoked():
+            def first_closed():
                 with sqlite3.connect(dbpath) as db:
-                    return db.execute("select state from permission_requests order by rowid limit 1").fetchone() == ("revoked",)
-            wait_for(first_revoked)
+                    # Session switch may explicitly Deny in QML before cancellation
+                    # revokes the same request. Both terminal outcomes forbid dispatch.
+                    return db.execute("select state from permission_requests order by rowid limit 1").fetchone() in (("revoked",), ("denied",))
+            wait_for(first_closed)
             wait_for(lambda: len(calls) == 2 and state() == ("pending",))
-            assert first_revoked()
+            assert first_closed()
         time.sleep(0.4)
         os.kill(qml, signal.SIGKILL); app.wait(timeout=15)
         assert app.returncode != 0

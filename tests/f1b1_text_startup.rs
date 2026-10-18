@@ -183,7 +183,10 @@ fn existing_configuration_is_preserved() {
         let before = fs::read(&path).unwrap();
         let b = Backend::new().await.unwrap();
         assert_eq!(fs::read(path).unwrap(), before);
-        assert_eq!(b.config.read().await.ai.api_key, "fixture-secret");
+        assert_eq!(
+            b.config.read().await.ai.effective_api_key(),
+            "fixture-secret"
+        );
         assert!(!b.speech.tts_initialized() && !b.hotword.ml_active());
         assert!(b.audio.read().await.is_none());
     });
@@ -410,6 +413,7 @@ fn private_files_redaction_and_failed_update_preserve_secrets() {
         assert!(!public.contains("fixture-secret") && !public.contains("fixture-groq"));
         let mut update: Value = serde_json::from_str(&public).unwrap();
         update["ai"]["model"] = json!("changed-model");
+        update["ai"]["provider_models"]["openrouter"] = json!("changed-model");
         let post_cfg = |value: Value| {
             c.post(format!("{base}/api/config"))
                 .header("Host", "localhost:8765")
@@ -421,17 +425,30 @@ fn private_files_redaction_and_failed_update_preserve_secrets() {
             b.config.read().await.ai.provider_keys["groq"],
             "fixture-groq"
         );
-        assert_eq!(
-            b.config.read().await.ai.provider_keys["openrouter"],
-            "fixture-secret"
-        );
+        assert_eq!(b.config.read().await.ai.api_key, "fixture-secret");
+        assert!(!b
+            .config
+            .read()
+            .await
+            .ai
+            .provider_keys
+            .contains_key("openrouter"));
         let saved = fs::read(Config::config_path().unwrap()).unwrap();
         let backup = Config::config_path().unwrap().with_extension("json.bak");
         fs::remove_file(&backup).unwrap();
         let outside = backup.parent().unwrap().join("outside");
         fs::write(&outside, "untouched").unwrap();
         std::os::unix::fs::symlink(&outside, &backup).unwrap();
+        update["config_revision"] = req(&c, &base, "/api/config", &token)
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap()["config_revision"]
+            .clone();
         update["ai"]["model"] = json!("must-not-publish");
+        update["ai"]["provider_models"]["openrouter"] = json!("must-not-publish");
         assert_eq!(post_cfg(update).send().await.unwrap().status(), 500);
         assert_eq!(b.config.read().await.ai.model, "changed-model");
         assert_eq!(fs::read(Config::config_path().unwrap()).unwrap(), saved);
@@ -487,6 +504,11 @@ fn redacted_updates_preserve_legacy_and_provider_credentials() {
                     .await
                     .unwrap();
                 public["ai"]["provider"] = json!(selected);
+                public["ai"]["provider_base_urls"][selected] = json!(
+                    kde_assistant_lib::models::AiConfig::provider_preset_url(selected)
+                );
+                public["ai"]["provider_models"][selected] = json!("fixture-chat");
+                assert!(public["ai"]["has_unassigned_legacy_key"].as_bool().unwrap());
                 assert_eq!(
                     c.post(format!("{base}/api/config"))
                         .header("Host", "localhost:8765")
@@ -501,20 +523,11 @@ fn redacted_updates_preserve_legacy_and_provider_credentials() {
                 let saved = Config::load().await.unwrap();
                 assert_eq!(saved.ai.api_key, "fixture-legacy");
                 assert_eq!(saved.ai.provider_keys["groq"], "fixture-groq");
-                assert_eq!(
-                    saved.ai.provider_keys["openrouter"],
-                    if active.is_empty() {
-                        "fixture-legacy"
-                    } else {
-                        active
-                    }
-                );
+                assert_eq!(saved.ai.provider_keys["openrouter"], active);
                 assert_eq!(
                     saved.ai.effective_api_key(),
                     if selected == "groq" {
                         "fixture-groq"
-                    } else if active.is_empty() {
-                        "fixture-legacy"
                     } else {
                         active
                     }
@@ -540,7 +553,32 @@ fn redacted_updates_preserve_legacy_and_provider_credentials() {
                 200
             );
             let saved = Config::load().await.unwrap();
-            assert_eq!(saved.ai.api_key, "fixture-explicit-replacement");
+            assert_eq!(saved.ai.api_key, "fixture-legacy");
+            assert_eq!(
+                saved.ai.provider_keys["groq"],
+                "fixture-explicit-replacement"
+            );
+            let mut public: Value = req(&c, &base, "/api/config", &token)
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            public["delete_legacy_key"] = json!(true);
+            assert_eq!(
+                c.post(format!("{base}/api/config"))
+                    .header("Host", "localhost:8765")
+                    .bearer_auth(&token)
+                    .json(&public)
+                    .send()
+                    .await
+                    .unwrap()
+                    .status(),
+                200
+            );
+            let saved = Config::load().await.unwrap();
+            assert!(saved.ai.api_key.is_empty());
             assert_eq!(
                 saved.ai.provider_keys["groq"],
                 "fixture-explicit-replacement"
@@ -591,6 +629,9 @@ fn model_catalog_uses_selected_provider_credentials_and_url() {
         cfg.ai
             .provider_keys
             .insert("groq".into(), "fixture-other-key".into());
+        cfg.ai
+            .provider_endpoint_approvals
+            .insert("groq".into(), other_url.clone());
         cfg.ai.provider_base_urls.insert("groq".into(), other_url);
         cfg.save().await.unwrap();
         let b = Backend::new().await.unwrap();
@@ -1047,5 +1088,154 @@ fn qml_offscreen_settings_and_two_visible_turns() {
         assert!(foreign.try_wait().unwrap().is_none());
         println!("F1B1_QML_FAILURE_PASS; fallo real de carga QML visible; puerto liberado; QML ajeno vivo");
         stop(mock_task).await;
+    });
+}
+
+#[test]
+fn f35_audit_stale_updates_are_rejected() {
+    if isolated("f35_audit_stale_updates_are_rejected") {
+        return;
+    }
+    runtime().block_on(async {
+        let b = Backend::new().await.unwrap();
+        let state = b.http_state().unwrap();
+        let token = state.local_token.clone();
+        let (base, task) = server(state).await;
+        let c = client();
+        let first: Value = req(&c, &base, "/api/config", &token)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let mut newer = first.clone();
+        newer["tools"]["read_file"] = json!(true);
+        newer["ai"]["provider_keys"]["openrouter"] = json!("synthetic-concurrent-rotation");
+        let post = |value: &Value| {
+            c.post(format!("{base}/api/config"))
+                .header("Host", "localhost:8765")
+                .bearer_auth(&token)
+                .json(value)
+        };
+        assert_eq!(post(&newer).send().await.unwrap().status(), 200);
+        let mut stale = first.clone();
+        stale["ui"]["theme"] = json!("light");
+        assert_eq!(
+            post(&stale).send().await.unwrap().status(),
+            409,
+            "stale full documents must not silently revert recent changes"
+        );
+        assert!(b.config.read().await.tools.read_file);
+        assert_eq!(
+            b.config.read().await.ai.provider_keys["openrouter"],
+            "synthetic-concurrent-rotation"
+        );
+        let mut missing = first.clone();
+        missing.as_object_mut().unwrap().remove("config_revision");
+        assert_eq!(post(&missing).send().await.unwrap().status(), 428);
+        stop(task).await;
+    });
+}
+
+#[test]
+fn f35_audit_audio_preference_write_failure_keeps_memory_and_disk() {
+    if isolated("f35_audit_audio_preference_write_failure_keeps_memory_and_disk") {
+        return;
+    }
+    runtime().block_on(async {
+        let mut cfg = Config::first_run();
+        cfg.speech.mic_device = "synthetic-old-microphone".into();
+        cfg.save().await.unwrap();
+        let b = Backend::new().await.unwrap();
+        let state = b.http_state().unwrap();
+        // Open the route's voice gate without initializing capture or STT/TTS.
+        state
+            .voice_enabled
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let token = state.local_token.clone();
+        let path = Config::config_path().unwrap();
+        let old = fs::read(&path).unwrap();
+        let outside = path.parent().unwrap().join("outside");
+        fs::write(&outside, "untouched").unwrap();
+        std::os::unix::fs::symlink(&outside, path.with_extension("json.bak")).unwrap();
+        let (base, task) = server(state).await;
+        let response = client()
+            .post(format!("{base}/api/audio/device"))
+            .header("Host", "localhost:8765")
+            .bearer_auth(&token)
+            .json(&json!({"name":""}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 500);
+        assert_eq!(fs::read(&path).unwrap(), old);
+        assert_eq!(
+            b.config.read().await.speech.mic_device,
+            "synthetic-old-microphone"
+        );
+        stop(task).await;
+    });
+}
+
+#[test]
+fn f35_audit_environment_redaction_and_explicit_deletion() {
+    if isolated("f35_audit_environment_redaction_and_explicit_deletion") {
+        return;
+    }
+    std::env::set_var("GROQ_API_KEY", "synthetic-env-credential-only");
+    runtime().block_on(async {
+        let mut cfg = Config::first_run();
+        cfg.ai
+            .provider_keys
+            .insert("openrouter".into(), "synthetic-other-profile-only".into());
+        cfg.save().await.unwrap();
+        let b = Backend::new().await.unwrap();
+        let state = b.http_state().unwrap();
+        let token = state.local_token.clone();
+        let (base, task) = server(state).await;
+        let c = client();
+        let response = req(&c, &base, "/api/config", &token)
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(!response.contains("synthetic-env-credential-only"));
+        assert!(!response.contains("synthetic-other-profile-only"));
+        let mut cfg: Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(cfg["ai"]["credential_states"]["groq"], "environment");
+        cfg["delete_provider_keys"] = json!(["groq"]);
+        assert_eq!(
+            c.post(format!("{base}/api/config"))
+                .header("Host", "localhost:8765")
+                .bearer_auth(&token)
+                .json(&cfg)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+        let public: Value = req(&c, &base, "/api/config", &token)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(public["ai"]["credential_states"]["groq"], "none");
+        let mut saved = Config::load().await.unwrap();
+        assert_eq!(
+            saved.ai.provider_keys["openrouter"],
+            "synthetic-other-profile-only"
+        );
+        saved.ai.provider = "groq".into();
+        assert!(saved.ai.effective_api_key().is_empty());
+        assert!(!fs::read_to_string(Config::config_path().unwrap())
+            .unwrap()
+            .contains("synthetic-env-credential-only"));
+        stop(task).await;
     });
 }

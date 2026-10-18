@@ -1,0 +1,36 @@
+   Compiling kde-assistant v0.1.0 (/home/eirom/KDE-ASSISTANT-2)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.85s
+     Running tests/f1b1_text_startup.rs (target/debug/deps/f1b1_text_startup-bc6fbc185d55c96a)
+
+running 1 test
+
+running 1 test
+
+thread 'f35_audit_stale_updates_are_rejected' (127768) panicked at tests/f1b1_text_startup.rs:1087:9:
+assertion `left == right` failed: stale full documents must not silently revert recent changes
+  left: 200
+ right: 409
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test f35_audit_stale_updates_are_rejected ... FAILED
+
+failures:
+
+failures:
+    f35_audit_stale_updates_are_rejected
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.05s
+
+
+thread 'f35_audit_stale_updates_are_rejected' (127766) panicked at tests/f1b1_text_startup.rs:60:5:
+fixture f35_audit_stale_updates_are_rejected: exit status: 101
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test f35_audit_stale_updates_are_rejected ... FAILED
+
+failures:
+
+failures:
+    f35_audit_stale_updates_are_rejected
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.06s
+
+error: test failed, to rerun pass `--test f1b1_text_startup`

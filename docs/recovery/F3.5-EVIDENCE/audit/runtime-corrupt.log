@@ -1,0 +1,6 @@
+[2026-10-18T03:39:11Z INFO  kde_assistant] KDE Assistant v2 starting...
+[2026-10-18T03:39:11Z INFO  kde_assistant_lib::backend] Inicializando Backend...
+Error: configuración inválida; conserva y corrige config.json para reintentar
+
+Caused by:
+    key must be a string at line 1 column 2
