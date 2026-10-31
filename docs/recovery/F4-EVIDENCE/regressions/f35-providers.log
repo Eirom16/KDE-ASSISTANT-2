@@ -1,0 +1,24 @@
+   Compiling kde-assistant v0.1.0 (/home/eirom/KDE-ASSISTANT-2)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.37s
+     Running tests/f35_providers.rs (target/debug/deps/f35_providers-d44000a454fe2a41)
+
+running 10 tests
+test custom_never_uses_openrouter_environment_and_deletion_blocks_fallback ... ok
+test f35_audit_legacy_duplicate_cannot_cross_provider_or_revive_deletion ... ok
+test f35_audit_known_provider_does_not_send_key_to_unapproved_origin ... ok
+
+running 1 test
+test environment_keys_are_scoped ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s
+
+test environment_keys_are_scoped ... ok
+test f35_audit_probe_rejects_malformed_choice_and_terminal_sequences ... ok
+test f35_audit_stt_does_not_log_remote_body_or_retry_billing ... ok
+test f35_audit_switch_does_not_borrow_another_profiles_flat_values ... ok
+test f35_audit_redirect_never_reaches_another_origin_and_response_is_bounded ... ok
+test groq_openrouter_custom_catalog_and_stream ... ok
+test errors_are_classified_without_remote_text_or_retries ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+

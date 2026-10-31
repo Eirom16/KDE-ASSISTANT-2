@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.35s
+     Running unittests src/lib.rs (target/debug/deps/kde_assistant_lib-31e21eb49519a7fb)
+
+running 1 test
+test models::config::tests::voice_fast_old_configs_migrate_off_and_ttl_is_bounded ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 199 filtered out; finished in 0.00s
+

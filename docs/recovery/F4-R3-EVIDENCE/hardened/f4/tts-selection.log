@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.32s
+     Running unittests src/lib.rs (target/debug/deps/kde_assistant_lib-31e21eb49519a7fb)
+
+running 2 tests
+test backend::voice_tts::tests::explicit_runtime_and_validated_options_are_required ... ok
+test backend::voice_tts::tests::resource_integrity_rejects_corruption_and_special_files ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 180 filtered out; finished in 0.00s
+

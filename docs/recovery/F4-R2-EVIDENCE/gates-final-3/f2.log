@@ -1,0 +1,169 @@
+fmt: PASS (0.95s)
+check: PASS (16.15s)
+clippy: PASS (0.55s)
+clippy-fixtures: PASS (0.48s)
+f1a: PASS (61.09s)
+f1b1: PASS (10.99s)
+f1b2: PASS (14.06s)
+f1b3a: PASS (15.45s)
+f1b3b: PASS (10.74s)
+f2: PASS (6.12s)
+f2-http: PASS (0.49s)
+f2-qml: PASS (1.17s)
+gate-w1r: PASS (9.49s)
+{
+  "results": [
+    {
+      "name": "fmt",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 0.95,
+      "counts": null,
+      "log": "/var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f2-validation-_r8qcua2/fmt.log"
+    },
+    {
+      "name": "check",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 16.15,
+      "counts": null,
+      "log": "/var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f2-validation-_r8qcua2/check.log"
+    },
+    {
+      "name": "clippy",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 0.55,
+      "counts": null,
+      "log": "/var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f2-validation-_r8qcua2/clippy.log"
+    },
+    {
+      "name": "clippy-fixtures",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 0.48,
+      "counts": null,
+      "log": "/var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f2-validation-_r8qcua2/clippy-fixtures.log"
+    },
+    {
+      "name": "f1a",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 61.09,
+      "counts": {
+        "pass": 19,
+        "fail": 0,
+        "ignored": 1,
+        "filtered": 0
+      },
+      "log": "/var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f2-validation-_r8qcua2/f1a.log"
+    },
+    {
+      "name": "f1b1",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 10.99,
+      "counts": {
+        "pass": 16,
+        "fail": 0,
+        "ignored": 1,
+        "filtered": 0
+      },
+      "log": "/var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f2-validation-_r8qcua2/f1b1.log"
+    },
+    {
+      "name": "f1b2",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 14.06,
+      "counts": {
+        "pass": 20,
+        "fail": 0,
+        "ignored": 3,
+        "filtered": 0
+      },
+      "log": "/var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f2-validation-_r8qcua2/f1b2.log"
+    },
+    {
+      "name": "f1b3a",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 15.45,
+      "counts": {
+        "pass": 26,
+        "fail": 0,
+        "ignored": 1,
+        "filtered": 0
+      },
+      "log": "/var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f2-validation-_r8qcua2/f1b3a.log"
+    },
+    {
+      "name": "f1b3b",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 10.74,
+      "counts": {
+        "pass": 33,
+        "fail": 0,
+        "ignored": 3,
+        "filtered": 0
+      },
+      "log": "/var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f2-validation-_r8qcua2/f1b3b.log"
+    },
+    {
+      "name": "f2",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 6.12,
+      "counts": {
+        "pass": 17,
+        "fail": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      "log": "/var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f2-validation-_r8qcua2/f2.log"
+    },
+    {
+      "name": "f2-http",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 0.49,
+      "counts": {
+        "pass": 1,
+        "fail": 0,
+        "ignored": 0,
+        "filtered": 178
+      },
+      "log": "/var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f2-validation-_r8qcua2/f2-http.log"
+    },
+    {
+      "name": "f2-qml",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 1.17,
+      "counts": {
+        "pass": 4,
+        "fail": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      "log": "/var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f2-validation-_r8qcua2/f2-qml.log"
+    },
+    {
+      "name": "gate-w1r",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 9.49,
+      "counts": {
+        "pass": 12,
+        "fail": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      "log": "/var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f2-validation-_r8qcua2/gate-w1r.log"
+    }
+  ],
+  "external_services": "NOT_TESTED",
+  "models_microphone": "NOT_TESTED",
+  "plasma_wayland": "NOT_TESTED"
+}

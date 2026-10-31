@@ -1,0 +1,101 @@
+[
+  {
+    "name": "fmt",
+    "command": [
+      "cargo",
+      "fmt"
+    ],
+    "exit": 0,
+    "seconds": 1.02
+  },
+  {
+    "name": "f4",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4.py",
+      "--output",
+      "/home/eirom/KDE-ASSISTANT-2/docs/recovery/F4-R3-EVIDENCE/gates/f4"
+    ],
+    "exit": 0,
+    "seconds": 53.743
+  },
+  {
+    "name": "f35",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f35.py",
+      "--plasma"
+    ],
+    "exit": 0,
+    "seconds": 25.512
+  },
+  {
+    "name": "f2",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f2.py"
+    ],
+    "exit": 0,
+    "seconds": 143.251
+  },
+  {
+    "name": "default-before-f3",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant"
+    ],
+    "exit": 0,
+    "seconds": 0.416
+  },
+  {
+    "name": "f3",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f3.py",
+      "--runtime-only",
+      "--plasma"
+    ],
+    "exit": 0,
+    "seconds": 31.842
+  },
+  {
+    "name": "f1b3b",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f1b3b.py",
+      "--qml"
+    ],
+    "exit": 0,
+    "seconds": 37.825
+  },
+  {
+    "name": "build-default",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant"
+    ],
+    "exit": 0,
+    "seconds": 0.417
+  },
+  {
+    "name": "fmt-check",
+    "command": [
+      "cargo",
+      "fmt",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 1.018
+  }
+]

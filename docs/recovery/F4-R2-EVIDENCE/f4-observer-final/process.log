@@ -1,0 +1,10 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.31s
+     Running unittests src/lib.rs (target/debug/deps/kde_assistant_lib-31e21eb49519a7fb)
+
+running 3 tests
+test backend::voice_process::tests::cancellation_waits_for_child_reaping ... ok
+test backend::voice_process::tests::stdout_is_drained_while_writing_and_secrets_are_not_inherited ... ok
+test backend::voice_process::tests::timeout_and_output_limit_kill_and_reap_the_exact_child ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 176 filtered out; finished in 0.15s
+

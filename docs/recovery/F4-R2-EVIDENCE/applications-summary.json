@@ -1,0 +1,454 @@
+{
+  "sample": "applications",
+  "reference_confirmed": true,
+  "unique_human_recordings": 1,
+  "words": 7,
+  "scope": "Authorized human corpus; NOT product PTT; no model selection",
+  "results": [
+    {
+      "sample": "applications",
+      "sha256": "3c3c8a91dcf66094322ec2ecaf96483979e309f7ea06ab8dc8da8266f99318fa",
+      "engine": "vosk_small_es",
+      "audio_ctx": null,
+      "seconds": 10.0,
+      "inference": {
+        "n": 3,
+        "p50_ms": 1404.2209750004986,
+        "p95_ms": 1425.2453330009303,
+        "min_ms": 1400.3143980007735,
+        "max_ms": 1425.2453330009303,
+        "mean_ms": 1409.9269020007341,
+        "stddev_ms": 10.948548829092157,
+        "mad_ms": 3.9065769997250754
+      },
+      "text_available_warm": {
+        "n": 3,
+        "p50_ms": 1484.1914390017337,
+        "p95_ms": 1511.4371350027795,
+        "min_ms": 1481.189270998584,
+        "max_ms": 1511.4371350027795,
+        "mean_ms": 1492.2726150010324,
+        "stddev_ms": 13.606674179798857,
+        "mad_ms": 3.0021680031495634
+      },
+      "cold_model_load_ms": 617.4586950000958,
+      "conversion_ms": 0.05415900159277953,
+      "score": {
+        "unique_clips": 1,
+        "reference_words": 7,
+        "primary_run0_errors": 6,
+        "primary_run0_wer": 0.8571428571428571,
+        "repeat_score_variation": false,
+        "substitutions": 3,
+        "deletions": 0,
+        "insertions": 3,
+        "unjustified_empty": 0
+      },
+      "checks_by_run": [
+        [
+          {
+            "alternatives": [
+              "Dolphin"
+            ],
+            "present": false
+          },
+          {
+            "alternatives": [
+              "Firefox"
+            ],
+            "present": true
+          },
+          {
+            "alternatives": [
+              "LibreOffice",
+              "Libre Office"
+            ],
+            "present": false
+          }
+        ],
+        [
+          {
+            "alternatives": [
+              "Dolphin"
+            ],
+            "present": false
+          },
+          {
+            "alternatives": [
+              "Firefox"
+            ],
+            "present": true
+          },
+          {
+            "alternatives": [
+              "LibreOffice",
+              "Libre Office"
+            ],
+            "present": false
+          }
+        ],
+        [
+          {
+            "alternatives": [
+              "Dolphin"
+            ],
+            "present": false
+          },
+          {
+            "alternatives": [
+              "Firefox"
+            ],
+            "present": true
+          },
+          {
+            "alternatives": [
+              "LibreOffice",
+              "Libre Office"
+            ],
+            "present": false
+          }
+        ]
+      ],
+      "process": {
+        "exit": 0,
+        "reaped": true,
+        "elapsed_ms": 6554.920832997595,
+        "compiler_overlap": false,
+        "peak_rss_kib": 174956,
+        "peak_pss_kib": 163781,
+        "sampled_cpu_ticks": 544,
+        "ticks_per_second": 100
+      },
+      "loadavg_min": [
+        0.2890625,
+        1.193359375,
+        0.96728515625
+      ],
+      "loadavg_max": [
+        0.39892578125,
+        1.2001953125,
+        0.96826171875
+      ],
+      "hypothesis": "OMITTED: retained only privately until evaluation closure",
+      "text_available_warm_ms": [
+        1511.4371350027795,
+        1484.1914390017337,
+        1481.189270998584
+      ],
+      "state_ms": [
+        86.03638999920804,
+        79.83255300132441,
+        80.7356589975825
+      ],
+      "text_extraction_ms": [
+        0.155412002641242,
+        0.13791099991067313,
+        0.13921400022809394
+      ],
+      "inference_cpu_seconds": [
+        1.4071284510000002,
+        1.3898406859999999,
+        1.3818607989999996
+      ],
+      "loaded_idle": {
+        "seconds": 1.0029502239995054,
+        "cpu_ticks": 1,
+        "rss_kib": 153224,
+        "pss_kib": 142095
+      },
+      "library_ms": 8.679698999912944
+    },
+    {
+      "sample": "applications",
+      "sha256": "3c3c8a91dcf66094322ec2ecaf96483979e309f7ea06ab8dc8da8266f99318fa",
+      "engine": "whisper_reduced",
+      "audio_ctx": 768,
+      "seconds": 10.0,
+      "inference": {
+        "n": 3,
+        "p50_ms": 15637.486677,
+        "p95_ms": 17779.583136999998,
+        "min_ms": 14746.196653,
+        "max_ms": 17779.583136999998,
+        "mean_ms": 16054.422155666667,
+        "stddev_ms": 1272.9846255569933,
+        "mad_ms": 891.2900239999999
+      },
+      "text_available_warm": {
+        "n": 3,
+        "p50_ms": 15662.046124999999,
+        "p95_ms": 17802.660082,
+        "min_ms": 14769.499186000001,
+        "max_ms": 17802.660082,
+        "mean_ms": 16078.068464333333,
+        "stddev_ms": 1272.7456397814822,
+        "mad_ms": 892.546938999998
+      },
+      "cold_model_load_ms": 116.564604,
+      "conversion_ms": 84.50024,
+      "score": {
+        "unique_clips": 1,
+        "reference_words": 7,
+        "primary_run0_errors": 1,
+        "primary_run0_wer": 0.14285714285714285,
+        "repeat_score_variation": false,
+        "substitutions": 1,
+        "deletions": 0,
+        "insertions": 0,
+        "unjustified_empty": 0
+      },
+      "checks_by_run": [
+        [
+          {
+            "alternatives": [
+              "Dolphin"
+            ],
+            "present": true
+          },
+          {
+            "alternatives": [
+              "Firefox"
+            ],
+            "present": false
+          },
+          {
+            "alternatives": [
+              "LibreOffice",
+              "Libre Office"
+            ],
+            "present": true
+          }
+        ],
+        [
+          {
+            "alternatives": [
+              "Dolphin"
+            ],
+            "present": true
+          },
+          {
+            "alternatives": [
+              "Firefox"
+            ],
+            "present": false
+          },
+          {
+            "alternatives": [
+              "LibreOffice",
+              "Libre Office"
+            ],
+            "present": true
+          }
+        ],
+        [
+          {
+            "alternatives": [
+              "Dolphin"
+            ],
+            "present": true
+          },
+          {
+            "alternatives": [
+              "Firefox"
+            ],
+            "present": false
+          },
+          {
+            "alternatives": [
+              "LibreOffice",
+              "Libre Office"
+            ],
+            "present": true
+          }
+        ]
+      ],
+      "process": {
+        "exit": 0,
+        "reaped": true,
+        "elapsed_ms": 48590.86545799801,
+        "compiler_overlap": false,
+        "peak_rss_kib": 171272,
+        "peak_pss_kib": 167117,
+        "sampled_cpu_ticks": 14061,
+        "ticks_per_second": 100
+      },
+      "loadavg_min": [
+        0.39892578125,
+        1.193359375,
+        0.96826171875
+      ],
+      "loadavg_max": [
+        2.38037109375,
+        1.6044921875,
+        1.119140625
+      ],
+      "hypothesis": "OMITTED: retained only privately until evaluation closure",
+      "text_available_warm_ms": [
+        14769.499186000001,
+        15662.046124999999,
+        17802.660082
+      ],
+      "state_ms": [
+        19.154135,
+        20.761422000000003,
+        19.248642
+      ],
+      "text_extraction_ms": [
+        0.009818,
+        0.009752,
+        0.009471
+      ],
+      "inference_region_cpu_ticks": [
+        4324,
+        4563,
+        5175
+      ]
+    },
+    {
+      "sample": "applications",
+      "sha256": "3c3c8a91dcf66094322ec2ecaf96483979e309f7ea06ab8dc8da8266f99318fa",
+      "engine": "whisper_full",
+      "audio_ctx": 0,
+      "seconds": 10.0,
+      "inference": {
+        "n": 3,
+        "p50_ms": 37425.023416,
+        "p95_ms": 37436.515407,
+        "min_ms": 36576.480268,
+        "max_ms": 37436.515407,
+        "mean_ms": 37146.00636366667,
+        "stddev_ms": 402.7430915594332,
+        "mad_ms": 11.491990999995323
+      },
+      "text_available_warm": {
+        "n": 3,
+        "p50_ms": 37447.859906,
+        "p95_ms": 37465.140161,
+        "min_ms": 36603.329343,
+        "max_ms": 37465.140161,
+        "mean_ms": 37172.10980333333,
+        "stddev_ms": 402.2503870691876,
+        "mad_ms": 17.280255000005127
+      },
+      "cold_model_load_ms": 113.01736,
+      "conversion_ms": 84.23919500000001,
+      "score": {
+        "unique_clips": 1,
+        "reference_words": 7,
+        "primary_run0_errors": 1,
+        "primary_run0_wer": 0.14285714285714285,
+        "repeat_score_variation": false,
+        "substitutions": 1,
+        "deletions": 0,
+        "insertions": 0,
+        "unjustified_empty": 0
+      },
+      "checks_by_run": [
+        [
+          {
+            "alternatives": [
+              "Dolphin"
+            ],
+            "present": true
+          },
+          {
+            "alternatives": [
+              "Firefox"
+            ],
+            "present": false
+          },
+          {
+            "alternatives": [
+              "LibreOffice",
+              "Libre Office"
+            ],
+            "present": true
+          }
+        ],
+        [
+          {
+            "alternatives": [
+              "Dolphin"
+            ],
+            "present": true
+          },
+          {
+            "alternatives": [
+              "Firefox"
+            ],
+            "present": false
+          },
+          {
+            "alternatives": [
+              "LibreOffice",
+              "Libre Office"
+            ],
+            "present": true
+          }
+        ],
+        [
+          {
+            "alternatives": [
+              "Dolphin"
+            ],
+            "present": true
+          },
+          {
+            "alternatives": [
+              "Firefox"
+            ],
+            "present": false
+          },
+          {
+            "alternatives": [
+              "LibreOffice",
+              "Libre Office"
+            ],
+            "present": true
+          }
+        ]
+      ],
+      "process": {
+        "exit": 0,
+        "reaped": true,
+        "elapsed_ms": 111864.70263600131,
+        "compiler_overlap": false,
+        "peak_rss_kib": 227800,
+        "peak_pss_kib": 223645,
+        "sampled_cpu_ticks": 32689,
+        "ticks_per_second": 100
+      },
+      "loadavg_min": [
+        2.38037109375,
+        1.6044921875,
+        1.119140625
+      ],
+      "loadavg_max": [
+        4.2958984375,
+        2.544921875,
+        1.52099609375
+      ],
+      "hypothesis": "OMITTED: retained only privately until evaluation closure",
+      "text_available_warm_ms": [
+        36603.329343,
+        37465.140161,
+        37447.859906
+      ],
+      "state_ms": [
+        18.280335,
+        20.958856,
+        15.482048
+      ],
+      "text_extraction_ms": [
+        0.009048,
+        0.010298,
+        0.010247000000000001
+      ],
+      "inference_region_cpu_ticks": [
+        10771,
+        10949,
+        10973
+      ]
+    }
+  ]
+}

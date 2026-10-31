@@ -39,6 +39,21 @@ Item {
             verify(settings.deletedKeys.groq)
             compare(field("settingsApiKey").value, "")
         }
+        function test_hey_jarvis_settings_roundtrip_never_arms_capture() {
+            settings.activeTab = "avanzado"
+            field("settingsWakeModels").value = "/synthetic/local/wakeword"
+            field("settingsWakeThreshold").value = 0.8
+            settings.saveConfig()
+            tryCompare(saved, "count", 1, 5000)
+            tryCompare(settings, "busy", false, 5000)
+            compare(settings.rawConfig.speech.wake_word_model_path, "/synthetic/local/wakeword")
+            compare(settings.rawConfig.speech.wake_word_threshold, 0.8)
+            verify(settings.rawConfig.speech.wake_word_enabled !== true)
+            settings.loadConfig()
+            tryCompare(settings, "busy", false, 5000)
+            compare(field("settingsWakeModels").value, "/synthetic/local/wakeword")
+            compare(field("settingsWakeThreshold").value, 0.8)
+        }
         function test_failed_save_stays_open_then_success() {
             field("settingsModel").editText = "stale-revision"
             settings.saveConfig()
@@ -151,6 +166,90 @@ Item {
             compare(settings.statusKind, "error")
             verify(settings.open_)
             settings.backendUrl = "F35_BACKEND"
+        }
+        function test_f4r2_local_engine_is_explicit_and_survives_save() {
+            settings.activeTab = "avanzado"
+            var choice = field("settingsSttBackend")
+            compare(choice.currentIndex, 0)
+            choice.currentIndex = 1
+            field("settingsVoskLibrary").value = "/nonexistent/libvosk.so"
+            field("settingsVoskModel").value = "/nonexistent/vosk-model-small-es-0.42"
+            verify(field("settingsVoskModel").visible)
+            wait(40) // Let the layout place newly visible fields before focusing.
+            for (var dark of [true, false]) {
+                Theme.isDark = dark
+                field("settingsVoskLibrary").inputItem.forceActiveFocus()
+                field("settingsVoskModel").inputItem.forceActiveFocus()
+                wait(40)
+                var modelPosition = field("settingsVoskModel").inputItem.mapToItem(field("settingsScroll"), 0, 0)
+                verify(modelPosition.y >= 0)
+                verify(modelPosition.y + field("settingsVoskModel").inputItem.height <= field("settingsScroll").height,
+                    "Model input outside viewport: y="+modelPosition.y+", viewport="+field("settingsScroll").height)
+                grabImage(scene).save("F35_IMAGES/r2-vosk-"+(dark ? "dark" : "light")+".png")
+            }
+            Theme.isDark = true
+            settings.saveConfig()
+            tryCompare(saved, "count", 1, 5000)
+            tryCompare(settings, "busy", false, 5000)
+            compare(settings.rawConfig.speech.stt_engine, "vosk")
+            compare(settings.rawConfig.speech.stt_backend, "local")
+            compare(settings.rawConfig.speech.vosk_library, "/nonexistent/libvosk.so")
+            settings.loadConfig()
+            tryCompare(settings, "busy", false, 5000)
+            compare(choice.currentIndex, 1)
+            compare(field("settingsVoskModel").value, "/nonexistent/vosk-model-small-es-0.42")
+        }
+        function test_f4r3_piper_runtime_and_speaker_survive_save() {
+            settings.activeTab = "voz"
+            field("settingsPiperRuntime").value = "/nonexistent/private-piper-venv"
+            field("settingsPiperModel").value = "/nonexistent/es_ES-sharvard-medium.onnx"
+            field("settingsPiperSpeaker").currentIndex = 1
+            settings.saveConfig()
+            tryCompare(saved, "count", 1, 5000)
+            tryCompare(settings, "busy", false, 5000)
+            compare(settings.rawConfig.speech.piper_runtime, "/nonexistent/private-piper-venv")
+            compare(settings.rawConfig.speech.piper_speaker, 1)
+            settings.loadConfig()
+            tryCompare(settings, "busy", false, 5000)
+            compare(field("settingsPiperRuntime").value, "/nonexistent/private-piper-venv")
+            compare(field("settingsPiperSpeaker").currentIndex, 1)
+        }
+        function test_f4r5_fast_voice_off_migration_roundtrip_and_keyboard() {
+            settings.activeTab = "voz"
+            var fast = field("settingsPiperFast")
+            var originalAutoRead = settings.rawConfig.speech.auto_speak
+            verify(!!fast)
+            verify(!fast.active || settings.rawConfig.speech.piper_fast === true)
+            verify(fast.description.indexOf("memoria") >= 0)
+            // Availability is supplied by Rust; synthetic capabilities never load Piper.
+            var raw = JSON.parse(JSON.stringify(settings.rawConfig))
+            raw.capabilities = {piper_fast_supported:true,piper_binary_present:true}
+            settings.rawConfig = raw
+            verify(fast.enabled)
+            var control = field("settingsPiperFastControl")
+            wait(40)
+            control.forceActiveFocus()
+            for (var dark of [true,false]) {
+                Theme.isDark = dark
+                fast.active = false
+                keyClick(Qt.Key_Space)
+                compare(fast.active,true)
+                keyClick(Qt.Key_Space)
+                compare(fast.active,false)
+            }
+            Theme.isDark=true
+            fast.active=true
+            settings.saveConfig()
+            tryCompare(saved,"count",1,5000)
+            tryCompare(settings,"busy",false,5000)
+            compare(settings.rawConfig.speech.piper_fast,true)
+            compare(settings.rawConfig.speech.auto_speak,originalAutoRead)
+            settings.loadConfig()
+            tryCompare(settings,"busy",false,5000)
+            compare(fast.active,true)
+            fast.active=false
+            settings.saveConfig()
+            tryCompare(saved,"count",2,5000)
         }
         function test_keyboard_and_scroll() {
             settings.activeTab = "ia"

@@ -1,0 +1,11 @@
+{
+  "status": "BLOCKED_PENDING_EXPLICIT_DOWNLOAD_AUTHORIZATION",
+  "missing": "cmake not in PATH or standard package cache inspected",
+  "requested_artifact": "cmake-4.4.0-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+  "bytes": 30215347,
+  "sha256": "51bcb2e65c0d5c1af4a749ba40a321b7436420c7359724ab46719004f3cd2149",
+  "downloaded": false,
+  "native_build_attempt_exit": 101,
+  "cached_generated_commands_audited": true,
+  "manual_rebuild_or_full_cargo_release_executed": false
+}

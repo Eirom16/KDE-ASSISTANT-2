@@ -1,0 +1,34 @@
+{
+  "trial": 1,
+  "technical": "PASS",
+  "human": "PENDING",
+  "microphone": false,
+  "raw_audio_saved": false,
+  "physical_playbacks_requested": 1,
+  "preparation": {
+    "ready": true,
+    "ready_ms": 5975.925322,
+    "worker_pid": 28551,
+    "generation": "fa3d2d5b-6829-47eb-ba22-0aee44aa7339",
+    "completed": 0,
+    "mock_calls": 1
+  },
+  "transitions": [
+    {
+      "state": "preparing",
+      "ms": 7.724183999016532
+    },
+    {
+      "state": "speaking",
+      "ms": 1696.2311179995595
+    },
+    {
+      "state": "idle",
+      "ms": 5859.505124999487
+    }
+  ],
+  "prepared_worker_reused": true,
+  "mock_calls": 1,
+  "audible_latency": "NOT_MEASURED",
+  "children_reaped": true
+}

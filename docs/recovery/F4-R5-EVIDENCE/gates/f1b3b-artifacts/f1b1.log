@@ -1,0 +1,115 @@
+   Compiling kde-assistant v0.1.0 (/home/eirom/KDE-ASSISTANT-2)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.37s
+     Running tests/f1b1_text_startup.rs (target/debug/deps/f1b1_text_startup-6bedd4d7a31bba61)
+
+running 17 tests
+test corrupt_configuration_is_recoverable_and_never_replaced ... 
+running 1 test
+test corrupt_configuration_is_recoverable_and_never_replaced ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.08s
+
+ok
+test exclusive_bootstrap_only_tolerates_an_existing_winner ... 
+running 1 test
+test exclusive_bootstrap_only_tolerates_an_existing_winner ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.02s
+
+ok
+test existing_configuration_is_preserved ... 
+running 1 test
+test existing_configuration_is_preserved ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.07s
+
+ok
+test f35_audit_audio_preference_write_failure_keeps_memory_and_disk ... 
+running 1 test
+test f35_audit_audio_preference_write_failure_keeps_memory_and_disk ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.09s
+
+ok
+test f35_audit_environment_redaction_and_explicit_deletion ... 
+running 1 test
+test f35_audit_environment_redaction_and_explicit_deletion ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.11s
+
+ok
+test f35_audit_stale_updates_are_rejected ... 
+running 1 test
+test f35_audit_stale_updates_are_rejected ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.11s
+
+ok
+test first_run_without_piper_whisper_onnx_or_wake ... 
+running 1 test
+test first_run_without_piper_whisper_onnx_or_wake ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.08s
+
+ok
+test hostile_authorities_are_rejected_over_http ... 
+running 1 test
+test hostile_authorities_are_rejected_over_http ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.10s
+
+ok
+test invalid_tokens_fail_closed ... 
+running 1 test
+test invalid_tokens_fail_closed ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.09s
+
+ok
+test missing_api_key_never_contacts_provider ... 
+running 1 test
+test missing_api_key_never_contacts_provider ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.13s
+
+ok
+test model_catalog_uses_selected_provider_credentials_and_url ... 
+running 1 test
+test model_catalog_uses_selected_provider_credentials_and_url ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.09s
+
+ok
+test private_files_redaction_and_failed_update_preserve_secrets ... 
+running 1 test
+test private_files_redaction_and_failed_update_preserve_secrets ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.16s
+
+ok
+test qml_offscreen_settings_and_two_visible_turns ... ignored, requiere Qt/QML offscreen; no certifica Plasma Wayland
+test real_binary_lifecycle_and_critical_failure_leave_no_listener_or_foreign_victim ... 
+running 1 test
+test real_binary_lifecycle_and_critical_failure_leave_no_listener_or_foreign_victim ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.40s
+
+ok
+test redacted_updates_preserve_legacy_and_provider_credentials ... 
+running 1 test
+test redacted_updates_preserve_legacy_and_provider_credentials ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.33s
+
+ok
+test startup_has_no_download_or_global_process_cleanup_calls ... ok
+test two_turns_with_mock_and_persistence_after_backend_restart ... 
+running 1 test
+test two_turns_with_mock_and_persistence_after_backend_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.22s
+
+ok
+
+test result: ok. 16 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.22s
+

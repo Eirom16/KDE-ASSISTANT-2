@@ -1,0 +1,134 @@
+[
+  {
+    "name": "fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 0.968,
+    "category": "UNIT"
+  },
+  {
+    "name": "clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "seconds": 16.527,
+    "category": "UNIT"
+  },
+  {
+    "name": "clippy-legacy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--features",
+      "legacy-fixtures",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "seconds": 16.638,
+    "category": "UNIT"
+  },
+  {
+    "name": "build",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant",
+      "--bin",
+      "bench_voice"
+    ],
+    "exit": 0,
+    "seconds": 3.834,
+    "category": "UNIT"
+  },
+  {
+    "name": "worker",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "f4_worker",
+      "--",
+      "--ignored",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 4.637,
+    "category": "AUTOMATED_AUDIO_FIXTURE"
+  },
+  {
+    "name": "f4",
+    "command": [
+      "python3",
+      "scripts/validate_f4.py",
+      "--output",
+      "/home/eirom/KDE-ASSISTANT-2/docs/recovery/F4-R-EVIDENCE/gates/f4"
+    ],
+    "exit": 0,
+    "seconds": 27.018,
+    "category": "UNIT / AUTOMATED_AUDIO_FIXTURE / AUTOMATED_QML"
+  },
+  {
+    "name": "f35",
+    "command": [
+      "python3",
+      "scripts/validate_f35.py",
+      "--plasma"
+    ],
+    "exit": 0,
+    "seconds": 24.109,
+    "category": "UNIT / AUTOMATED_QML / AUTOMATED_KWIN",
+    "copied_summary": "docs/recovery/F4-R-EVIDENCE/gates/f35-results.json"
+  },
+  {
+    "name": "f2",
+    "command": [
+      "python3",
+      "scripts/validate_f2.py"
+    ],
+    "exit": 0,
+    "seconds": 124.16,
+    "category": "UNIT / AUTOMATED_QML"
+  },
+  {
+    "name": "f3",
+    "command": [
+      "python3",
+      "scripts/validate_f3.py",
+      "--runtime-only",
+      "--plasma"
+    ],
+    "exit": 0,
+    "seconds": 32.291,
+    "category": "AUTOMATED_QML / AUTOMATED_KWIN",
+    "copied_summary": "docs/recovery/F4-R-EVIDENCE/gates/f3-results.json"
+  },
+  {
+    "name": "f1b3b",
+    "command": [
+      "python3",
+      "scripts/validate_f1b3b.py",
+      "--qml"
+    ],
+    "exit": 0,
+    "seconds": 37.664,
+    "category": "UNIT / AUTOMATED_QML"
+  }
+]

@@ -1,0 +1,7 @@
+{
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "cc": "cc (GCC) 16.2.1 20260810",
+  "cxx": "c++ (GCC) 16.2.1 20260810",
+  "uname": "Linux 7.2.7-1-cachyos x86_64 GNU/Linux"
+}

@@ -818,17 +818,25 @@ async fn http_journal(fail_result: bool) {
     provider.abort();
     let _ = server.await;
     let _ = provider.await;
-    let old_database = Arc::downgrade(&backend.sessions);
+    let mut old_database = backend.sessions.clone();
     drop(client);
     drop(state);
     drop(backend);
-    tokio::time::timeout(Duration::from_secs(3), async {
-        while old_database.upgrade().is_some() {
+    let database = tokio::time::timeout(Duration::from_secs(3), async move {
+        loop {
+            match Arc::try_unwrap(old_database) {
+                Ok(database) => break database,
+                Err(shared) => old_database = shared,
+            }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
     .await
     .unwrap();
+    // A Weak becoming un-upgradeable only proves strong_count reached zero:
+    // another thread can still be closing SQLite before dropping the flock fd.
+    // Own the final destructor here and wait for it to return before reopening.
+    drop(database);
     let restored = SessionManager::open_at(dbpath).unwrap();
     assert_eq!(
         restored.list_operations(Some(&sid), 50).unwrap()[0].state,

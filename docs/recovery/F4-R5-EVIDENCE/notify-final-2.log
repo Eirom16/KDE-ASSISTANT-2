@@ -1,0 +1,20 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.57s
+     Running unittests src/lib.rs (target/debug/deps/kde_assistant_lib-31e21eb49519a7fb)
+
+running 13 tests
+test backend::piper_protocol::tests::bounded_protocol_rejects_stale_corrupt_truncated_and_stalled_workers ... ok
+test backend::piper_protocol::tests::ready_identity_cannot_be_only_a_pid ... ok
+test backend::piper_resource_watch::tests::watches_same_size_write_replace_and_permissions_not_unrelated_files ... ok
+test backend::speech_service::tests::piper_engine_initializes ... ok
+test backend::tts::piper::tests::list_models_empty_when_no_dir ... ok
+test backend::tts::piper::tests::which_finds_common_tools ... ok
+test backend::voice_coordinator::tests::piper_metadata_is_bounded_and_rejects_non_regular_inputs ... ok
+test backend::voice_coordinator::tests::piper_rejects_invalid_speakers_and_sample_rates_before_execution ... ok
+test backend::warm_piper::tests::default_and_configuring_never_preload_or_create_actor ... ok
+test backend::warm_piper::tests::duplicate_preparations_share_one_queue_slot_and_revocation_epoch ... ok
+test backend::warm_piper::tests::health_revocation_rotates_token_without_poisoning_next_request ... ok
+test backend::warm_piper::tests::memory_policy_is_fail_closed_and_reserves_measured_envelopes ... ok
+test backend::warm_piper::tests::zombie_metrics_are_not_a_memory_failure_of_the_next_generation ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 187 filtered out; finished in 1.35s
+

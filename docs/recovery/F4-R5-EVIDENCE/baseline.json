@@ -1,0 +1,31 @@
+{
+  "profile": "/var/tmp/kda-f4r5-3y7zg8fs",
+  "resources": "/var/tmp/kda-f4r3-piper-aqrh6h0h",
+  "head": "9544a58eba4b6adf6c6343c04db80813b084f76b",
+  "historical_reports": {
+    "docs/recovery/F4-VOICE-CONTRACT.md": "fef1c6c0096f17f7bfb6aa78c9c554e5bd1b790621f510aba1b2eeaf44eaeb82",
+    "docs/recovery/F4-REPORT.md": "6ea6d756160367ef2217ea47691c33824ea5c0419a22f44a8298ead3a48c4a15",
+    "docs/recovery/F4-MODEL-MATRIX.md": "f3508ea7eba413cc94e088f3f44b4f543d625ccf0a9e12e5aeaa2f04d413a26b",
+    "docs/recovery/F4-ISSUES.md": "9e56ff413891d1f2e3894081fde796c37d9beda871d570d67df517babc16f365",
+    "docs/recovery/F4-RESULTS.md": "d88334c2da9d24a915283caf9f3828b2b9e250c9fa8c2890f1ab789dc6097fe7",
+    "docs/recovery/F4-R-REPORT.md": "c0fbe9d4e8f05b7f1b95f1899123326c4426ba41e1f7d85cf5c2a494d619867d",
+    "docs/recovery/F4-R-BENCHMARKS.md": "e8dd3feeebd71bdfd3b70040b8547c8ddef1b48b93f841dede916b2e40858730",
+    "docs/recovery/F4-R-ISSUES.md": "2c250091ac7a825ec21d1736fd796e7ff856df9cc010deca27d7f0f7a5ca031e",
+    "docs/recovery/F4-R-RESULTS.md": "342d55f187247772fd658e3aa0bf9faaf6d29580cae324133f1ba047bb3f3900",
+    "docs/recovery/F4-R2-REPORT.md": "33da04c84a12f513afb7d983a1eb5abd06b2817f8cec612c708943ee82b464be",
+    "docs/recovery/F4-R2-RESULTS.md": "41c22a59bfc4dc58a255ecd5203e2a404f68d8eda65a167bec723103b82d502d",
+    "docs/recovery/F4-R2-BENCHMARKS.md": "5b01d27e20f21b099b29fe7af968d33b33f880fdfdf4bdc55ad5d4d3828f2c7e",
+    "docs/recovery/F4-R2-ISSUES.md": "7a5fa905bb4dc2c69eb9b8af9788d28bdf8a0a154e2fb708cdd8dce7eb73ea11",
+    "docs/recovery/F4-R3-REPORT.md": "8709ee04d1f410a80835ede3b4ab16ed1c9379676948fa59356eb58d2f358ce8",
+    "docs/recovery/F4-R3-RESULTS.md": "288c5fb0698cfac42aeb1fa99f78457f7b46113178566a7904bfcfbcd183d02f",
+    "docs/recovery/F4-R3-ISSUES.md": "711fd0370f068467113f18c52e2916d95d4b2ccb4da08ec46d90242878b9a17c",
+    "docs/recovery/F4-R4-REPORT.md": "46f5e3162a5f55af709a2bef488c07d208c7f05f73cf14064ef5edddb828e3b6",
+    "docs/recovery/F4-R4-ISSUES.md": "6c93fd7f6024eca4bfba4d7bbb6945acd76d762d6c3b814d3535aa3fa22041c8",
+    "docs/recovery/F4-R4-RESULTS.md": "ebae4a4cba3e728c5e77563bd734493510f66cfbb6c2e42a96c0a53c45d4b49f",
+    "docs/recovery/F4-R4-BENCHMARKS.md": "f14014da755a497c56862129df0264996df5a198646e4ce483a819c711060196"
+  },
+  "binary_sha256": "d3ba1b09d9bbae97fcd9622e27e920cb4ec388ed5fab9fb46523539affd1a70d",
+  "piper_integrity": "PASS",
+  "memory": "MemTotal:        7942712 kB\nMemFree:         1380460 kB\nMemAvailable:    4086584 kB\nBuffers:              36 kB\nCached:          3761420 kB\nSwapCached:         5884 kB\nActive:          1982224 kB\nInactive:        3436496 kB\nActive(anon):    1377860 kB\nInactive(anon):  1190580 kB\nActive(file):     604364 kB\nInactive(file):  2245916 kB\nUnevictable:      378872 kB\nMlocked:             164 kB\nSwapTotal:       7942140 kB\nSwapFree:        6894516 kB\nZswap:                 0 kB\nZswapped:              0 kB\nDirty:              5116 kB\nWriteback:             0 kB\nAnonPages:       1943040 kB\nMapped:           780864 kB\nShmem:            842232 kB\nKReclaimable:     161904 kB\nSlab:             318524 kB\nSReclaimable:     161904 kB\nSUnreclaim:       156620 kB\nKernelStack:       15664 kB\nPageTables:        66744 kB\nSecPageTables:         0 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    11913496 kB\nCommitted_AS:   24214960 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:       85192 kB\nVmallocChunk:          0 kB\nPercpu:             3328 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:    159744 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:         0 kB\nFilePmdMapped:         0 kB\nCmaTotal:              0 kB\nCmaFree:               0 kB\nUnaccepted:            0 kB\nBalloon:               0 kB\nGPUActive:             0 kB\nGPUReclaim:            0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:      149632 kB\nDirectMap2M:     4913152 kB\nDirectMap1G:     5242880 kB\n",
+  "psi": "some avg10=0.00 avg60=0.00 avg300=0.01 total=25921031\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=22504980\n"
+}

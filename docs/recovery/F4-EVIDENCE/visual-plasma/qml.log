@@ -1,0 +1,13 @@
+********* Start testing of kde_assistant *********
+Config: Using QtTest library 6.12.0, Qt 6.12.0 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : kde_assistant::F4Voice::initTestCase()
+PASS   : kde_assistant::F4Voice::test_cancel_before_start_reply_never_opens_capture()
+PASS   : kde_assistant::F4Voice::test_cancel_pending_start_uses_known_server_scope()
+PASS   : kde_assistant::F4Voice::test_error_and_tts_stop_do_not_claim_llm_cancel()
+PASS   : kde_assistant::F4Voice::test_missing_model_disables_microphone_but_preserves_text()
+PASS   : kde_assistant::F4Voice::test_session_switch_discards_stale_transcript()
+PASS   : kde_assistant::F4Voice::test_toggle_states_and_editable_draft_never_autosends()
+PASS   : kde_assistant::F4Voice::test_visual_voice_states()
+PASS   : kde_assistant::F4Voice::cleanupTestCase()
+Totals: 9 passed, 0 failed, 0 skipped, 0 blacklisted, 490ms
+********* Finished testing of kde_assistant *********

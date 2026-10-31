@@ -1,0 +1,27 @@
+{
+  "error": "Modelo STT no instalado; instala manualmente un modelo Whisper multiling\u00fce",
+  "fast": {
+    "completed": 0,
+    "enabled": false,
+    "generation": null,
+    "last_engine_ms": null,
+    "last_stop_ms": null,
+    "last_synthesis_ms": null,
+    "phase": null,
+    "prepares": 0,
+    "ready_ms": null,
+    "reason": null,
+    "reuses": 0,
+    "revocations": 3,
+    "state": "disabled",
+    "ttl_secs": 30,
+    "worker_pid": null
+  },
+  "identity": {
+    "generation": "0fab7616-0858-4780-8f25-9d5c0e9cfddf",
+    "session_id": "e70e2bac-a69a-4249-8540-285719979ff3",
+    "turn_id": null
+  },
+  "state": "error",
+  "transcript": ""
+}

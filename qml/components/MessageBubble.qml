@@ -16,6 +16,7 @@ Item {
     /// Se usa para copiar y para TTS (el HTML de `content` no sirve).
     property string rawContent: ""
     property string timestamp: ""
+    property bool speechAvailable: false
     property bool isStreaming: false
     property var toolCalls: []           // Array de {name, args, status, result, imageUrl?}
 
@@ -191,6 +192,10 @@ Item {
                 onClicked: root.copyRequested(root.rawContent)
             }
             IconButton {
+                objectName: "messagePlayButton"
+                enabled: root.speechAvailable
+                opacity: enabled ? 1 : 0.4
+                accessibleName: root.speechAvailable ? qsTr("Leer respuesta en voz alta") : qsTr("Lectura no disponible: configura Piper y una voz local")
                 iconName: "play-16"
                 iconSize: 14
                 buttonSize: 28

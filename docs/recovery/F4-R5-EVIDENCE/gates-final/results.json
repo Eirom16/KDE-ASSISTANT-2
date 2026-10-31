@@ -1,0 +1,46 @@
+[
+  {
+    "name": "f4",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4.py",
+      "--output",
+      "/home/eirom/KDE-ASSISTANT-2/docs/recovery/F4-R5-EVIDENCE/gates-final/f4"
+    ],
+    "exit": 0,
+    "seconds": 34.346528137999485
+  },
+  {
+    "name": "f2",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f2.py"
+    ],
+    "exit": 0,
+    "seconds": 47.57737593300044
+  },
+  {
+    "name": "restore-default",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant"
+    ],
+    "exit": 0,
+    "seconds": 0.41599607300031494
+  },
+  {
+    "name": "fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 1.0677363419999892
+  }
+]

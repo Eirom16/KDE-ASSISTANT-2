@@ -1,0 +1,54 @@
+{
+  "branch": "recovery/f4-voice-coordinator",
+  "head": "9544a58eba4b6adf6c6343c04db80813b084f76b",
+  "index_empty": true,
+  "older_reports_byte_identical": {
+    "docs/recovery/F4-VOICE-CONTRACT.md": true,
+    "docs/recovery/F4-REPORT.md": true,
+    "docs/recovery/F4-MODEL-MATRIX.md": true,
+    "docs/recovery/F4-ISSUES.md": true,
+    "docs/recovery/F4-RESULTS.md": true,
+    "docs/recovery/F4-R-REPORT.md": true,
+    "docs/recovery/F4-R-BENCHMARKS.md": true,
+    "docs/recovery/F4-R-ISSUES.md": true,
+    "docs/recovery/F4-R-RESULTS.md": true
+  },
+  "gates": {
+    "fmt": "PASS",
+    "clippy": "PASS",
+    "clippy-legacy": "PASS",
+    "build": "PASS",
+    "f4": "PASS",
+    "f35": "PASS",
+    "f2": "PASS",
+    "f3": "PASS",
+    "f1b3b": "PASS",
+    "f4-observer-final": "PASS"
+  },
+  "previous_failed_runs_preserved": [
+    "gates-final",
+    "gates-final-2",
+    "gates-final-3 (f1b3b only; final replacement recorded)"
+  ],
+  "physical_ptt": "LIVE_PTT_PASS for tested dictation/edit/stop/cancel flows; HUMAN_VERIFIED",
+  "microphone_current": "NO_OWN_AUDIO_OR_APP_PROCESSES; second launcher/backend/children reaped",
+  "resources": "CLEANED: human corpus, hypotheses/logs, Vosk downloads/model/runtime and both private PTT profiles removed",
+  "source_manifest": "source-manifest-final.json",
+  "first_launcher_summary": "ABSENT; historical evidence gap, observer corrected and tested without hardware",
+  "cancel_permission": "User continua after scoped manual cancellation question; user later confirmed funciono correctamente",
+  "dictamen": {
+    "stt": "STT_SELECTED (Vosk provisional)",
+    "ptt": "LIVE_PTT_PASS (tested flows)",
+    "f4": "NEEDS_FIXES",
+    "implementation": "PARTIAL"
+  },
+  "reports_sha256": {
+    "docs/recovery/F4-R2-REPORT.md": "33da04c84a12f513afb7d983a1eb5abd06b2817f8cec612c708943ee82b464be",
+    "docs/recovery/F4-R2-RESULTS.md": "41c22a59bfc4dc58a255ecd5203e2a404f68d8eda65a167bec723103b82d502d",
+    "docs/recovery/F4-R2-BENCHMARKS.md": "5b01d27e20f21b099b29fe7af968d33b33f880fdfdf4bdc55ad5d4d3828f2c7e",
+    "docs/recovery/F4-R2-ISSUES.md": "7a5fa905bb4dc2c69eb9b8af9788d28bdf8a0a154e2fb708cdd8dce7eb73ea11"
+  },
+  "private_profile_modified": false,
+  "commits_created": false,
+  "push_merge_release": false
+}

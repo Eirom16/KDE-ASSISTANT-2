@@ -1,0 +1,21 @@
+{
+  "at_utc": "2026-10-19T01:35:02.856863+00:00",
+  "scope": "Closed offline Spanish corpus comparison only",
+  "removed_directory": "/var/tmp/kda-f4r2-corpus-gjw89ydm",
+  "removed_human_wavs": [
+    "short.wav",
+    "applications.wav",
+    "numbers.wav",
+    "long.wav"
+  ],
+  "removed_private_hypotheses_and_logs": true,
+  "directory_absent": true,
+  "forensic_erasure_claim": false,
+  "retained_temporarily": [
+    "/var/tmp/kda-f4r2-vosk-pruy5scb",
+    "/var/tmp/kda-f4r2-ptt-2xa4_pcz",
+    "/var/tmp/kda-f4r2-ptt-gpfkwmrz"
+  ],
+  "reason": "Explicit temporary Vosk/PTT evaluation permission; cancellation trial awaits separate consent",
+  "previous_tiny_model": "Untouched pre-existing authorised benchmark model"
+}

@@ -1,0 +1,19 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.31s
+     Running unittests src/lib.rs (target/debug/deps/kde_assistant_lib-31e21eb49519a7fb)
+
+running 12 tests
+test backend::voice_coordinator::tests::cancel_before_start_revokes_reserved_generation_and_shutdown_blocks_admission ... ok
+test backend::voice_coordinator::tests::cancellation_during_capture ... ok
+test backend::voice_coordinator::tests::cancellation_during_stt_load_and_inference ... ok
+test backend::voice_coordinator::tests::capture_is_bounded_and_device_eof_is_an_error ... ok
+test backend::voice_coordinator::tests::interruption_of_tts_generation_or_playback ... ok
+test backend::voice_coordinator::tests::invalid_transition_is_rejected_without_overwriting_text ... ok
+test backend::voice_coordinator::tests::missing_model_fails_before_any_capture_and_text_backend_remains_available ... ok
+test backend::voice_coordinator::tests::obsolete_results_never_replace_current_session ... ok
+test backend::voice_coordinator::tests::piper_metadata_is_bounded_and_rejects_non_regular_inputs ... ok
+test backend::voice_coordinator::tests::silence_endpoint_and_stop_release_capture ... ok
+test backend::voice_coordinator::tests::stop_during_preparing_returns_idle_without_model_or_capture ... ok
+test backend::voice_coordinator::tests::transition_table_rejects_incompatible_states ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 167 filtered out; finished in 0.15s
+

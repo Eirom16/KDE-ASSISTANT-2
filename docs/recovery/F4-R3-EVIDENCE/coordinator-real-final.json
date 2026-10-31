@@ -1,0 +1,82 @@
+{
+  "category": "AUTOMATED_AUDIO_FIXTURE",
+  "audible": "NOT_TESTED",
+  "physical_microphone": "NOT_TESTED",
+  "results": [
+    {
+      "test": "cancel-preparation",
+      "status": "PASS",
+      "cancel_ms": 16.37069599996721,
+      "children_reaped": [
+        23339
+      ]
+    },
+    {
+      "test": "cancel-active-preparation",
+      "status": "PASS",
+      "cancel_ms": 23.572727000100713,
+      "children_reaped": [
+        23341
+      ]
+    },
+    {
+      "test": "cancel-null-playback",
+      "status": "PASS",
+      "cancel_ms": 9.298454999907335
+    },
+    {
+      "test": "new-playback-after-cancel",
+      "status": "PASS"
+    },
+    {
+      "test": "session-change-during-playback",
+      "status": "PASS",
+      "cancel_ms": 12.689135000073293
+    },
+    {
+      "test": "mock-completed-turn-auto-read",
+      "status": "PASS",
+      "provider_calls": 1,
+      "persisted_text_unchanged": true
+    },
+    {
+      "test": "missing-model-text-independent",
+      "status": "PASS",
+      "error": "Recurso Piper ausente o no accesible"
+    }
+  ],
+  "idle": {
+    "seconds": 3.003,
+    "processes": {
+      "23332": {
+        "rss_kib": 29832,
+        "pss_kib": 25494,
+        "cpu_one_core_percent": 0.0
+      }
+    }
+  },
+  "provider_calls": [
+    {
+      "path": "/v1/chat/completions",
+      "messages": 2
+    }
+  ],
+  "observed_child_pids": [
+    23339,
+    23341,
+    23342,
+    23343,
+    23353,
+    23359,
+    23360,
+    23419,
+    23424,
+    23425,
+    23454,
+    23461,
+    23462,
+    23481,
+    23490
+  ],
+  "profile": "/var/tmp/kda-f4r3-piper-aqrh6h0h/coordinator-1792419141107960230"
+}

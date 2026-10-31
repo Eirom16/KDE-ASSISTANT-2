@@ -1,0 +1,12 @@
+{
+  "command": [
+    "/var/tmp/kda-f4r3-piper-aqrh6h0h/venv/bin/python",
+    "-I",
+    "-B",
+    "-c",
+    "import importlib.metadata as m,onnxruntime as o; print({p:m.version(p) for p in ['piper-tts','onnxruntime','numpy','pathvalidate','packaging','protobuf','flatbuffers']}); print(o.get_available_providers())"
+  ],
+  "exit": 0,
+  "stdout": "{'piper-tts': '1.8.0', 'onnxruntime': '1.31.0', 'numpy': '2.5.4', 'pathvalidate': '3.3.1', 'packaging': '26.3', 'protobuf': '7.36.2', 'flatbuffers': '25.12.19'}\n['AzureExecutionProvider', 'CPUExecutionProvider']\n",
+  "stderr": ""
+}

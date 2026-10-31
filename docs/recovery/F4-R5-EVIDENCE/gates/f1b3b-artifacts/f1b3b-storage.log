@@ -1,0 +1,73 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.32s
+     Running tests/f1b3b_storage.rs (target/debug/deps/f1b3b_storage-f1116c394a53b4bd)
+
+running 36 tests
+test active_open_and_persistent_resources_are_retained ... ok
+test cache_ownerless_and_symlink_roots_are_never_removed ... ok
+test cache_quota_prevents_unbounded_accumulation ... ok
+test cache_symlinks_are_not_followed_and_cleanup_can_recover ... ok
+test cache_worker ... ignored, owned cache child; executed only by parent tests
+test cancelled_failed_and_previous_retry_unknown_are_visible_in_context ... ok
+test cutoff_never_splits_assistant_and_results ... ok
+test deletion_failure_mid_transaction_rolls_back_every_table ... ok
+test deletion_rejects_persisted_and_reserved_active_turns ... ok
+test diagnostics_and_paged_recovery_are_private_and_non_destructive ... ok
+test dispatched_operation_blocks_deletion_even_with_terminal_turn ... ok
+test essential_instructions_cannot_be_cropped ... ok
+test exact_session_matching_preserves_independent_metadata ... ok
+test http_recovery_deletion_auth_errors_and_context_use_real_router ... 
+running 1 test
+test http_recovery_deletion_auth_errors_and_context_use_real_router ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.19s
+
+ok
+test image_download_does_not_follow_planted_output_symlinks ... 
+running 1 test
+test image_download_does_not_follow_planted_output_symlinks ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.01s
+
+ok
+test image_preview_retains_snapshot_and_failed_render_cleans_pending_resources ... 
+running 1 test
+test image_preview_retains_snapshot_and_failed_render_cleans_pending_resources ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.17s
+
+ok
+test inactive_symlink_cleanup_failure_retries_without_touching_target ... 
+running 1 test
+test cache_worker ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.00s
+
+ok
+test incomplete_legacy_groups_are_errors_never_fabricated ... ok
+test interrupted_outputs_and_post_deletion_writes_are_rejected ... ok
+test legacy_deleted_session_evidence_is_preserved_until_explicit_scoped_erase ... ok
+test legacy_null_turn_ids_remain_causal ... ok
+test live_request_growth_is_checked_each_iteration ... ok
+test long_history_selects_complete_suffix_without_summary ... ok
+test migrations_repeat_and_preserve_pre_f1b2_uuid_history ... ok
+test orphan_duplicate_and_missing_results_fail ... ok
+test oversized_latest_input_and_response_fail_explicitly ... ok
+test parent_constraints_remain_enabled_and_deletion_handles_legacy_audit ... ok
+test qml_recovery_states_and_stale_responses ... ignored, Qt/QML offscreen with private XDG and mock API
+test qml_session_banner_and_explicit_evidence_confirmation ... ignored, Qt/QML offscreen with private XDG and mock API
+test referenced_and_young_cache_survive_repeated_sweeps ... 
+running 1 test
+test cache_worker ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.00s
+
+ok
+test regeneration_input_is_bounded ... ok
+test replaced_workspace_cannot_publish_or_delete_another_live_resource ... ok
+test selected_system_messages_keep_causal_positions ... ok
+test short_history_preserves_multi_call_causality_and_failures ... ok
+test uncertain_deletion_requires_confirmation_and_leaves_no_orphans ... ok
+test unpublished_guard_cleans_on_error_and_quota_reserves_concurrent_writers ... ok
+
+test result: ok. 33 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 3.99s
+

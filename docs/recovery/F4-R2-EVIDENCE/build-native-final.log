@@ -1,0 +1,7 @@
+   Compiling libloading v0.8.9
+   Compiling kde-assistant v0.1.0 (/home/eirom/KDE-ASSISTANT-2)
+   Compiling clang-sys v1.9.1
+   Compiling bindgen v0.72.1
+   Compiling whisper-rs-sys v0.15.0
+   Compiling whisper-rs v0.16.0
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 07s

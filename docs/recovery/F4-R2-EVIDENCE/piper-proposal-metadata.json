@@ -1,0 +1,51 @@
+{
+  "scope": "Metadata only; proposal after STT/PTT evaluation, no model/runtime/dependency downloaded",
+  "source": "https://pypi.org/pypi/piper-tts/1.8.0/json",
+  "version": "1.8.0",
+  "license": "GPL-3.0-or-later",
+  "python": ">=3.9",
+  "dependencies": [
+    "onnxruntime<2,>=1",
+    "pathvalidate<4,>=3",
+    "torch<3,>=2; extra == \"train\"",
+    "lightning<3,>=2; extra == \"train\"",
+    "tensorboard<3,>=2; extra == \"train\"",
+    "tensorboardX<3,>=2; extra == \"train\"",
+    "jsonargparse[signatures]>=4.27.7; extra == \"train\"",
+    "onnx<2,>=1; extra == \"train\"",
+    "pysilero-vad<3,>=2.1; extra == \"train\"",
+    "cython<4,>=3; extra == \"train\"",
+    "librosa<1; extra == \"train\"",
+    "black==24.8.0; extra == \"dev\"",
+    "flake8==7.1.1; extra == \"dev\"",
+    "isort==5.13.2; extra == \"dev\"",
+    "mypy==1.14.0; extra == \"dev\"",
+    "pylint==3.2.7; extra == \"dev\"",
+    "pytest==8.3.4; extra == \"dev\"",
+    "build==1.2.2; extra == \"dev\"",
+    "scikit-build<1; extra == \"dev\"",
+    "cmake<4,>=3.18; extra == \"dev\"",
+    "ninja<2,>=1; extra == \"dev\"",
+    "onnx<2,>=1; extra == \"dev\"",
+    "flask<4,>=3; extra == \"http\"",
+    "onnx<2,>=1; extra == \"alignment\"",
+    "g2pW<1,>=0.1.1; extra == \"zh\"",
+    "transformers<6,>=4; extra == \"zh\"",
+    "sentence-stream<2,>=1.2.1; extra == \"zh\"",
+    "unicode-rbnf<3,>=2.4.0; extra == \"zh\"",
+    "pyopenjtalk-plus<1,>=0.4; extra == \"ja\"",
+    "tltk<1.11,>=1.6.8; extra == \"th\"",
+    "pandas<3,>=2; extra == \"th\"",
+    "unicode-rbnf<3,>=2.4.0; extra == \"th\""
+  ],
+  "linux_x86_64_wheels": [
+    {
+      "filename": "piper_tts-1.8.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux_2_28_x86_64.whl",
+      "bytes": 34131442,
+      "sha256": "25b4d3f31ff70c8fa7151908e00aaa5650cbdf16bca8fcf21299f3941b89a7d3",
+      "url": "https://files.pythonhosted.org/packages/84/81/0112a7d510911f33018dc24023d1655bb772f84a4e95fe7f0180f66bbd17/piper_tts-1.8.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux_2_28_x86_64.whl"
+    }
+  ],
+  "installed": false,
+  "approved_for_download": false
+}

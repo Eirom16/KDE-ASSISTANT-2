@@ -1,0 +1,77 @@
+{
+  "categories": [
+    "LIVE_MICROPHONE",
+    "HUMAN_VERIFIED"
+  ],
+  "scope": "User-operated cancellation test; no automated recording or UI clicks",
+  "human_report": "funciono correctamente",
+  "confirmation": "Answer to explicit request to confirm stopped and blank draft",
+  "observation": {
+    "transitions": [
+      {
+        "state": "idle",
+        "elapsed_ms": 20.261912999785636
+      },
+      {
+        "state": "preparing",
+        "elapsed_ms": 7249.992413999962
+      },
+      {
+        "state": "recording",
+        "elapsed_ms": 7771.432677999883
+      },
+      {
+        "state": "idle",
+        "elapsed_ms": 10766.825129999916
+      },
+      {
+        "state": "preparing",
+        "elapsed_ms": 20916.429969999852
+      },
+      {
+        "state": "recording",
+        "elapsed_ms": 21334.302798999943
+      },
+      {
+        "state": "transcribing",
+        "elapsed_ms": 24022.396786999932
+      },
+      {
+        "state": "transcript_ready",
+        "elapsed_ms": 25474.175377999927
+      },
+      {
+        "state": "preparing",
+        "elapsed_ms": 30436.65632099987
+      },
+      {
+        "state": "recording",
+        "elapsed_ms": 30852.43445399988
+      },
+      {
+        "state": "idle",
+        "elapsed_ms": 33852.12632299999
+      }
+    ],
+    "llm_requests": 0,
+    "session_message_counts": [
+      0
+    ],
+    "observed_children": 10,
+    "ended": true,
+    "children_reaped": true,
+    "backend_reaped": true,
+    "human_verification": "PENDING_USER_REPORT",
+    "raw_audio_saved": false
+  },
+  "recording_cycles": 3,
+  "recording_to_idle_cycles": 2,
+  "transcription_cycles": 1,
+  "unexpected_observation": "User performed three physical cycles in this window: two cancellation paths and one transcription path; not reported as one take or as a reference corpus",
+  "latency_cancellation": "NOT_MEASURED; physical cancel-click timestamp unavailable",
+  "no_wer_scoring": true,
+  "raw_audio_files": [],
+  "full_transcript_persisted": false,
+  "single_auxiliary_transcribing_to_ready_observed_ms": 1451.7785909999948,
+  "latency_scope": "n=1 auxiliary native state observation sampled every 100 ms; not UI click-to-editable latency, no p50/p95"
+}

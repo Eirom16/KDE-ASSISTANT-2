@@ -1,0 +1,28 @@
+   Compiling kde-assistant v0.1.0 (/home/eirom/KDE-ASSISTANT-2)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.87s
+     Running tests/f1a_security.rs (target/debug/deps/f1a_security-3462bfc4047b328d)
+
+running 20 tests
+test all_public_tool_dispatches_respect_disabled_flags_and_contention ... ok
+test copy_derived_destination_symlink_has_no_outside_effect ... ok
+test dangling_symlink_creation_has_no_outside_effect ... ok
+test disabled_llm_catalog_preserves_explicit_manual_file_flag ... ok
+test disabled_tool_with_and_without_write_lock ... ok
+test failed_append_decode_and_backup_collision_preserve_main ... ok
+test intermediate_symlinks_empty_allowlist_and_hardlinks_are_denied ... ok
+test concurrent_updates_never_mix_tool_flag_and_custom_allowlist ... ok
+test malicious_backup_symlink_leaves_main_and_outside_unchanged ... ok
+test outside_operations_and_invalid_edit_have_no_effects ... ok
+test pathname_delegation_is_contained_until_f2 ... ok
+test search_existing_roots_survive_missing_roots ... ok
+test search_explicit_invalid_directory_is_never_skipped ... ok
+test search_mount_boundaries_remain_closed ... ignored, requiere unshare user/mount y mount; sólo fixtures privados en un namespace hijo
+test search_security_errors_are_not_missing_roots ... ok
+test search_without_usable_roots_returns_clear_error ... ok
+test unavailable_kernel_primitives_fail_closed ... ok
+test legitimate_create_read_edit_and_copy ... ok
+test concurrent_parent_directory_symlinks_do_not_escape ... ok
+test concurrent_symlink_replacement_never_writes_outside ... ok
+
+test result: ok. 19 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 2.28s
+

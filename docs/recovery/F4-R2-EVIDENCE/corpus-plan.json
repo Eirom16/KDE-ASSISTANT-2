@@ -1,0 +1,97 @@
+{
+  "corpus_directory": "/var/tmp/kda-f4r2-corpus-gjw89ydm",
+  "authorized_samples": [
+    "short",
+    "applications",
+    "numbers",
+    "long"
+  ],
+  "recordings": 4,
+  "unique_speakers": 1,
+  "reference_words": 40,
+  "retention": "Delete WAVs, private hypotheses/logs at evaluation closure; no forensic erasure promise",
+  "physical_ptt": "NOT_TESTED; corpus captures are separate",
+  "whisper_model": "/var/tmp/kda-f4-tiny-jaan_09m/ggml-tiny.bin",
+  "whisper_model_sha256": "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21",
+  "comparison_whisper_binary_sha256": "f4cd634a4a179c7d8eabccba7a75a9c66f99be32bae4e6e15ca2f97548ab7c69",
+  "records": [
+    {
+      "sample": "short",
+      "seconds": 8.0,
+      "pcm_bytes": 256000,
+      "pid": 76554,
+      "reaped": true,
+      "first_pcm_ms": 502.4900969983719,
+      "wav_sha256": "a79638516c5110158698649e94fd4ef1eb4334e42dc801208973d7460ae3d039",
+      "reference_confirmed": true,
+      "authorization": "EXPLICIT_PER_SAMPLE_AUTHORIZATION_AND_READY_IN_CHAT",
+      "reference_confirmation": "EXPLICIT_SPEAKER_CONFIRMATION_IN_CHAT"
+    },
+    {
+      "sample": "applications",
+      "seconds": 10.0,
+      "pcm_bytes": 320000,
+      "pid": 77558,
+      "reaped": true,
+      "first_pcm_ms": 496.07302799995523,
+      "wav_sha256": "3c3c8a91dcf66094322ec2ecaf96483979e309f7ea06ab8dc8da8266f99318fa",
+      "reference_confirmed": true,
+      "authorization": "EXPLICIT_PER_SAMPLE_AUTHORIZATION_AND_READY_IN_CHAT",
+      "reference_confirmation": "EXPLICIT_SPEAKER_CONFIRMATION_IN_CHAT"
+    },
+    {
+      "sample": "numbers",
+      "seconds": 10.0,
+      "pcm_bytes": 320000,
+      "pid": 78542,
+      "reaped": true,
+      "first_pcm_ms": 502.9948659976071,
+      "wav_sha256": "16f4aa41bb78210c8b797e6fd2b7c9abfbd0713078278732f2528c9228e7b02f",
+      "reference_confirmed": true,
+      "authorization": "EXPLICIT_PER_SAMPLE_AUTHORIZATION_AND_READY_IN_CHAT",
+      "reference_confirmation": "EXPLICIT_SPEAKER_CONFIRMATION_IN_CHAT"
+    },
+    {
+      "sample": "long",
+      "seconds": 15.0,
+      "pcm_bytes": 480000,
+      "pid": 79665,
+      "reaped": true,
+      "first_pcm_ms": 496.5642079987447,
+      "wav_sha256": "18ae8a19591549a49173204455dc523d68b83a69b4fda2775507100a2a73a366",
+      "reference_confirmed": true,
+      "authorization": "EXPLICIT_PER_SAMPLE_AUTHORIZATION_AND_READY_IN_CHAT",
+      "reference_confirmation": "EXPLICIT_SPEAKER_CONFIRMATION_IN_CHAT"
+    }
+  ],
+  "failed_short_attempts": {
+    "count": 2,
+    "pcm_bytes": 0,
+    "wav_created": false,
+    "retries": "Each separately authorised",
+    "cause": "Helper target.object literal auto; corrected by omitting default target"
+  },
+  "raw_audio_in_git": false,
+  "remote_audio": false,
+  "cleanup": {
+    "at_utc": "2026-10-19T01:35:02.856863+00:00",
+    "scope": "Closed offline Spanish corpus comparison only",
+    "removed_directory": "/var/tmp/kda-f4r2-corpus-gjw89ydm",
+    "removed_human_wavs": [
+      "short.wav",
+      "applications.wav",
+      "numbers.wav",
+      "long.wav"
+    ],
+    "removed_private_hypotheses_and_logs": true,
+    "directory_absent": true,
+    "forensic_erasure_claim": false,
+    "retained_temporarily": [
+      "/var/tmp/kda-f4r2-vosk-pruy5scb",
+      "/var/tmp/kda-f4r2-ptt-2xa4_pcz",
+      "/var/tmp/kda-f4r2-ptt-gpfkwmrz"
+    ],
+    "reason": "Explicit temporary Vosk/PTT evaluation permission; cancellation trial awaits separate consent",
+    "previous_tiny_model": "Untouched pre-existing authorised benchmark model"
+  }
+}

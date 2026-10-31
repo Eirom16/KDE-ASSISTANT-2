@@ -1,0 +1,34 @@
+{
+  "category": "LIVE_MICROPHONE",
+  "scope": "First authorised manual product PTT, one phrase",
+  "backend_pid": 106617,
+  "state": "transcript_ready",
+  "transcript_nonempty": true,
+  "session_message_counts": [
+    0
+  ],
+  "backend_child_pids": [
+    106626
+  ],
+  "backend_child_names": [
+    "qml6"
+  ],
+  "capture_and_stt_processes_present": false,
+  "human_verified": {
+    "physical_ptt": true,
+    "editable": true,
+    "latency_rating": "Funcion\u00f3 bastante r\u00e1pido (qualitative only)",
+    "screenshot_provided": true
+  },
+  "full_transcript_persisted_in_evidence": false,
+  "quantitative_latency": "NOT_TESTED; launcher final observation missing, no human stopwatch",
+  "launcher_final_observation": "ABSENT; cause undetermined, not reconstructed",
+  "mock_request_count": "NOT_AVAILABLE; private API independently showed zero persisted chat messages",
+  "known_processes_after_trial": {
+    "backend_pid": 106617,
+    "qml_pid": 106626,
+    "launcher_pid": 106612,
+    "all_gone": true
+  },
+  "raw_audio_files_in_ptt_profile": []
+}

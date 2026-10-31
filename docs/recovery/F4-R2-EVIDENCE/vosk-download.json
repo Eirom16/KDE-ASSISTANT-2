@@ -1,0 +1,23 @@
+{
+  "authorization": "Explicit F4-R2 reply: Autorizar Vosk s\u00f3lo para evaluaci\u00f3n offline",
+  "private_directory": "/var/tmp/kda-f4r2-vosk-pruy5scb",
+  "license": "Apache-2.0 per official model table and runtime metadata",
+  "assets": [
+    {
+      "file": "model.zip",
+      "url": "https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip",
+      "bytes": 39817833,
+      "sha256": "09b239888f633ef2f0b4e09736e3d9936acfd810bc65d53fad45261762c6511f",
+      "verification": "Prior inventory consistency; NOT upstream signed/hash verification"
+    },
+    {
+      "file": "runtime.whl",
+      "url": "https://files.pythonhosted.org/packages/fc/ca/83398cfcd557360a3d7b2d732aee1c5f6999f68618d1645f38d53e14c9ff/vosk-0.3.45-py3-none-manylinux_2_12_x86_64.manylinux2010_x86_64.whl",
+      "bytes": 7173758,
+      "sha256": "25e025093c4399d7278f543568ed8cc5460ac3a4bf48c23673ace1e25d26619f",
+      "verification": "PyPI metadata"
+    }
+  ],
+  "cleanup": "COMPLETE at evaluation closure; Vosk runtime/model/archive and both PTT profiles removed; see cleanup-final.json",
+  "scope_extension": "Explicit user reply: Autorizar uso temporal de Vosk para PTT aislado"
+}

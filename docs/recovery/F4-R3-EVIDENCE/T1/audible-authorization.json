@@ -1,0 +1,7 @@
+{
+  "purpose": "live_f4r3_tts_t1",
+  "audio_authorization": "si, lo autorizo",
+  "scope": "One audible fixed phrase only; microphone and remote AI forbidden",
+  "ready_reference": null,
+  "source": "Explicit user reply to T1 audible permission request"
+}

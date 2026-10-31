@@ -1,0 +1,71 @@
+{
+  "license": "CC0-1.0 for authored text and generated signals",
+  "warning": "No human speech included; no Spanish accuracy acceptance or dialect evidence",
+  "samples": [
+    {
+      "id": "silence",
+      "file": "silence.wav",
+      "reference": "",
+      "kind": "synthetic_non_speech",
+      "license": "CC0-1.0",
+      "sample_rate": 16000,
+      "seconds": 3,
+      "sha256": "d303811b8c84619667cd0501342f84ec6cbe69f7aa3856dcf52fabda374c92b8"
+    },
+    {
+      "id": "noise",
+      "file": "noise.wav",
+      "reference": "",
+      "kind": "synthetic_non_speech",
+      "license": "CC0-1.0",
+      "sample_rate": 16000,
+      "seconds": 3,
+      "sha256": "b9efc8d56649248f47f224e028aef2a31e37f008d24b4e16632e203d285e87e8"
+    },
+    {
+      "id": "tone",
+      "file": "tone.wav",
+      "reference": "",
+      "kind": "synthetic_non_speech",
+      "license": "CC0-1.0",
+      "sample_rate": 16000,
+      "seconds": 3,
+      "sha256": "32051611a2e69d7a6034e761756e75316ace00de7c89e1abff8df78b22c8cda0"
+    },
+    {
+      "id": "short",
+      "reference": "Hola, ¿qué hora es?",
+      "file": null,
+      "kind": "human_speech_pending_explicit_consent",
+      "status": "NOT_TESTED"
+    },
+    {
+      "id": "long",
+      "reference": "Quiero preparar una lista de tareas para mañana y revisar primero los asuntos pendientes de esta semana.",
+      "file": null,
+      "kind": "human_speech_pending_explicit_consent",
+      "status": "NOT_TESTED"
+    },
+    {
+      "id": "numbers",
+      "reference": "Recuérdame los números veintitrés, ciento cinco y dos mil veintiséis.",
+      "file": null,
+      "kind": "human_speech_pending_explicit_consent",
+      "status": "NOT_TESTED"
+    },
+    {
+      "id": "applications",
+      "reference": "¿Cómo puedo configurar Dolphin, Firefox y LibreOffice?",
+      "file": null,
+      "kind": "human_speech_pending_explicit_consent",
+      "status": "NOT_TESTED"
+    },
+    {
+      "id": "natural",
+      "reference": "Explícame cómo organizar mis documentos sin mover ningún archivo.",
+      "file": null,
+      "kind": "human_speech_pending_explicit_consent",
+      "status": "NOT_TESTED"
+    }
+  ]
+}

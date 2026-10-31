@@ -13,6 +13,7 @@ Item {
     id: chatRoot
 
     // === Props ===
+    property bool speechAvailable: false
     property var messages: []   // Array de {role, authorLabel, content, timestamp, isStreaming, toolCalls}
     property bool showWelcome: messages.length === 0
     property var previousMessages: []
@@ -140,6 +141,7 @@ Item {
                     // queda en el gutter sin tapar burbuja ni "Tu"/timestamp.
                     width: Math.min(parent.width - 20, Theme.maxContentWidth)
                     anchors.horizontalCenter: parent.horizontalCenter
+                    speechAvailable: chatRoot.speechAvailable
                     role: modelData.role || "assistant"
                     authorLabel: modelData.authorLabel || ""
                     content: modelData.content || ""

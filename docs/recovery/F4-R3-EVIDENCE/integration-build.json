@@ -1,0 +1,54 @@
+[
+  {
+    "name": "fmt",
+    "command": [
+      "cargo",
+      "fmt"
+    ],
+    "exit": 0,
+    "seconds": 1.122
+  },
+  {
+    "name": "tts-unit",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--offline",
+      "--lib",
+      "voice_tts::tests",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 32.664
+  },
+  {
+    "name": "build",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--offline",
+      "--bin",
+      "kde-assistant"
+    ],
+    "exit": 0,
+    "seconds": 32.206
+  },
+  {
+    "name": "cli",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--offline",
+      "--test",
+      "f4_cli",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 10.971
+  }
+]

@@ -1,0 +1,16 @@
+...F.......
+======================================================================
+FAIL: test_native_target_property_does_not_pin_default_to_literal_auto (__main__.SpanishEvaluation.test_native_target_property_does_not_pin_default_to_literal_auto)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/eirom/KDE-ASSISTANT-2/scripts/test_f4_spanish.py", line 180, in test_native_target_property_does_not_pin_default_to_literal_auto
+    wait_for(remote.exists, 3)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/home/eirom/KDE-ASSISTANT-2/scripts/f3_runtime.py", line 33, in wait_for
+    raise AssertionError(f"timeout: {last}")
+AssertionError: timeout: None
+
+----------------------------------------------------------------------
+Ran 11 tests in 3.537s
+
+FAILED (failures=1)

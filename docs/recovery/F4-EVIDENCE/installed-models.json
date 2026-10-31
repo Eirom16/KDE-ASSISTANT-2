@@ -1,0 +1,26 @@
+[
+  {
+    "path": "/home/eirom/.local/share/kde-assistant/models/ggml-base.bin",
+    "bytes": 147951465,
+    "sha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+    "origin": "preexisting; identity is not acoustic validation"
+  },
+  {
+    "path": "/home/eirom/.local/share/kde-assistant/models/wakeword/hey_jarvis_v0.1.onnx",
+    "bytes": 1271370,
+    "sha256": "94a13cfe60075b132f6a472e7e462e8123ee70861bc3fb58434a73712ee0d2cb",
+    "origin": "preexisting; identity is not acoustic validation"
+  },
+  {
+    "path": "/home/eirom/.local/share/kde-assistant/models/wakeword/melspectrogram.onnx",
+    "bytes": 1087958,
+    "sha256": "ba2b0e0f8b7b875369a2c89cb13360ff53bac436f2895cced9f479fa65eb176f",
+    "origin": "preexisting; identity is not acoustic validation"
+  },
+  {
+    "path": "/home/eirom/.local/share/kde-assistant/models/wakeword/embedding_model.onnx",
+    "bytes": 1326578,
+    "sha256": "70d164290c1d095d1d4ee149bc5e00543250a7316b59f31d056cff7bd3075c1f",
+    "origin": "preexisting; identity is not acoustic validation"
+  }
+]

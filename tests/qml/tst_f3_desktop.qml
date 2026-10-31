@@ -51,6 +51,23 @@ Item {
             controller.toggle(); compare(fake.visible, true); compare(fake.lastShow, "normal")
             compare(fake.activationRequests, 1)
         }
+        function test_background_activation_presents_hidden_and_minimized_main_without_a_click() {
+            main.currentSessionId="voice-session"
+            var voice=findChild(main,"nativeVoiceController")
+            verify(!!voice)
+            voice.backgroundEnabled=true;voice.lastActivation=""
+            main.hide()
+            var first={session_id:"voice-session",generation:"voice-1",turn_id:null}
+            voice.consumeStatus({state:"recording",identity:first,background:{enabled:true,paused:false,state:"busy",microphone_active:true,activation:first,transcripts:[]}})
+            tryCompare(main,"visible",true)
+            main.showMinimized()
+            var second={session_id:"voice-session",generation:"voice-2",turn_id:null}
+            voice.consumeStatus({state:"recording",identity:second,background:{enabled:true,paused:false,state:"busy",microphone_active:true,activation:second,transcripts:[]}})
+            tryVerify(function() {return main.visible && main.visibility !== Window.Minimized})
+            compare(voice.lastActivation,"voice-2")
+            voice.backgroundEnabled=false;voice.microphoneActive=false
+            main.detachChat()
+        }
         function test_kwin_minimized_qt_windowed_remaps_once() {
             fake.active = false; fake.visibility = Window.Windowed
             controller.toggle()

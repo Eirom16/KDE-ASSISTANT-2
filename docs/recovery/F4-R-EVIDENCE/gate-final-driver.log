@@ -1,0 +1,21 @@
+START fmt
+DONE fmt 0 0.968
+START clippy
+DONE clippy 0 7.794
+START clippy-legacy
+DONE clippy-legacy 0 8.1
+START build
+DONE build 0 0.817
+START worker
+DONE worker 0 4.944
+START f4
+DONE f4 0 39.598
+START f35
+DONE f35 0 23.218
+START f2
+DONE f2 0 72.718
+START f3
+DONE f3 0 32.3
+START f1b3b
+DONE f1b3b 0 38.03
+ALL GATES PASS

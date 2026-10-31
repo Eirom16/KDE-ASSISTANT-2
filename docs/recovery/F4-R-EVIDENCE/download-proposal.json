@@ -1,0 +1,20 @@
+{
+  "authorization": "EXPLICIT_USER_APPROVED_MODEL_AND_RUNTIME_OFFLINE_ONLY",
+  "purpose": "offline-only Vosk comparison; no installation or microphone",
+  "model": {
+    "name": "vosk-model-small-es-0.42",
+    "url": "https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip",
+    "bytes": 39817833,
+    "license": "Apache-2.0"
+  },
+  "runtime": {
+    "name": "vosk-0.3.45-py3-none-manylinux_2_12_x86_64.manylinux2010_x86_64.whl",
+    "source": "https://pypi.org/project/vosk/0.3.45/",
+    "bytes": 7173758,
+    "license": "Apache-2.0",
+    "sha256": "25e025093c4399d7278f543568ed8cc5460ac3a4bf48c23673ace1e25d26619f"
+  },
+  "destination": "/var/tmp/kda-f4r-vosk-f97mnvsm",
+  "cleanup": "Remove downloaded/expanded artifacts after benchmark; preserve hashes and metrics only",
+  "alternative": "Existing tiny offline; no further downloads"
+}

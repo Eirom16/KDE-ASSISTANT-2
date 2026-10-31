@@ -1,0 +1,6 @@
+{
+  "target/debug/kde-assistant": "d3ba1b09d9bbae97fcd9622e27e920cb4ec388ed5fab9fb46523539affd1a70d",
+  "target/debug/bench_piper_warm": "3ed10206406bb0d15083f147ff50e3a5bb4b13cd9428f875900053f81b463b87",
+  "src/backend/voice_tts.rs": "b12e3fbb8495dd35c0c313284ad963feb15dc5c9e1d62907a34a3eea93a9fc95",
+  "src/backend/piper_worker.py": "0909bb191d24ded6b5c07dbcfc880ff3b9f13a4d42d47dbefcd711e0b0bc7227"
+}

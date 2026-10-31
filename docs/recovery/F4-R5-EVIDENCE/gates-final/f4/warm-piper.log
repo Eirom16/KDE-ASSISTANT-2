@@ -1,0 +1,12 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.31s
+     Running unittests src/lib.rs (target/debug/deps/kde_assistant_lib-31e21eb49519a7fb)
+
+running 5 tests
+test backend::warm_piper::tests::default_and_configuring_never_preload_or_create_actor ... ok
+test backend::warm_piper::tests::duplicate_preparations_share_one_queue_slot_and_revocation_epoch ... ok
+test backend::warm_piper::tests::health_revocation_rotates_token_without_poisoning_next_request ... ok
+test backend::warm_piper::tests::memory_policy_is_fail_closed_and_reserves_measured_envelopes ... ok
+test backend::warm_piper::tests::zombie_metrics_are_not_a_memory_failure_of_the_next_generation ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 195 filtered out; finished in 0.01s
+

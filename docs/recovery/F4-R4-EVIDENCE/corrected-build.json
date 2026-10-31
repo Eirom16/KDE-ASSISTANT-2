@@ -1,0 +1,36 @@
+[
+  {
+    "command": [
+      "cargo",
+      "fmt"
+    ],
+    "exit": 0,
+    "seconds": 1.0596930510000675
+  },
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "seconds": 13.696270880000156
+  },
+  {
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant",
+      "--bin",
+      "bench_piper_warm"
+    ],
+    "exit": 0,
+    "seconds": 9.353584794000199
+  }
+]

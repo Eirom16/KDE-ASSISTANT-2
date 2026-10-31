@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.31s
+     Running unittests src/lib.rs (target/debug/deps/kde_assistant_lib-31e21eb49519a7fb)
+
+running 2 tests
+test backend::vosk::tests::arbitrary_shared_library_is_rejected_without_dlopen ... ok
+test backend::vosk::tests::missing_runtime_invalid_pcm_and_relative_paths_fail_before_native_load ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 186 filtered out; finished in 0.05s
+

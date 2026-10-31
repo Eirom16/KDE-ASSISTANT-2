@@ -43,7 +43,11 @@ def qml_tests(repo, base, env, runner):
                 time.sleep(0.25)
             if data['ai']['model']=='fail-write': self.reply(500,{'error':'Escritura simulada fallida'})
             elif data['ai']['model']=='fake-success': self.reply(200,{'status':'pending'})
-            else: self.reply(200,{'status':'ok'})
+            else:
+                # Voice settings round-trip test needs a persisted speech section;
+                # rejected and pending writes above must never change this fixture.
+                cfg['speech'] = data.get('speech', cfg['speech'])
+                self.reply(200,{'status':'ok'})
     server=ThreadingHTTPServer(('127.0.0.1',0),Api)
     worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
     try:

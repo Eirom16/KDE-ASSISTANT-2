@@ -1,0 +1,156 @@
+[
+  {
+    "name": "isolation",
+    "category": "UNIT",
+    "command": [
+      "python3",
+      "scripts/test_f4_safety.py"
+    ],
+    "exit": 0,
+    "seconds": 0.34
+  },
+  {
+    "name": "spanish-evaluator",
+    "category": "UNIT",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/test_f4_spanish.py"
+    ],
+    "exit": 0,
+    "seconds": 1.592
+  },
+  {
+    "name": "build",
+    "category": "UNIT",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant"
+    ],
+    "exit": 0,
+    "seconds": 1.038
+  },
+  {
+    "name": "internal-cli",
+    "category": "UNIT",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "f4_cli",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 0.732
+  },
+  {
+    "name": "coordinator",
+    "category": "UNIT",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--lib",
+      "voice_coordinator::tests",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 0.609
+  },
+  {
+    "name": "process",
+    "category": "UNIT",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--lib",
+      "voice_process::tests",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 0.566
+  },
+  {
+    "name": "stt-selection",
+    "category": "UNIT",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--lib",
+      "voice_stt::tests",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 0.419
+  },
+  {
+    "name": "vosk-guards",
+    "category": "UNIT",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--lib",
+      "vosk::tests",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 0.485
+  },
+  {
+    "name": "native-http",
+    "category": "UNIT",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--lib",
+      "f4_native_tests",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 0.51
+  },
+  {
+    "name": "audio",
+    "category": "AUTOMATED_AUDIO_FIXTURE",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "f4_audio",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 1.623
+  },
+  {
+    "name": "qml",
+    "category": "AUTOMATED_QML",
+    "command": [
+      "/var/tmp/kda-f4r2-observer-check-kquo41hh/tmp/kda-f4-private-jvt9_64y/qmltest-qapplication",
+      "-import",
+      "/home/eirom/KDE-ASSISTANT-2",
+      "-input",
+      "/home/eirom/KDE-ASSISTANT-2/tests/qml/tst_f4_voice.qml",
+      "-o",
+      "-,txt"
+    ],
+    "exit": 0,
+    "seconds": 0.555
+  }
+]

@@ -1,0 +1,42 @@
+{
+  "unique_speakers": 1,
+  "unique_human_clips": 4,
+  "reference_words": 40,
+  "repetitions_per_clip_engine": 3,
+  "wer_basis": "run0 per unique WAV; no artificial tripling",
+  "results": {
+    "vosk_small_es": {
+      "unique_clips": 4,
+      "reference_words": 40,
+      "errors": 7,
+      "wer": 0.175,
+      "substitutions": 4,
+      "deletions": 0,
+      "insertions": 3
+    },
+    "whisper_full": {
+      "unique_clips": 4,
+      "reference_words": 40,
+      "errors": 11,
+      "wer": 0.275,
+      "substitutions": 7,
+      "deletions": 3,
+      "insertions": 1
+    },
+    "whisper_reduced": {
+      "unique_clips": 4,
+      "reference_words": 40,
+      "errors": 12,
+      "wer": 0.3,
+      "substitutions": 7,
+      "deletions": 4,
+      "insertions": 1
+    }
+  },
+  "not_tested": [
+    "other accents",
+    "background-noise speech",
+    "product PTT",
+    "dictation usability acceptance"
+  ]
+}

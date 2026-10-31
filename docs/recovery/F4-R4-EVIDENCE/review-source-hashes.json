@@ -1,0 +1,17 @@
+{
+  "target/debug/kde-assistant": "2424c333501a6b86edab897f02666d7fbb701deb6adc594b6c29fbe664483bdb",
+  "target/debug/bench_piper_warm": "ff85fbeb6dc739a1185e984a969fbd67ca1e8eb1927c52f5d94d1e644f980a53",
+  "src/main.rs": "76fd82b67180093605af79bf6fcdb2f08f004edad431aca902ca831f7abc87d7",
+  "src/backend/mod.rs": "660f4dfe9cbf8a89b7f8b1306547b67e2d788adaab857914c5a6a131a71654cb",
+  "src/backend/voice_coordinator.rs": "775bb35873a860d302d725216b045d1e43e74a0dbf3f68993bd237894ffaf7e8",
+  "src/backend/voice_process.rs": "3e81fd8d0975a06ab67a298a17aeedb877b73554860d6848a91982956feb112c",
+  "src/backend/voice_tts.rs": "e20c96893be23c2bd33be370567af48de49784ede2432e5803a65baf6279509a",
+  "src/backend/voice_pcm.rs": "bcadff8809f654b43db2fbe81698146dc66b2224239fbfb95a11959489ef8cc3",
+  "src/backend/piper_worker.py": "0909bb191d24ded6b5c07dbcfc880ff3b9f13a4d42d47dbefcd711e0b0bc7227",
+  "src/bin/bench_piper_warm.rs": "06e4523a219b64e0962328eabf3a4e65abee870f8f3623d0ce14a1afc1de2e36",
+  "scripts/benchmark_f4r4.py": "31a243abef2cfc5f265a0631ed9f9201dd869cc35104a452271487a874c6c205",
+  "scripts/benchmark_f4r4_warm.py": "bd94cccb1efc72a9b50aad9238b4f3c36e7f447041c19141b095fd13903e6482",
+  "scripts/benchmark_f4r4_playback.py": "53e6920afd061d0ef4e2e7c81089ef4a1859243bda4c7cbb24e03a86e5f03c8f",
+  "scripts/validate_f4.py": "1f2a8455eb71592e7c05700331c9477e6a041f0cad2f6d2c5827f9bd0a190bc5",
+  "tests/f4_cli.rs": "3a6e3d8ca0e0aa3020e32bedf2ed0aa890f4ace39717513cc097110c888bab6d"
+}

@@ -1,0 +1,289 @@
+{
+  "category": "AUTOMATED_AUDIO_FIXTURE",
+  "audible": "NOT_TESTED",
+  "records": [
+    {
+      "persisted_text_unchanged": null,
+      "label": "first",
+      "run": 0,
+      "speaking_ms": 7767.217737999999,
+      "null_link_ms": 7804.604307999398,
+      "complete_ms": 11534.860973999457,
+      "cpu_seconds": 9.959999999999999,
+      "peak_children_rss_kib": 360920,
+      "peak_children_pss_kib": 306094,
+      "backend_peak_rss_kib": 31444,
+      "backend_peak_pss_kib": 27001,
+      "worker_peak_rss_kib": 242996,
+      "worker_peak_pss_kib": 231333,
+      "loadavg": [
+        1.81005859375,
+        2.18896484375,
+        1.79931640625
+      ],
+      "memavailable_kib": 5036532,
+      "psi": "some avg10=0.00 avg60=0.00 avg300=0.00 total=6550400\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=4906611\n",
+      "timeline": [
+        {
+          "state": [
+            "preparing",
+            "preparing",
+            "load"
+          ],
+          "ms": 7.289662999937718
+        },
+        {
+          "state": [
+            "preparing",
+            "synthesizing",
+            "validation"
+          ],
+          "ms": 6152.211891999286
+        },
+        {
+          "state": [
+            "preparing",
+            "synthesizing",
+            "inference"
+          ],
+          "ms": 6683.3915560000605
+        },
+        {
+          "state": [
+            "speaking",
+            "ready",
+            null
+          ],
+          "ms": 7745.70945799951
+        },
+        {
+          "state": [
+            "idle",
+            "ready",
+            null
+          ],
+          "ms": 11485.481666999476
+        }
+      ],
+      "fast": {
+        "completed": 1,
+        "enabled": true,
+        "generation": "395ed437-fc1c-447f-850c-dc711a17ef90",
+        "last_engine_ms": 1034.8247379997702,
+        "last_stop_ms": null,
+        "last_synthesis_ms": 1035.760312,
+        "phase": null,
+        "prepares": 1,
+        "ready_ms": 5963.757087,
+        "reason": null,
+        "reuses": 0,
+        "revocations": 7,
+        "state": "ready",
+        "ttl_secs": 30,
+        "worker_pid": 10615
+      },
+      "trace": {
+        "pcm_bytes": 157184,
+        "pcm_complete_received_ms": 7678.325368000001,
+        "playback_complete_ms": 11420.027175,
+        "playback_process": {
+          "first_output_ms": null,
+          "output_complete_ms": 3741.1243170000002,
+          "process_complete_ms": 3741.5585560000004,
+          "spawn_ms": 1.367084
+        },
+        "player_spawn_ms": 7679.692452000001,
+        "route": "managed-buffered",
+        "worker_process": null
+      },
+      "final_response_available_ms": null,
+      "response_to_speaking_ms": null,
+      "final_text_ms": null,
+      "final_to_speaking_ms": null
+    },
+    {
+      "persisted_text_unchanged": null,
+      "label": "ready",
+      "run": 0,
+      "speaking_ms": 1649.360176999835,
+      "null_link_ms": 1686.4201600001252,
+      "complete_ms": 5426.692510999601,
+      "cpu_seconds": 3.66,
+      "peak_children_rss_kib": 383748,
+      "peak_children_pss_kib": 328896,
+      "backend_peak_rss_kib": 32496,
+      "backend_peak_pss_kib": 28053,
+      "worker_peak_rss_kib": 265672,
+      "worker_peak_pss_kib": 254009,
+      "loadavg": [
+        1.6650390625,
+        2.15234375,
+        1.78955078125
+      ],
+      "memavailable_kib": 5010104,
+      "psi": "some avg10=0.00 avg60=0.00 avg300=0.00 total=6550400\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=4906611\n",
+      "timeline": [
+        {
+          "state": [
+            "preparing",
+            "synthesizing",
+            "validation"
+          ],
+          "ms": 11.525977999554016
+        },
+        {
+          "state": [
+            "preparing",
+            "synthesizing",
+            "inference"
+          ],
+          "ms": 646.7822249996971
+        },
+        {
+          "state": [
+            "speaking",
+            "ready",
+            null
+          ],
+          "ms": 1627.4681510003575
+        },
+        {
+          "state": [
+            "idle",
+            "ready",
+            null
+          ],
+          "ms": 5403.505256999779
+        }
+      ],
+      "fast": {
+        "completed": 2,
+        "enabled": true,
+        "generation": "395ed437-fc1c-447f-850c-dc711a17ef90",
+        "last_engine_ms": 1023.517277000792,
+        "last_stop_ms": null,
+        "last_synthesis_ms": 1024.417089,
+        "phase": null,
+        "prepares": 1,
+        "ready_ms": 5963.757087,
+        "reason": null,
+        "reuses": 1,
+        "revocations": 7,
+        "state": "ready",
+        "ttl_secs": 30,
+        "worker_pid": 10615
+      },
+      "trace": {
+        "pcm_bytes": 158720,
+        "pcm_complete_received_ms": 1568.0325090000001,
+        "playback_complete_ms": 5295.791531,
+        "playback_process": {
+          "first_output_ms": null,
+          "output_complete_ms": 3727.32978,
+          "process_complete_ms": 3727.598426,
+          "spawn_ms": 1.567899
+        },
+        "player_spawn_ms": 1569.600408,
+        "route": "managed-buffered",
+        "worker_process": null
+      },
+      "final_response_available_ms": null,
+      "response_to_speaking_ms": null,
+      "final_text_ms": null,
+      "final_to_speaking_ms": null
+    },
+    {
+      "persisted_text_unchanged": null,
+      "label": "consecutive",
+      "run": 0,
+      "speaking_ms": 1643.4399580002719,
+      "null_link_ms": 1683.8528039997982,
+      "complete_ms": 5359.093846000178,
+      "cpu_seconds": 3.6000000000000014,
+      "peak_children_rss_kib": 391788,
+      "peak_children_pss_kib": 333368,
+      "backend_peak_rss_kib": 32420,
+      "backend_peak_pss_kib": 27978,
+      "worker_peak_rss_kib": 265672,
+      "worker_peak_pss_kib": 254009,
+      "loadavg": [
+        1.53125,
+        2.1162109375,
+        1.77978515625
+      ],
+      "memavailable_kib": 5006012,
+      "psi": "some avg10=0.00 avg60=0.00 avg300=0.00 total=6550405\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=4906615\n",
+      "timeline": [
+        {
+          "state": [
+            "preparing",
+            "synthesizing",
+            "validation"
+          ],
+          "ms": 11.509676000059699
+        },
+        {
+          "state": [
+            "preparing",
+            "synthesizing",
+            "inference"
+          ],
+          "ms": 648.6135009999998
+        },
+        {
+          "state": [
+            "speaking",
+            "ready",
+            null
+          ],
+          "ms": 1620.4945509998652
+        },
+        {
+          "state": [
+            "idle",
+            "ready",
+            null
+          ],
+          "ms": 5304.925153999648
+        }
+      ],
+      "fast": {
+        "completed": 3,
+        "enabled": true,
+        "generation": "395ed437-fc1c-447f-850c-dc711a17ef90",
+        "last_engine_ms": 1003.9075690001482,
+        "last_stop_ms": null,
+        "last_synthesis_ms": 1004.707972,
+        "phase": null,
+        "prepares": 1,
+        "ready_ms": 5963.757087,
+        "reason": null,
+        "reuses": 2,
+        "revocations": 7,
+        "state": "ready",
+        "ttl_secs": 30,
+        "worker_pid": 10615
+      },
+      "trace": {
+        "pcm_bytes": 158208,
+        "pcm_complete_received_ms": 1547.727456,
+        "playback_complete_ms": 5293.721781,
+        "playback_process": {
+          "first_output_ms": null,
+          "output_complete_ms": 3745.489134,
+          "process_complete_ms": 3745.840105,
+          "spawn_ms": 1.691889
+        },
+        "player_spawn_ms": 1549.419345,
+        "route": "managed-buffered",
+        "worker_process": null
+      },
+      "final_response_available_ms": null,
+      "response_to_speaking_ms": null,
+      "final_text_ms": null,
+      "final_to_speaking_ms": null
+    }
+  ],
+  "disable_reaped": true,
+  "profile": "/var/tmp/kda-f4r5-3y7zg8fs/r5-1792539903592549778"
+}

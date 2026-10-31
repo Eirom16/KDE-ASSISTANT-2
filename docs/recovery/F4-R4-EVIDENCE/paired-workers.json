@@ -1,0 +1,1444 @@
+{
+  "scope": "AUTOMATED_AUDIO_FIXTURE; no player/device; playable is an IPC timestamp, never acoustic onset",
+  "baseline_sha256": "ed42270cd686109ef5a000f72afb40fa8665615fb6f5b59745ee9c9a2ccd2833",
+  "binary_sha256": "b7ff73660ea9e27ee2a5c7ec4c0708e687a058c9e73154accda28f710ec895ac",
+  "model": "es_ES-sharvard-medium",
+  "speaker": 0,
+  "scale": 1,
+  "records": [
+    {
+      "run": 0,
+      "sample": "short",
+      "mode": "baseline",
+      "preflight_ms": 545.8631740002602,
+      "first_pcm_received_ms": 6290.027876999375,
+      "monitor_cpu_seconds": 0.481922026,
+      "wall_ms": 7439.435765999406,
+      "first_output_ms": 6290.027876999375,
+      "cpu_seconds": 9.082337999999998,
+      "rss_kib": 236516,
+      "pss_kib": 229428,
+      "bytes": 164864,
+      "duration_seconds": 3.7384126984126986,
+      "sha256": "439c3639a9f5e690e06934012a2a76405d0bf3f5c76ef9f3c5a09b45f3fbb81e",
+      "worker": {
+        "import_ms": 987.6776139999492,
+        "load_ms": 4462.126841999634,
+        "first_pcm_ms": 5584.72100400013,
+        "synthesis_ms": 1155.1834900001268,
+        "pcm_bytes": 164864,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.06787109375,
+        1.80224609375,
+        1.36474609375
+      ],
+      "loadavg_max": [
+        2.4453125,
+        1.8916015625,
+        1.3984375
+      ],
+      "request_to_playable_ms": 7985.298939999666,
+      "complete_request_ms": 7985.298939999666
+    },
+    {
+      "run": 0,
+      "sample": "short",
+      "mode": "stream",
+      "preflight_ms": 0,
+      "first_pcm_received_ms": 6265.366986000117,
+      "monitor_cpu_seconds": 0.476874453,
+      "wall_ms": 7395.726814999762,
+      "first_output_ms": 6136.868667999806,
+      "cpu_seconds": 9.057152,
+      "rss_kib": 232564,
+      "pss_kib": 225374,
+      "bytes": 162816,
+      "duration_seconds": 3.6919727891156464,
+      "sha256": "6ad83166e3d8f260207a3883defda6578ec1a74844259c80177cae37d6fa7ada",
+      "worker": {
+        "import_ms": 959.8646549993646,
+        "ort_import_ms": 801.046986000074,
+        "piper_import_ms": 158.7216799998714,
+        "config_ms": 0.38434100042650243,
+        "session_ms": 4439.876651999839,
+        "load_ms": 4440.333483999893,
+        "first_pcm_ms": 5533.609550999245,
+        "synthesis_ms": 1146.928812000624,
+        "pcm_conversion_ms": 0.26337100007367553,
+        "ipc_write_ms": 0.36748799993802095,
+        "pcm_bytes": 162816,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ],
+        "native": {
+          "model_config_hash_ms": 141.495815,
+          "runtime_hash_ms": 405.188998,
+          "validation_ms": 547.746528
+        },
+        "phonemize_ms": 13.774379999631492,
+        "phoneme_ids_ms": 0.06860899975436041,
+        "inference_ms": 1130.6636580002305
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.3291015625,
+        1.87646484375,
+        1.39599609375
+      ],
+      "loadavg_max": [
+        2.4453125,
+        1.8916015625,
+        1.3984375
+      ],
+      "request_to_playable_ms": 6265.366986000117,
+      "complete_request_ms": 7395.726814999762
+    },
+    {
+      "run": 0,
+      "sample": "multi",
+      "mode": "baseline",
+      "preflight_ms": 538.3970549992227,
+      "first_pcm_received_ms": 6103.303423999932,
+      "monitor_cpu_seconds": 0.5507225290000002,
+      "wall_ms": 8550.648346000344,
+      "first_output_ms": 6103.303423999932,
+      "cpu_seconds": 12.481762000000002,
+      "rss_kib": 245944,
+      "pss_kib": 238795,
+      "bytes": 378880,
+      "duration_seconds": 8.591383219954649,
+      "sha256": "5a797181c82e962c01a193781c8bdc1a70783956e9c5dcd7786447743a8bb004",
+      "worker": {
+        "import_ms": 955.8463120001761,
+        "load_ms": 4298.294750999958,
+        "first_pcm_ms": 5388.782521999929,
+        "synthesis_ms": 2459.91250499992,
+        "pcm_bytes": 378880,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.22265625,
+        1.86181640625,
+        1.3935546875
+      ],
+      "loadavg_max": [
+        2.3291015625,
+        1.880859375,
+        1.40234375
+      ],
+      "request_to_playable_ms": 9089.045400999566,
+      "complete_request_ms": 9089.045400999566
+    },
+    {
+      "run": 0,
+      "sample": "multi",
+      "mode": "stream",
+      "preflight_ms": 0,
+      "first_pcm_received_ms": 6045.694057999754,
+      "monitor_cpu_seconds": 0.5653813510000001,
+      "wall_ms": 8513.075476000267,
+      "first_output_ms": 5912.343668000176,
+      "cpu_seconds": 12.530998999999998,
+      "rss_kib": 247996,
+      "pss_kib": 240830,
+      "bytes": 380928,
+      "duration_seconds": 8.6378231292517,
+      "sha256": "d9843f04eb42b88e381a78c6b55174a7426db8b2807cb45698c4762d3a1ce453",
+      "worker": {
+        "import_ms": 936.1183860000892,
+        "ort_import_ms": 775.14567200069,
+        "piper_import_ms": 160.8553119995122,
+        "config_ms": 0.37560100008704467,
+        "session_ms": 4253.136404000543,
+        "load_ms": 4253.584208000575,
+        "first_pcm_ms": 5323.743523000303,
+        "synthesis_ms": 2476.6047099992647,
+        "pcm_conversion_ms": 0.4765719995702966,
+        "ipc_write_ms": 0.8681369990881649,
+        "pcm_bytes": 380928,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ],
+        "native": {
+          "model_config_hash_ms": 141.64643199999998,
+          "runtime_hash_ms": 399.416382,
+          "validation_ms": 542.143009
+        },
+        "phonemize_ms": 10.147079000489612,
+        "phoneme_ids_ms": 0.13968799885333283,
+        "inference_ms": 2462.088875999143
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.18212890625,
+        1.8662109375,
+        1.39990234375
+      ],
+      "loadavg_max": [
+        2.28515625,
+        1.88525390625,
+        1.40869140625
+      ],
+      "request_to_playable_ms": 6045.694057999754,
+      "complete_request_ms": 8513.075476000267
+    },
+    {
+      "run": 1,
+      "sample": "short",
+      "mode": "stream",
+      "preflight_ms": 0,
+      "first_pcm_received_ms": 6155.137730999741,
+      "monitor_cpu_seconds": 0.49066924899999975,
+      "wall_ms": 7501.117251999858,
+      "first_output_ms": 5984.537400999216,
+      "cpu_seconds": 9.049533,
+      "rss_kib": 234552,
+      "pss_kib": 227370,
+      "bytes": 157696,
+      "duration_seconds": 3.575873015873016,
+      "sha256": "37522af44b856921158195927701758094a0ef5542cfc72152013b3dec678df3",
+      "worker": {
+        "import_ms": 977.8588629997103,
+        "ort_import_ms": 818.1050359999062,
+        "piper_import_ms": 159.6614350000891,
+        "config_ms": 0.5509720003828988,
+        "session_ms": 4286.0662050006795,
+        "load_ms": 4286.720974000673,
+        "first_pcm_ms": 5435.3887460001715,
+        "synthesis_ms": 1393.9389949991892,
+        "pcm_conversion_ms": 0.3732920004040352,
+        "ipc_write_ms": 0.5238310013737646,
+        "pcm_bytes": 157696,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ],
+        "native": {
+          "model_config_hash_ms": 141.148581,
+          "runtime_hash_ms": 395.098801,
+          "validation_ms": 537.321857
+        },
+        "phonemize_ms": 9.651291000409401,
+        "phoneme_ids_ms": 0.06648199905612273,
+        "inference_ms": 1382.1283669994955
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.22802734375,
+        1.88525390625,
+        1.40869140625
+      ],
+      "loadavg_max": [
+        2.248046875,
+        1.88720703125,
+        1.412109375
+      ],
+      "request_to_playable_ms": 6155.137730999741,
+      "complete_request_ms": 7501.117251999858
+    },
+    {
+      "run": 1,
+      "sample": "short",
+      "mode": "baseline",
+      "preflight_ms": 539.3105960001776,
+      "first_pcm_received_ms": 6724.428790999809,
+      "monitor_cpu_seconds": 0.4946443359999999,
+      "wall_ms": 8018.4336590000385,
+      "first_output_ms": 6724.428790999809,
+      "cpu_seconds": 9.712635999999996,
+      "rss_kib": 234388,
+      "pss_kib": 227194,
+      "bytes": 160256,
+      "duration_seconds": 3.633922902494331,
+      "sha256": "05e51eeef7d61af9b025a1cb26da83052cd7aeacbff65383b099e8b09872dc43",
+      "worker": {
+        "import_ms": 1030.662750999909,
+        "load_ms": 4744.218981999438,
+        "first_pcm_ms": 5964.397607999672,
+        "synthesis_ms": 1361.608076000266,
+        "pcm_bytes": 160256,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.20947265625,
+        1.88720703125,
+        1.412109375
+      ],
+      "loadavg_max": [
+        2.35302734375,
+        1.92431640625,
+        1.4296875
+      ],
+      "request_to_playable_ms": 8557.744255000216,
+      "complete_request_ms": 8557.744255000216
+    },
+    {
+      "run": 1,
+      "sample": "multi",
+      "mode": "stream",
+      "preflight_ms": 0,
+      "first_pcm_received_ms": 6888.468379999722,
+      "monitor_cpu_seconds": 0.5635463829999998,
+      "wall_ms": 10354.008738999255,
+      "first_output_ms": 6749.2231619999075,
+      "cpu_seconds": 13.829919000000011,
+      "rss_kib": 243792,
+      "pss_kib": 236705,
+      "bytes": 372224,
+      "duration_seconds": 8.440453514739229,
+      "sha256": "ef937c6ebce00ea253727b484e2e635561d75ecf4c99c7631f71c1c1b4eb1e69",
+      "worker": {
+        "import_ms": 1025.3334959998028,
+        "ort_import_ms": 845.658913999614,
+        "piper_import_ms": 179.54206200010958,
+        "config_ms": 0.4407420001371065,
+        "session_ms": 4941.440685999623,
+        "load_ms": 4941.951855000298,
+        "first_pcm_ms": 6106.733718000214,
+        "synthesis_ms": 3462.543710999853,
+        "pcm_conversion_ms": 0.496642998768948,
+        "ipc_write_ms": 30.073429999902146,
+        "pcm_bytes": 372224,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ],
+        "native": {
+          "model_config_hash_ms": 140.482103,
+          "runtime_hash_ms": 423.371993,
+          "validation_ms": 564.934927
+        },
+        "phonemize_ms": 9.589041000253928,
+        "phoneme_ids_ms": 0.15279700073733693,
+        "inference_ms": 3418.7100409999402
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.32470703125,
+        1.92431640625,
+        1.4296875
+      ],
+      "loadavg_max": [
+        2.619140625,
+        1.99365234375,
+        1.4580078125
+      ],
+      "request_to_playable_ms": 6888.468379999722,
+      "complete_request_ms": 10354.008738999255
+    },
+    {
+      "run": 1,
+      "sample": "multi",
+      "mode": "baseline",
+      "preflight_ms": 606.5728880003007,
+      "first_pcm_received_ms": 6348.901332999958,
+      "monitor_cpu_seconds": 0.48176484900000016,
+      "wall_ms": 8935.279074000391,
+      "first_output_ms": 6348.901332999958,
+      "cpu_seconds": 12.796967000000006,
+      "rss_kib": 244368,
+      "pss_kib": 237307,
+      "bytes": 374272,
+      "duration_seconds": 8.486893424036282,
+      "sha256": "af0695e9f5029a301a708261e838e4e3791c48d8d4a293d6c82ac8640e652dba",
+      "worker": {
+        "import_ms": 1032.5240019992634,
+        "load_ms": 4474.419778000083,
+        "first_pcm_ms": 5644.954542999585,
+        "synthesis_ms": 2608.989754000504,
+        "pcm_bytes": 374272,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.619140625,
+        1.99365234375,
+        1.4580078125
+      ],
+      "loadavg_max": [
+        2.751953125,
+        2.0439453125,
+        1.47998046875
+      ],
+      "request_to_playable_ms": 9541.851962000692,
+      "complete_request_ms": 9541.851962000692
+    },
+    {
+      "run": 2,
+      "sample": "short",
+      "mode": "baseline",
+      "preflight_ms": 538.5686919998989,
+      "first_pcm_received_ms": 6250.505721999616,
+      "monitor_cpu_seconds": 0.3949732819999996,
+      "wall_ms": 7382.083301999955,
+      "first_output_ms": 6250.505721999616,
+      "cpu_seconds": 9.040431999999997,
+      "rss_kib": 234400,
+      "pss_kib": 227221,
+      "bytes": 158208,
+      "duration_seconds": 3.5874829931972787,
+      "sha256": "16b9a3e662f79cb72ef4243ec6e05e0575387742c629ee7128bcf0db0f0b33fc",
+      "worker": {
+        "import_ms": 966.0654609997437,
+        "load_ms": 4416.743484000108,
+        "first_pcm_ms": 5533.852212999591,
+        "synthesis_ms": 1171.3900140002806,
+        "pcm_bytes": 158208,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.611328125,
+        2.0263671875,
+        1.47705078125
+      ],
+      "loadavg_max": [
+        2.751953125,
+        2.0439453125,
+        1.47998046875
+      ],
+      "request_to_playable_ms": 7920.651993999854,
+      "complete_request_ms": 7920.651993999854
+    },
+    {
+      "run": 2,
+      "sample": "short",
+      "mode": "stream",
+      "preflight_ms": 0,
+      "first_pcm_received_ms": 6274.892624999666,
+      "monitor_cpu_seconds": 0.41209467899999996,
+      "wall_ms": 7395.51402699999,
+      "first_output_ms": 6146.822589999829,
+      "cpu_seconds": 9.063304000000016,
+      "rss_kib": 235160,
+      "pss_kib": 228097,
+      "bytes": 159744,
+      "duration_seconds": 3.622312925170068,
+      "sha256": "ef3eb06e883d8a99d62c876df29a51d78bccad8f5eed8931683111630e18ea2c",
+      "worker": {
+        "import_ms": 1001.1797520000982,
+        "ort_import_ms": 835.6669200002216,
+        "piper_import_ms": 165.40963900024508,
+        "config_ms": 0.4687889995693695,
+        "session_ms": 4424.690640000335,
+        "load_ms": 4425.23772200002,
+        "first_pcm_ms": 5554.681617999449,
+        "synthesis_ms": 1135.4183369994644,
+        "pcm_conversion_ms": 0.23685299947828753,
+        "ipc_write_ms": 0.3485569995973492,
+        "pcm_bytes": 159744,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ],
+        "native": {
+          "model_config_hash_ms": 140.17733399999997,
+          "runtime_hash_ms": 394.794832,
+          "validation_ms": 536.026835
+        },
+        "phonemize_ms": 9.149256000455352,
+        "phoneme_ids_ms": 0.05922899981669616,
+        "inference_ms": 1123.9516319992617
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.5908203125,
+        2.0263671875,
+        1.47705078125
+      ],
+      "loadavg_max": [
+        2.642578125,
+        2.04296875,
+        1.48828125
+      ],
+      "request_to_playable_ms": 6274.892624999666,
+      "complete_request_ms": 7395.51402699999
+    },
+    {
+      "run": 2,
+      "sample": "multi",
+      "mode": "baseline",
+      "preflight_ms": 537.8294219999589,
+      "first_pcm_received_ms": 6146.235682999759,
+      "monitor_cpu_seconds": 0.4952149549999998,
+      "wall_ms": 8575.59383500029,
+      "first_output_ms": 6146.235682999759,
+      "cpu_seconds": 12.577005999999994,
+      "rss_kib": 246212,
+      "pss_kib": 238998,
+      "bytes": 378880,
+      "duration_seconds": 8.591383219954649,
+      "sha256": "741a8190e4c7ccc406cae0172675d8c8d61b75942226a4201a9f70741c136ec8",
+      "worker": {
+        "import_ms": 947.8492019998157,
+        "load_ms": 4353.948965999734,
+        "first_pcm_ms": 5433.499382000264,
+        "synthesis_ms": 2437.7879050007323,
+        "pcm_bytes": 378880,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.46337890625,
+        2.0244140625,
+        1.4853515625
+      ],
+      "loadavg_max": [
+        2.8271484375,
+        2.107421875,
+        1.51513671875
+      ],
+      "request_to_playable_ms": 9113.42325700025,
+      "complete_request_ms": 9113.42325700025
+    },
+    {
+      "run": 2,
+      "sample": "multi",
+      "mode": "stream",
+      "preflight_ms": 0,
+      "first_pcm_received_ms": 7008.0011270001705,
+      "monitor_cpu_seconds": 0.6211138080000005,
+      "wall_ms": 10402.888343000086,
+      "first_output_ms": 6823.225791999903,
+      "cpu_seconds": 13.830530999999997,
+      "rss_kib": 247452,
+      "pss_kib": 240289,
+      "bytes": 374272,
+      "duration_seconds": 8.486893424036282,
+      "sha256": "f63ed6e9e4c265cb8419366cdbf0e64c4fad094c712b3399e0783894ea49a332",
+      "worker": {
+        "import_ms": 1202.9352569998082,
+        "ort_import_ms": 1036.3255579995894,
+        "piper_import_ms": 166.50286900039646,
+        "config_ms": 0.45206300001154887,
+        "session_ms": 4871.9407130001855,
+        "load_ms": 4872.483039000144,
+        "first_pcm_ms": 6260.311704999367,
+        "synthesis_ms": 3440.8952599997065,
+        "pcm_conversion_ms": 0.7047819999570493,
+        "ipc_write_ms": 1.4590989994758274,
+        "pcm_bytes": 374272,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ],
+        "native": {
+          "model_config_hash_ms": 141.054855,
+          "runtime_hash_ms": 401.082896,
+          "validation_ms": 543.192717
+        },
+        "phonemize_ms": 10.290595000697067,
+        "phoneme_ids_ms": 0.17057800050679361,
+        "inference_ms": 3425.096401000701
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.6806640625,
+        2.0888671875,
+        1.51220703125
+      ],
+      "loadavg_max": [
+        3.02685546875,
+        2.17041015625,
+        1.5419921875
+      ],
+      "request_to_playable_ms": 7008.0011270001705,
+      "complete_request_ms": 10402.888343000086
+    },
+    {
+      "run": 3,
+      "sample": "short",
+      "mode": "stream",
+      "preflight_ms": 0,
+      "first_pcm_received_ms": 6442.464998000105,
+      "monitor_cpu_seconds": 0.451974227,
+      "wall_ms": 7499.471109999831,
+      "first_output_ms": 6321.537752999575,
+      "cpu_seconds": 9.083340000000007,
+      "rss_kib": 233164,
+      "pss_kib": 225996,
+      "bytes": 155136,
+      "duration_seconds": 3.517823129251701,
+      "sha256": "a1393af156fdb136813b464b0bb06012b4b305204cd49c483f48464a96e6ae87",
+      "worker": {
+        "import_ms": 1128.3800159999373,
+        "ort_import_ms": 967.927158000748,
+        "piper_import_ms": 160.3334259998519,
+        "config_ms": 0.3644359994723345,
+        "session_ms": 4388.964718000352,
+        "load_ms": 4389.399636999769,
+        "first_pcm_ms": 5638.9102619996265,
+        "synthesis_ms": 1061.6045269998722,
+        "pcm_conversion_ms": 0.2051740002571023,
+        "ipc_write_ms": 0.33164599972224096,
+        "pcm_bytes": 155136,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ],
+        "native": {
+          "model_config_hash_ms": 176.81007100000002,
+          "runtime_hash_ms": 427.89816,
+          "validation_ms": 606.0539339999999
+        },
+        "phonemize_ms": 9.192116000122041,
+        "phoneme_ids_ms": 0.0660780006001005,
+        "inference_ms": 1050.1706229988486
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.9443359375,
+        2.16748046875,
+        1.5419921875
+      ],
+      "loadavg_max": [
+        3.02685546875,
+        2.17041015625,
+        1.544921875
+      ],
+      "request_to_playable_ms": 6442.464998000105,
+      "complete_request_ms": 7499.471109999831
+    },
+    {
+      "run": 3,
+      "sample": "short",
+      "mode": "baseline",
+      "preflight_ms": 535.983707000014,
+      "first_pcm_received_ms": 6176.739872000326,
+      "monitor_cpu_seconds": 0.43179216699999934,
+      "wall_ms": 7354.648327000177,
+      "first_output_ms": 6176.739872000326,
+      "cpu_seconds": 9.020218000000014,
+      "rss_kib": 236984,
+      "pss_kib": 229821,
+      "bytes": 163328,
+      "duration_seconds": 3.7035827664399092,
+      "sha256": "ecc4cd6162adac0fa18ca6924a60c7079350637b6767ceaab9e19b8acfbcf766",
+      "worker": {
+        "import_ms": 943.9588550003464,
+        "load_ms": 4388.247601999865,
+        "first_pcm_ms": 5473.9644569999655,
+        "synthesis_ms": 1199.643265999839,
+        "pcm_bytes": 163328,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.71875,
+        2.14501953125,
+        1.54443359375
+      ],
+      "loadavg_max": [
+        2.86865234375,
+        2.16455078125,
+        1.5478515625
+      ],
+      "request_to_playable_ms": 7890.632034000191,
+      "complete_request_ms": 7890.632034000191
+    },
+    {
+      "run": 3,
+      "sample": "multi",
+      "mode": "stream",
+      "preflight_ms": 0,
+      "first_pcm_received_ms": 6123.646875999839,
+      "monitor_cpu_seconds": 0.5095028260000003,
+      "wall_ms": 8641.000042000087,
+      "first_output_ms": 5974.9263579997205,
+      "cpu_seconds": 12.624848000000028,
+      "rss_kib": 248896,
+      "pss_kib": 241702,
+      "bytes": 382464,
+      "duration_seconds": 8.672653061224489,
+      "sha256": "6399297b371a1758616e8525359f78c95aacf1787c31da1ff93af8e400ac1657",
+      "worker": {
+        "import_ms": 976.1431189999712,
+        "ort_import_ms": 819.9333450002086,
+        "piper_import_ms": 156.10187699985545,
+        "config_ms": 0.40186099977290723,
+        "session_ms": 4274.693399000171,
+        "load_ms": 4275.167203999445,
+        "first_pcm_ms": 5377.596444999654,
+        "synthesis_ms": 2555.7690280002134,
+        "pcm_conversion_ms": 0.4666759987230762,
+        "ipc_write_ms": 1.3253780007289606,
+        "pcm_bytes": 382464,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ],
+        "native": {
+          "model_config_hash_ms": 141.805555,
+          "runtime_hash_ms": 399.48904699999997,
+          "validation_ms": 542.399321
+        },
+        "phonemize_ms": 9.559815999637067,
+        "phoneme_ids_ms": 0.13327399938134477,
+        "inference_ms": 2541.443094999522
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.71875,
+        2.14501953125,
+        1.54443359375
+      ],
+      "loadavg_max": [
+        3.06201171875,
+        2.2392578125,
+        1.58203125
+      ],
+      "request_to_playable_ms": 6123.646875999839,
+      "complete_request_ms": 8641.000042000087
+    },
+    {
+      "run": 3,
+      "sample": "multi",
+      "mode": "baseline",
+      "preflight_ms": 533.0899629998385,
+      "first_pcm_received_ms": 6134.691891999864,
+      "monitor_cpu_seconds": 0.49140681699999966,
+      "wall_ms": 8533.461672000158,
+      "first_output_ms": 6134.691891999864,
+      "cpu_seconds": 12.399035000000016,
+      "rss_kib": 244212,
+      "pss_kib": 237028,
+      "bytes": 370176,
+      "duration_seconds": 8.394013605442177,
+      "sha256": "5adcdb80fdd2a11324686e07e6d60bb30fbcf552f0d8f23be2711fb14d0dba37",
+      "worker": {
+        "import_ms": 952.8771719997167,
+        "load_ms": 4345.7706290000715,
+        "first_pcm_ms": 5430.347355999402,
+        "synthesis_ms": 2407.052024999757,
+        "pcm_bytes": 370176,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.73974609375,
+        2.19775390625,
+        1.5751953125
+      ],
+      "loadavg_max": [
+        3.056640625,
+        2.2392578125,
+        1.58203125
+      ],
+      "request_to_playable_ms": 9066.551634999996,
+      "complete_request_ms": 9066.551634999996
+    },
+    {
+      "run": 4,
+      "sample": "short",
+      "mode": "baseline",
+      "preflight_ms": 532.6824000003398,
+      "first_pcm_received_ms": 6466.257276000761,
+      "monitor_cpu_seconds": 0.4286188529999997,
+      "wall_ms": 7543.411947000095,
+      "first_output_ms": 6466.257276000761,
+      "cpu_seconds": 9.127573000000007,
+      "rss_kib": 234932,
+      "pss_kib": 227778,
+      "bytes": 158208,
+      "duration_seconds": 3.5874829931972787,
+      "sha256": "e4a277465da2a97f3f88816eb3cee6f5b4a24e5b1689b5ae4c52979468de85f6",
+      "worker": {
+        "import_ms": 942.8134879999561,
+        "load_ms": 4687.218013999882,
+        "first_pcm_ms": 5753.839539000182,
+        "synthesis_ms": 1082.4157409997497,
+        "pcm_bytes": 158208,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.68017578125,
+        2.1943359375,
+        1.5751953125
+      ],
+      "loadavg_max": [
+        2.73974609375,
+        2.19775390625,
+        1.57763671875
+      ],
+      "request_to_playable_ms": 8076.094347000435,
+      "complete_request_ms": 8076.094347000435
+    },
+    {
+      "run": 4,
+      "sample": "short",
+      "mode": "stream",
+      "preflight_ms": 0,
+      "first_pcm_received_ms": 6400.001727000017,
+      "monitor_cpu_seconds": 0.4952389340000014,
+      "wall_ms": 7594.023509000181,
+      "first_output_ms": 6260.031257000264,
+      "cpu_seconds": 9.22140400000001,
+      "rss_kib": 237864,
+      "pss_kib": 230712,
+      "bytes": 164352,
+      "duration_seconds": 3.7268027210884354,
+      "sha256": "9ea79a85c51870a7e998cb7559b1eaf6e9a244bfad1c054c31f1e364c7659a8a",
+      "worker": {
+        "import_ms": 940.5679710007462,
+        "ort_import_ms": 781.0917060005522,
+        "piper_import_ms": 159.3575070000952,
+        "config_ms": 0.3507189994707005,
+        "session_ms": 4590.45398499984,
+        "load_ms": 4590.8753089997845,
+        "first_pcm_ms": 5668.9894750006715,
+        "synthesis_ms": 1201.5566740001304,
+        "pcm_conversion_ms": 0.2816989999701036,
+        "ipc_write_ms": 0.37564100057352334,
+        "pcm_bytes": 164352,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ],
+        "native": {
+          "model_config_hash_ms": 142.17570600000002,
+          "runtime_hash_ms": 400.364309,
+          "validation_ms": 543.616297
+        },
+        "phonemize_ms": 13.721190000069328,
+        "phoneme_ids_ms": 0.06028299958416028,
+        "inference_ms": 1185.4176679999
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.50146484375,
+        2.17138671875,
+        1.57421875
+      ],
+      "loadavg_max": [
+        2.68017578125,
+        2.1943359375,
+        1.57763671875
+      ],
+      "request_to_playable_ms": 6400.001727000017,
+      "complete_request_ms": 7594.023509000181
+    },
+    {
+      "run": 4,
+      "sample": "multi",
+      "mode": "baseline",
+      "preflight_ms": 550.2785660000882,
+      "first_pcm_received_ms": 6775.53116099989,
+      "monitor_cpu_seconds": 0.6195784030000002,
+      "wall_ms": 9296.312363000652,
+      "first_output_ms": 6775.53116099989,
+      "cpu_seconds": 13.163497999999988,
+      "rss_kib": 248472,
+      "pss_kib": 241334,
+      "bytes": 387072,
+      "duration_seconds": 8.777142857142858,
+      "sha256": "4b14bf2dee9e4d3120ec787efb8eb0d3ec4940e6055d756d1532d78e75c95b11",
+      "worker": {
+        "import_ms": 992.3658969992175,
+        "load_ms": 4882.299624000552,
+        "first_pcm_ms": 6043.048992999502,
+        "synthesis_ms": 2573.8960030003,
+        "pcm_bytes": 387072,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.49169921875,
+        2.17138671875,
+        1.57666015625
+      ],
+      "loadavg_max": [
+        2.62158203125,
+        2.2021484375,
+        1.58984375
+      ],
+      "request_to_playable_ms": 9846.59092900074,
+      "complete_request_ms": 9846.59092900074
+    },
+    {
+      "run": 4,
+      "sample": "multi",
+      "mode": "stream",
+      "preflight_ms": 0,
+      "first_pcm_received_ms": 6141.204458000175,
+      "monitor_cpu_seconds": 0.5927239039999996,
+      "wall_ms": 8649.582064000242,
+      "first_output_ms": 6006.713244000821,
+      "cpu_seconds": 12.598676000000014,
+      "rss_kib": 247880,
+      "pss_kib": 240716,
+      "bytes": 384512,
+      "duration_seconds": 8.719092970521542,
+      "sha256": "b45bf84695e85c66e69ae0f1092951619a84ad2aa11c1742b5cb5e854ced13f1",
+      "worker": {
+        "import_ms": 924.308700000438,
+        "ort_import_ms": 769.544859999769,
+        "piper_import_ms": 154.65364400006365,
+        "config_ms": 0.36887399983243085,
+        "session_ms": 4350.320700000339,
+        "load_ms": 4350.759074000052,
+        "first_pcm_ms": 5409.753087000354,
+        "synthesis_ms": 2516.4841879995947,
+        "pcm_conversion_ms": 0.5420940005933517,
+        "ipc_write_ms": 6.500760000562877,
+        "pcm_bytes": 384512,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "optimization": "all",
+        "providers": [
+          "CPUExecutionProvider"
+        ],
+        "native": {
+          "model_config_hash_ms": 144.141188,
+          "runtime_hash_ms": 404.49901500000004,
+          "validation_ms": 549.753333
+        },
+        "phonemize_ms": 14.715544999489794,
+        "phoneme_ids_ms": 0.158736998855602,
+        "inference_ms": 2491.533223999795
+      },
+      "reaped": true,
+      "loadavg_min": [
+        2.49169921875,
+        2.18212890625,
+        1.58642578125
+      ],
+      "loadavg_max": [
+        2.53271484375,
+        2.19580078125,
+        1.59423828125
+      ],
+      "request_to_playable_ms": 6141.204458000175,
+      "complete_request_ms": 8649.582064000242
+    }
+  ],
+  "summaries": {
+    "baseline": {
+      "short": {
+        "preflight_ms": {
+          "n": 5,
+          "p50": 538.5686919998989,
+          "p95": 545.8631740002602,
+          "min": 532.6824000003398,
+          "max": 545.8631740002602,
+          "mean": 538.4817138001381,
+          "stddev": 4.360106515138348,
+          "mad": 2.5849849998849095
+        },
+        "wall_ms": {
+          "n": 5,
+          "p50": 7439.435765999406,
+          "p95": 8018.4336590000385,
+          "min": 7354.648327000177,
+          "max": 8018.4336590000385,
+          "mean": 7547.602600199934,
+          "stddev": 244.1423769642186,
+          "mad": 84.78743899922847
+        },
+        "first_pcm_received_ms": {
+          "n": 5,
+          "p50": 6290.027876999375,
+          "p95": 6724.428790999809,
+          "min": 6176.739872000326,
+          "max": 6724.428790999809,
+          "mean": 6381.591907599977,
+          "stddev": 196.08022310786558,
+          "mad": 113.28800499904901
+        },
+        "request_to_playable_ms": {
+          "n": 5,
+          "p50": 7985.298939999666,
+          "p95": 8557.744255000216,
+          "min": 7890.632034000191,
+          "max": 8557.744255000216,
+          "mean": 8086.0843140000725,
+          "stddev": 244.24988731015668,
+          "mad": 90.79540700076905
+        },
+        "complete_request_ms": {
+          "n": 5,
+          "p50": 7985.298939999666,
+          "p95": 8557.744255000216,
+          "min": 7890.632034000191,
+          "max": 8557.744255000216,
+          "mean": 8086.0843140000725,
+          "stddev": 244.24988731015668,
+          "mad": 90.79540700076905
+        },
+        "cpu_seconds": {
+          "n": 5,
+          "p50": 9.082337999999998,
+          "p95": 9.712635999999996,
+          "min": 9.020218000000014,
+          "max": 9.712635999999996,
+          "mean": 9.196639400000002,
+          "stddev": 0.26061954303359197,
+          "mad": 0.045235000000008796
+        },
+        "monitor_cpu_seconds": {
+          "n": 5,
+          "p50": 0.43179216699999934,
+          "p95": 0.4946443359999999,
+          "min": 0.3949732819999996,
+          "max": 0.4946443359999999,
+          "mean": 0.44639013279999973,
+          "stddev": 0.03677932870040039,
+          "mad": 0.036818884999999746
+        },
+        "rss_kib": {
+          "n": 5,
+          "p50": 234932,
+          "p95": 236984,
+          "min": 234388,
+          "max": 236984,
+          "mean": 235444,
+          "stddev": 1094.3491216243563,
+          "mad": 544
+        },
+        "pss_kib": {
+          "n": 5,
+          "p50": 227778,
+          "p95": 229821,
+          "min": 227194,
+          "max": 229821,
+          "mean": 228288.4,
+          "stddev": 1117.5968145981806,
+          "mad": 584
+        },
+        "duration_seconds": {
+          "n": 5,
+          "p50": 3.633922902494331,
+          "p95": 3.7384126984126986,
+          "min": 3.5874829931972787,
+          "max": 3.7384126984126986,
+          "mean": 3.6501768707482993,
+          "stddev": 0.06125844762481407,
+          "mad": 0.04643990929705222
+        }
+      },
+      "multi": {
+        "preflight_ms": {
+          "n": 5,
+          "p50": 538.3970549992227,
+          "p95": 606.5728880003007,
+          "min": 533.0899629998385,
+          "max": 606.5728880003007,
+          "mean": 553.2335787998818,
+          "stddev": 27.26532504603138,
+          "mad": 5.3070919993842836
+        },
+        "wall_ms": {
+          "n": 5,
+          "p50": 8575.59383500029,
+          "p95": 9296.312363000652,
+          "min": 8533.461672000158,
+          "max": 9296.312363000652,
+          "mean": 8778.259058000367,
+          "stddev": 298.61014760712,
+          "mad": 42.132163000133005
+        },
+        "first_pcm_received_ms": {
+          "n": 5,
+          "p50": 6146.235682999759,
+          "p95": 6775.53116099989,
+          "min": 6103.303423999932,
+          "max": 6775.53116099989,
+          "mean": 6301.732698599881,
+          "stddev": 252.2562161740207,
+          "mad": 42.932258999826445
+        },
+        "request_to_playable_ms": {
+          "n": 5,
+          "p50": 9113.42325700025,
+          "p95": 9846.59092900074,
+          "min": 9066.551634999996,
+          "max": 9846.59092900074,
+          "mean": 9331.492636800249,
+          "stddev": 311.80312612779176,
+          "mad": 46.87162200025341
+        },
+        "complete_request_ms": {
+          "n": 5,
+          "p50": 9113.42325700025,
+          "p95": 9846.59092900074,
+          "min": 9066.551634999996,
+          "max": 9846.59092900074,
+          "mean": 9331.492636800249,
+          "stddev": 311.80312612779176,
+          "mad": 46.87162200025341
+        },
+        "cpu_seconds": {
+          "n": 5,
+          "p50": 12.577005999999994,
+          "p95": 13.163497999999988,
+          "min": 12.399035000000016,
+          "max": 13.163497999999988,
+          "mean": 12.683653600000001,
+          "stddev": 0.27431086417901196,
+          "mad": 0.17797099999997812
+        },
+        "monitor_cpu_seconds": {
+          "n": 5,
+          "p50": 0.4952149549999998,
+          "p95": 0.6195784030000002,
+          "min": 0.48176484900000016,
+          "max": 0.6195784030000002,
+          "mean": 0.5277375106,
+          "stddev": 0.05187327273746486,
+          "mad": 0.013450105999999629
+        },
+        "rss_kib": {
+          "n": 5,
+          "p50": 245944,
+          "p95": 248472,
+          "min": 244212,
+          "max": 248472,
+          "mean": 245841.6,
+          "stddev": 1542.3215747696718,
+          "mad": 1576
+        },
+        "pss_kib": {
+          "n": 5,
+          "p50": 238795,
+          "p95": 241334,
+          "min": 237028,
+          "max": 241334,
+          "mean": 238692.4,
+          "stddev": 1534.3747391038476,
+          "mad": 1488
+        },
+        "duration_seconds": {
+          "n": 5,
+          "p50": 8.591383219954649,
+          "p95": 8.777142857142858,
+          "min": 8.394013605442177,
+          "max": 8.777142857142858,
+          "mean": 8.568163265306122,
+          "stddev": 0.12781525223756393,
+          "mad": 0.10448979591836682
+        }
+      }
+    },
+    "stream": {
+      "short": {
+        "preflight_ms": {
+          "n": 5,
+          "p50": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0,
+          "mad": 0
+        },
+        "wall_ms": {
+          "n": 5,
+          "p50": 7499.471109999831,
+          "p95": 7594.023509000181,
+          "min": 7395.51402699999,
+          "max": 7594.023509000181,
+          "mean": 7477.170542599924,
+          "stddev": 74.8682085525143,
+          "mad": 94.5523990003494
+        },
+        "first_pcm_received_ms": {
+          "n": 5,
+          "p50": 6274.892624999666,
+          "p95": 6442.464998000105,
+          "min": 6155.137730999741,
+          "max": 6442.464998000105,
+          "mean": 6307.572813399929,
+          "stddev": 102.78597809257072,
+          "mad": 119.75489399992512
+        },
+        "request_to_playable_ms": {
+          "n": 5,
+          "p50": 6274.892624999666,
+          "p95": 6442.464998000105,
+          "min": 6155.137730999741,
+          "max": 6442.464998000105,
+          "mean": 6307.572813399929,
+          "stddev": 102.78597809257072,
+          "mad": 119.75489399992512
+        },
+        "complete_request_ms": {
+          "n": 5,
+          "p50": 7499.471109999831,
+          "p95": 7594.023509000181,
+          "min": 7395.51402699999,
+          "max": 7594.023509000181,
+          "mean": 7477.170542599924,
+          "stddev": 74.8682085525143,
+          "mad": 94.5523990003494
+        },
+        "cpu_seconds": {
+          "n": 5,
+          "p50": 9.063304000000016,
+          "p95": 9.22140400000001,
+          "min": 9.049533,
+          "max": 9.22140400000001,
+          "mean": 9.094946600000007,
+          "stddev": 0.064215680588469,
+          "mad": 0.013771000000016187
+        },
+        "monitor_cpu_seconds": {
+          "n": 5,
+          "p50": 0.476874453,
+          "p95": 0.4952389340000014,
+          "min": 0.41209467899999996,
+          "max": 0.4952389340000014,
+          "mean": 0.4653703084000002,
+          "stddev": 0.030601517016431254,
+          "mad": 0.01836448100000143
+        },
+        "rss_kib": {
+          "n": 5,
+          "p50": 234552,
+          "p95": 237864,
+          "min": 232564,
+          "max": 237864,
+          "mean": 234660.8,
+          "stddev": 1852.4852927891222,
+          "mad": 1388
+        },
+        "pss_kib": {
+          "n": 5,
+          "p50": 227370,
+          "p95": 230712,
+          "min": 225374,
+          "max": 230712,
+          "mean": 227509.8,
+          "stddev": 1869.3134996570266,
+          "mad": 1374
+        },
+        "duration_seconds": {
+          "n": 5,
+          "p50": 3.622312925170068,
+          "p95": 3.7268027210884354,
+          "min": 3.517823129251701,
+          "max": 3.7268027210884354,
+          "mean": 3.626956916099773,
+          "stddev": 0.07581235184820885,
+          "mad": 0.06965986394557833
+        }
+      },
+      "multi": {
+        "preflight_ms": {
+          "n": 5,
+          "p50": 0,
+          "p95": 0,
+          "min": 0,
+          "max": 0,
+          "mean": 0,
+          "stddev": 0.0,
+          "mad": 0
+        },
+        "wall_ms": {
+          "n": 5,
+          "p50": 8649.582064000242,
+          "p95": 10402.888343000086,
+          "min": 8513.075476000267,
+          "max": 10402.888343000086,
+          "mean": 9312.110932799987,
+          "stddev": 872.1397122172713,
+          "mad": 136.50658799997473
+        },
+        "first_pcm_received_ms": {
+          "n": 5,
+          "p50": 6141.204458000175,
+          "p95": 7008.0011270001705,
+          "min": 6045.694057999754,
+          "max": 7008.0011270001705,
+          "mean": 6441.402979799932,
+          "stddev": 416.791213259535,
+          "mad": 95.51040000042121
+        },
+        "request_to_playable_ms": {
+          "n": 5,
+          "p50": 6141.204458000175,
+          "p95": 7008.0011270001705,
+          "min": 6045.694057999754,
+          "max": 7008.0011270001705,
+          "mean": 6441.402979799932,
+          "stddev": 416.791213259535,
+          "mad": 95.51040000042121
+        },
+        "complete_request_ms": {
+          "n": 5,
+          "p50": 8649.582064000242,
+          "p95": 10402.888343000086,
+          "min": 8513.075476000267,
+          "max": 10402.888343000086,
+          "mean": 9312.110932799987,
+          "stddev": 872.1397122172713,
+          "mad": 136.50658799997473
+        },
+        "cpu_seconds": {
+          "n": 5,
+          "p50": 12.624848000000028,
+          "p95": 13.830530999999997,
+          "min": 12.530998999999998,
+          "max": 13.830530999999997,
+          "mean": 13.08299460000001,
+          "stddev": 0.6108794782045269,
+          "mad": 0.09384900000003071
+        },
+        "monitor_cpu_seconds": {
+          "n": 5,
+          "p50": 0.5653813510000001,
+          "p95": 0.6211138080000005,
+          "min": 0.5095028260000003,
+          "max": 0.6211138080000005,
+          "mean": 0.5704536544000001,
+          "stddev": 0.037015827216592224,
+          "mad": 0.027342552999999548
+        },
+        "rss_kib": {
+          "n": 5,
+          "p50": 247880,
+          "p95": 248896,
+          "min": 243792,
+          "max": 248896,
+          "mean": 247203.2,
+          "stddev": 1769.2003165272156,
+          "mad": 428
+        },
+        "pss_kib": {
+          "n": 5,
+          "p50": 240716,
+          "p95": 241702,
+          "min": 236705,
+          "max": 241702,
+          "mean": 240048.4,
+          "stddev": 1733.6200967916818,
+          "mad": 427
+        },
+        "duration_seconds": {
+          "n": 5,
+          "p50": 8.6378231292517,
+          "p95": 8.719092970521542,
+          "min": 8.440453514739229,
+          "max": 8.719092970521542,
+          "mean": 8.591383219954649,
+          "stddev": 0.10841505986981423,
+          "mad": 0.08126984126984205
+        }
+      }
+    }
+  }
+}

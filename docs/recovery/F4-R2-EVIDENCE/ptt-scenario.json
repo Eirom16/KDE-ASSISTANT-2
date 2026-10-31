@@ -1,0 +1,24 @@
+{
+  "profile": "/var/tmp/kda-f4r2-ptt-2xa4_pcz",
+  "prepared_private_backend": true,
+  "microphone": "NOT_OPENED; waiting for physical action",
+  "runtime_use_scope": "EXPLICIT_USER_AUTHORISED_TEMPORARY_VOSK_FOR_ISOLATED_PTT",
+  "receipt_created": true,
+  "headless_preparation": "PASS",
+  "scenario": {
+    "purpose": "live_f4r2_ptt",
+    "max_capture_secs": 8,
+    "phrase": "Hola, \u00bfqu\u00e9 hora es?",
+    "microphone": "NOT_ACTIVATED",
+    "launch_authorized": false,
+    "library": "/var/tmp/kda-f4r2-vosk-pruy5scb/vosk/libvosk.so",
+    "model": "/var/tmp/kda-f4r2-vosk-pruy5scb/vosk-model-small-es-0.42",
+    "llm": "SYNTHETIC_LOOPBACK_ONLY",
+    "retention": "No raw audio saved; private test profile removed at evaluation closure"
+  },
+  "microphone_authorization": "EXPLICIT_USER_AUTHORISED_ONE_INITIAL_MANUAL_PTT_AND_READY",
+  "launch": "USER_TO_OPEN_PRIVATE_INSTANCE",
+  "raw_audio_storage": false,
+  "binary_sha256": "7516d30118cd8bafb93719eff1b75f988f7046c3584edeffe30fef4693ab7b03",
+  "features": "default, after legacy fixture suites"
+}

@@ -1,0 +1,35 @@
+{
+  "scope": "T1 readiness/integrity only; NOT a benchmark or audible trial",
+  "branch": "recovery/f4-voice-coordinator",
+  "head": "9544a58eba4b6adf6c6343c04db80813b084f76b",
+  "profile": "/var/tmp/kda-f4r3-piper-aqrh6h0h/live-t1-1792419192735966309",
+  "binary_sha256": "ed42270cd686109ef5a000f72afb40fa8665615fb6f5b59745ee9c9a2ccd2833",
+  "seven_approved_wheels": "SHA256_AND_SIZE_PASS",
+  "piper_model_config_1799_resources": "NATIVE_PREFLIGHT_PASS",
+  "native_preflight_command": [
+    "/home/eirom/KDE-ASSISTANT-2/target/debug/kde-assistant",
+    "--voice-piper-check",
+    "/var/tmp/kda-f4r3-piper-aqrh6h0h/venv",
+    "/var/tmp/kda-f4r3-piper-aqrh6h0h/voice/es_ES-sharvard-medium.onnx"
+  ],
+  "private_environment": {
+    "HOME": "/var/tmp/kda-f4r3-piper-aqrh6h0h/live-t1-1792419192735966309/home",
+    "TMPDIR": "/var/tmp/kda-f4r3-piper-aqrh6h0h/live-t1-1792419192735966309/tmp",
+    "XDG_CONFIG_HOME": "/var/tmp/kda-f4r3-piper-aqrh6h0h/live-t1-1792419192735966309/config",
+    "XDG_DATA_HOME": "/var/tmp/kda-f4r3-piper-aqrh6h0h/live-t1-1792419192735966309/data",
+    "XDG_CACHE_HOME": "/var/tmp/kda-f4r3-piper-aqrh6h0h/live-t1-1792419192735966309/cache",
+    "XDG_RUNTIME_DIR": "/var/tmp/kda-f4r3-piper-aqrh6h0h/live-t1-1792419192735966309/runtime",
+    "PIPEWIRE_REMOTE": "f4-unreachable-audio",
+    "DBUS_SESSION_BUS_ADDRESS": "unix:path=/var/tmp/kda-f4r3-piper-aqrh6h0h/live-t1-1792419192735966309/absent-bus"
+  },
+  "prepared_scenario": "VALID_UNUSED",
+  "backend_isolated": "PASS_IDLE_NO_VOICE_CHILDREN",
+  "backend_reaped": true,
+  "synthetic_session_message_count": 0,
+  "validation_note": "Initial readiness assertion expected a legacy key; F3.5 already stores the known synthetic key in provider_keys.custom. Strict synthetic-only check corrected without changing config.",
+  "output_device_check": "PENDING_AUDIBLE_AUTHORIZATION",
+  "playback_authorization": "PENDING",
+  "live_tts": "NOT_TESTED",
+  "microphone": false,
+  "downloads": false
+}

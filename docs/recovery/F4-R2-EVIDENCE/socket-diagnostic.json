@@ -1,0 +1,18 @@
+[
+  {
+    "nested": true,
+    "socket_path_bytes": 121,
+    "socket_exists": false,
+    "early_exit": 220,
+    "stderr": "[E][18:12:44.054987] mod.protocol-native | [module-protocol-:  762 init_socket_name()] server 0x55daeeeaacf0: socket path \"/var/tmp/kda-f4r2-socket-diagnostic-urtdil4l/nested-fixture-tmp-abcdefghijklmnopqrstuvwxyz0123456789/runtime/f4-synthetic\" plus null terminator exceeds 108 bytes\n[E][18:12:44.055165] pw.conf      | [          conf.c:  607 load_module()] 0x55daeeea0db0: could not load mandatory module \"libpipewire-module-protocol-native\": File name too long\n[E][18:12:44.055270] default      | [      pipewire.c:  124 main()] failed to create context: File name too long\n",
+    "reaped": true
+  },
+  {
+    "nested": false,
+    "socket_path_bytes": 71,
+    "socket_exists": true,
+    "early_exit": null,
+    "stderr": "",
+    "reaped": true
+  }
+]

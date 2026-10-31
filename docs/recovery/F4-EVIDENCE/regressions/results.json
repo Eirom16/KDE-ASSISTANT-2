@@ -1,0 +1,117 @@
+[
+  {
+    "name": "f4",
+    "command": [
+      "python3",
+      "scripts/validate_f4.py",
+      "--output",
+      "docs/recovery/F4-EVIDENCE/accepted-automation"
+    ],
+    "exit": 0,
+    "seconds": 39.931
+  },
+  {
+    "name": "fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 1.005
+  },
+  {
+    "name": "clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "seconds": 11.312
+  },
+  {
+    "name": "clippy-legacy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--features",
+      "legacy-fixtures",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "seconds": 19.147
+  },
+  {
+    "name": "build",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant"
+    ],
+    "exit": 0,
+    "seconds": 0.862
+  },
+  {
+    "name": "f35",
+    "command": [
+      "python3",
+      "scripts/validate_f35.py",
+      "--plasma"
+    ],
+    "exit": 0,
+    "seconds": 26.833
+  },
+  {
+    "name": "f2",
+    "command": [
+      "python3",
+      "scripts/validate_f2.py"
+    ],
+    "exit": 0,
+    "seconds": 124.282
+  },
+  {
+    "name": "f3",
+    "command": [
+      "python3",
+      "scripts/validate_f3.py",
+      "--runtime-only",
+      "--plasma"
+    ],
+    "exit": 1,
+    "seconds": 15.657
+  },
+  {
+    "name": "f1b3b",
+    "command": [
+      "python3",
+      "scripts/validate_f1b3b.py",
+      "--qml"
+    ],
+    "exit": 0,
+    "seconds": 37.829
+  },
+  {
+    "name": "restore-build",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant"
+    ],
+    "exit": 0,
+    "seconds": 0.405
+  }
+]

@@ -1,0 +1,132 @@
+[
+  {
+    "name": "fmt-check",
+    "command": [
+      "cargo",
+      "fmt",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 1.072
+  },
+  {
+    "name": "f4",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4.py",
+      "--output",
+      "/home/eirom/KDE-ASSISTANT-2/docs/recovery/F4-R4-EVIDENCE/gates-final/f4"
+    ],
+    "exit": 0,
+    "seconds": 43.299
+  },
+  {
+    "name": "f35",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f35.py",
+      "--plasma"
+    ],
+    "exit": 0,
+    "seconds": 24.869
+  },
+  {
+    "name": "f2",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f2.py"
+    ],
+    "exit": 0,
+    "seconds": 104.032
+  },
+  {
+    "name": "default-before-f3",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant"
+    ],
+    "exit": 0,
+    "seconds": 0.471
+  },
+  {
+    "name": "f3",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f3.py",
+      "--runtime-only",
+      "--plasma"
+    ],
+    "exit": 0,
+    "seconds": 32.865
+  },
+  {
+    "name": "f1b3b",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f1b3b.py",
+      "--qml"
+    ],
+    "exit": 0,
+    "seconds": 38.763
+  },
+  {
+    "name": "clippy-default",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "seconds": 0.567
+  },
+  {
+    "name": "clippy-legacy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--features",
+      "legacy-fixtures",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "seconds": 0.517
+  },
+  {
+    "name": "build-default",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant"
+    ],
+    "exit": 0,
+    "seconds": 0.516
+  },
+  {
+    "name": "fmt-final",
+    "command": [
+      "cargo",
+      "fmt",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 0.968
+  }
+]

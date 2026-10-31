@@ -1,0 +1,26 @@
+[
+  {
+    "scenario": "normal",
+    "category": "AUTOMATED_QML",
+    "status": "PASS",
+    "capture_start_requests": 1,
+    "chat_requests": 0,
+    "draft_preserved": true
+  },
+  {
+    "scenario": "cancel",
+    "category": "AUTOMATED_QML",
+    "status": "PASS",
+    "capture_start_requests": 0,
+    "chat_requests": 0,
+    "draft_preserved": true
+  },
+  {
+    "scenario": "hide",
+    "category": "AUTOMATED_QML",
+    "status": "PASS",
+    "capture_start_requests": 0,
+    "chat_requests": 0,
+    "draft_preserved": true
+  }
+]

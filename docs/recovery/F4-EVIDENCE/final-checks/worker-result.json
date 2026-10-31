@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--test",
+    "f4_worker",
+    "--",
+    "--ignored",
+    "--test-threads=1"
+  ],
+  "exit": 0,
+  "profile": "private temporary XDG, provider keys removed",
+  "evidence": "AUTOMATED_AUDIO_FIXTURE",
+  "model": "explicitly authorised private tiny",
+  "hardware": "none"
+}

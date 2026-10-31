@@ -40,6 +40,16 @@ pub struct OwwDetector {
 }
 
 impl OwwDetector {
+    /// Reset temporal features without reloading sessions/models after an interaction.
+    pub fn reset(&mut self) -> Result<()> {
+        self.raw.clear();
+        self.remainder.clear();
+        self.accumulated = 0;
+        self.mel_buf = vec![[1.0; 32]; MEL_WINDOW];
+        self.feat_buf.clear();
+        self.frames_seen = 0;
+        self.warmup()
+    }
     /// Crea el detector. Descubre y carga libonnxruntime, luego los 3 modelos.
     pub fn new(models_dir: &Path, threshold: f32) -> Result<Self> {
         ensure_onnx_lib()?;
@@ -93,12 +103,12 @@ impl OwwDetector {
         // Warmup: pre-llenar buffers con ruido (como el original, que usa
         // embeddings de ruido aleatorio). Sin esto, la primera clasificacion
         // tardaria 16 frames (~1.3s) y se perderian utterances cortas.
-        det.warmup();
+        det.warmup()?;
         Ok(det)
     }
 
     /// Pre-llena los buffers con ruido de fondo (determinista).
-    fn warmup(&mut self) {
+    fn warmup(&mut self) -> Result<()> {
         // Ruido pseudoaleatorio +/-1000 (escala int16), como el original.
         let mut state: u32 = 0x12345678;
         let mut noise = Vec::with_capacity(16000 * 2);
@@ -111,9 +121,10 @@ impl OwwDetector {
         }
         // Alimentar en chunks de 1280 (ignorar scores del warmup)
         for chunk in noise.chunks(CHUNK_SAMPLES) {
-            let _ = self.feed_raw(chunk);
+            self.feed_raw(chunk)?;
         }
         self.frames_seen = 0;
+        Ok(())
     }
 
     /// Núcleo de `feed` que opera sobre samples ya en escala int16.
@@ -163,7 +174,7 @@ impl OwwDetector {
             let ndx: isize = if i == 0 {
                 self.mel_buf.len() as isize
             } else {
-                -(8 * i as isize)
+                self.mel_buf.len() as isize - (8 * i as isize)
             };
             let end = ndx as usize;
             if end < MEL_WINDOW || end > self.mel_buf.len() {
@@ -338,7 +349,8 @@ pub fn onnx_lib_dir() -> Result<PathBuf> {
 
 /// Ruta a la copia incluida por la app, si existe.
 pub fn bundled_lib_path() -> Option<PathBuf> {
-    let dir = onnx_lib_dir().ok()?;
+    // Discovery is read-only, including OFF/text startup and isolated tests.
+    let dir = dirs::data_local_dir()?.join("kde-assistant/lib");
     let versioned = dir.join(format!("libonnxruntime.so.{ONNX_VERSION}"));
     if versioned.exists() {
         return Some(versioned);
@@ -518,6 +530,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore = "requiere autorización específica de descarga y escritura de recursos"]
     async fn download_and_extract_onnx_runtime() {
         // Descarga real (~11MB). Deja la copia incluida lista para la app.
         if bundled_lib_path().is_some() {

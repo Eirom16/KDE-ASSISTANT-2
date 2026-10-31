@@ -1,0 +1,28 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.33s
+     Running tests/f1b2_conversation.rs (target/debug/deps/f1b2_conversation-5deff8da692fad51)
+
+running 3 tests
+test qml_cancel_202_remains_cancelling_until_terminal ... 
+running 1 test
+test qml_cancel_202_remains_cancelling_until_terminal ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 2.71s
+
+ok
+test qml_obsolete_session_list_cannot_replace_new_selection ... 
+running 1 test
+test qml_obsolete_session_list_cannot_replace_new_selection ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 2.90s
+
+ok
+test qml_regenerate_preserves_history_and_explains_restriction ... 
+running 1 test
+test qml_regenerate_preserves_history_and_explains_restriction ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 1.42s
+
+ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 7.06s
+

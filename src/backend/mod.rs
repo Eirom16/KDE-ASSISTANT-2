@@ -18,6 +18,8 @@ pub mod kde_integration;
 pub mod model_downloader;
 pub mod operation_journal;
 pub mod permission_engine;
+mod piper_protocol;
+mod piper_resource_watch;
 pub(crate) mod private_files;
 pub mod provider_connection;
 mod safe_fs;
@@ -31,20 +33,29 @@ pub mod tool_registry;
 pub mod tts;
 pub mod tts_stream;
 pub mod vad;
+pub mod voice_coordinator;
+pub mod voice_pcm;
 pub mod voice_pipeline;
+pub mod voice_process;
 pub mod voice_state;
+pub mod voice_stt;
+pub mod voice_tts;
+pub mod vosk;
+pub mod wake_audio;
+pub mod wakeword;
 pub mod wakeword_ml;
+pub mod warm_piper;
 
 use anyhow::Result;
-use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::RwLock;
 
 use crate::models::Config;
 
 /// Estructura principal del backend que coordina todos los servicios.
 pub struct Backend {
     pub desktop: Arc<crate::desktop::Desktop>,
+    pub native_voice: Arc<voice_coordinator::VoiceCoordinator>,
     pub config: Arc<RwLock<Config>>,
     pub ai: Arc<ai_service::AiService>,
     pub sessions: Arc<Mutex<session_manager::SessionManager>>,
@@ -110,8 +121,12 @@ impl Backend {
 
         log::info!("Todos los subservicios inicializados");
 
+        let native_voice = Arc::new(voice_coordinator::VoiceCoordinator::default());
+        let speech_cfg = config.read().await.speech.clone();
+        native_voice.configure(&speech_cfg).await;
         Ok(Self {
             desktop: Arc::new(crate::desktop::Desktop::default()),
+            native_voice,
             config,
             ai,
             sessions,
@@ -129,16 +144,12 @@ impl Backend {
         })
     }
 
-    /// Procesa un utterance de audio grabado (STT -> LLM -> TTS).
-    /// Retorna (transcript, response).
-    pub async fn process_voice(&self, audio: &[f32]) -> Result<(String, String)> {
-        self.voice.process_utterance(audio, None).await
-    }
     /// Construye el estado compartido para el servidor HTTP local.
     pub fn http_state(&self) -> Result<http_server::AppState> {
         let local_token = crate::backend::auth::ensure_server_token()?;
         Ok(http_server::AppState {
             desktop: self.desktop.clone(),
+            native_voice: self.native_voice.clone(),
             http_port: 8765,
             ai: self.ai.clone(),
             tools: self.tools.clone(),
@@ -154,101 +165,6 @@ impl Backend {
             sidecar_active: self.sidecar_active.clone(),
             voice_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         })
-    }
-
-    /// Inicia captura de audio + deteccion de hotword en background.
-    /// La misma captura alimenta tanto el detector de wake word como
-    /// el buffer de grabacion del VoicePipeline (para PTT/wake word).
-    /// Retorna un receiver de eventos HotwordEvent.
-    pub async fn start_voice_pipeline(&self) -> Result<mpsc::Receiver<hotword::HotwordEvent>> {
-        anyhow::ensure!(
-            self.speech.is_available().await && self.speech.stt_model_exists(),
-            "Voz no disponible: faltan Piper o modelos locales; no se descargan automáticamente"
-        );
-        self.hotword.try_load_ml();
-        anyhow::ensure!(
-            self.hotword.ml_active(),
-            "Wake word no disponible: faltan modelos/runtime ONNX; captura desactivada"
-        );
-        let (audio_tx, audio_rx) = mpsc::channel::<Vec<f32>>(64);
-        let (event_tx, event_rx) = mpsc::channel::<hotword::HotwordEvent>(8);
-
-        let voice = self.voice.clone();
-
-        // Micrófono preferido (F3-3, "" = por defecto).
-        let mic_device = self.config.read().await.speech.mic_device.clone();
-        let mic_opt = if mic_device.trim().is_empty() {
-            None
-        } else {
-            Some(mic_device.as_str())
-        };
-        // Crear y arrancar audio capture
-        let mut cap = audio_capture::AudioCapture::new()?;
-        let dropped = self.hotword.dropped_frames.clone();
-        cap.start(mic_opt, move |frame: &[f32]| {
-            // 1) Alimentar al detector de wake word (try_send: no bloquea el thread de audio)
-            let frame_vec = frame.to_vec();
-            if audio_tx.try_send(frame_vec).is_err() {
-                // Canal lleno: se cuenta (el loop ML lo reporta en su telemetria)
-                dropped.fetch_add(1, Ordering::Relaxed);
-            }
-            // 2) Alimentar al buffer de grabacion (solo si esta grabando)
-            voice.push_audio(frame);
-        })?;
-
-        // Registrar sample rate de la captura en el buffer de grabacion
-        // y en el detector de wake word (para remuestrear a 16kHz)
-        let sr = cap.sample_rate;
-        self.voice
-            .buffer
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .sample_rate
-            .store(sr, Ordering::SeqCst);
-        self.hotword.set_sample_rate(sr);
-
-        *self.audio.write().await = Some(cap);
-
-        log::info!("Voice pipeline started (sample_rate={sr})");
-
-        // Arrancar hotword
-        self.hotword.start(audio_rx, event_tx).await?;
-
-        Ok(event_rx)
-    }
-
-    /// Detiene captura de audio.
-    pub async fn stop_voice_pipeline(&self) {
-        if let Some(mut cap) = self.audio.write().await.take() {
-            cap.stop();
-        }
-        self.hotword.stop();
-    }
-
-    /// Inicia la grabacion de voz (para wake word o PTT).
-    pub fn start_listening(&self) {
-        // La sample rate ya esta registrada por start_voice_pipeline
-        let sr = self
-            .voice
-            .buffer
-            .lock()
-            .unwrap()
-            .sample_rate
-            .load(Ordering::SeqCst);
-        self.voice.start_recording(sr.max(1));
-        log::info!("Escuchando... (grabacion iniciada)");
-    }
-
-    /// Detiene la grabacion y procesa el utterance (STT -> LLM -> TTS).
-    /// Retorna (transcript, response).
-    pub async fn stop_listening_and_process(&self) -> Result<(String, String)> {
-        let audio = self.voice.stop_recording();
-        if audio.is_empty() {
-            log::info!("Grabacion vacia, omitiendo procesamiento");
-            return Ok((String::new(), String::new()));
-        }
-        log::info!("Procesando grabacion de {} samples", audio.len());
-        self.voice.process_utterance(&audio, None).await
     }
 }
 

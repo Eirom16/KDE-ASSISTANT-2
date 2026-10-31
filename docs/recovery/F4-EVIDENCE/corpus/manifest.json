@@ -1,0 +1,62 @@
+{
+  "license": "CC0-1.0 for authored text and generated signals",
+  "warning": "No human speech included; no Spanish accuracy acceptance or dialect evidence",
+  "samples": [
+    {
+      "id": "silence",
+      "file": "silence.wav",
+      "reference": "",
+      "kind": "synthetic_non_speech",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "noise",
+      "file": "noise.wav",
+      "reference": "",
+      "kind": "synthetic_non_speech",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "tone",
+      "file": "tone.wav",
+      "reference": "",
+      "kind": "synthetic_non_speech",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "short",
+      "reference": "Hola, ¿qué hora es?",
+      "file": null,
+      "kind": "human_speech_pending_explicit_consent",
+      "status": "NOT_TESTED"
+    },
+    {
+      "id": "long",
+      "reference": "Quiero preparar una lista de tareas para mañana y revisar primero los asuntos pendientes de esta semana.",
+      "file": null,
+      "kind": "human_speech_pending_explicit_consent",
+      "status": "NOT_TESTED"
+    },
+    {
+      "id": "numbers",
+      "reference": "Recuérdame los números veintitrés, ciento cinco y dos mil veintiséis.",
+      "file": null,
+      "kind": "human_speech_pending_explicit_consent",
+      "status": "NOT_TESTED"
+    },
+    {
+      "id": "applications",
+      "reference": "¿Cómo puedo configurar Dolphin, Firefox y LibreOffice?",
+      "file": null,
+      "kind": "human_speech_pending_explicit_consent",
+      "status": "NOT_TESTED"
+    },
+    {
+      "id": "natural",
+      "reference": "Explícame cómo organizar mis documentos sin mover ningún archivo.",
+      "file": null,
+      "kind": "human_speech_pending_explicit_consent",
+      "status": "NOT_TESTED"
+    }
+  ]
+}

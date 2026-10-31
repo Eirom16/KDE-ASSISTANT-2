@@ -8,6 +8,7 @@ tests/roster-backups/
 .DS_Store
 *.wav
 !/assets/chimes/*.wav
+!/docs/recovery/F4-EVIDENCE/corpus/*.wav
 /assets/models/*.bin
 /assets/models/*.onnx
 /assets/models/*.gguf
@@ -20,3 +21,5 @@ Cargo.lock.bak
 *.iml
 build/
 dist/
+__pycache__/
+*.py[cod]

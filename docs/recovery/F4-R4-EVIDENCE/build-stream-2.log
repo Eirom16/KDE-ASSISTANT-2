@@ -1,0 +1,10 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.74s
+     Running unittests src/lib.rs (target/debug/deps/kde_assistant_lib-31e21eb49519a7fb)
+
+running 3 tests
+test backend::voice_tts::tests::explicit_runtime_and_validated_options_are_required ... ok
+test backend::voice_tts::tests::resource_integrity_rejects_corruption_and_special_files ... ok
+test backend::voice_tts::tests::verified_inode_is_retained_and_metadata_change_invalidates_identity ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 184 filtered out; finished in 0.00s
+

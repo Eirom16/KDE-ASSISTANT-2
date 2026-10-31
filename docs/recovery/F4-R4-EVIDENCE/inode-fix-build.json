@@ -1,0 +1,36 @@
+[
+  {
+    "command": [
+      "cargo",
+      "fmt"
+    ],
+    "exit": 0,
+    "seconds": 1.087876280999808
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--lib",
+      "voice_tts::tests",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 14.675666457999796
+  },
+  {
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant",
+      "--bin",
+      "bench_piper_warm"
+    ],
+    "exit": 0,
+    "seconds": 13.58538167000006
+  }
+]

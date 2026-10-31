@@ -1,0 +1,60 @@
+[
+  {
+    "command": [
+      "cargo",
+      "fmt"
+    ],
+    "exit": 0,
+    "seconds": 1.0512599890003003
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--lib",
+      "voice_process::tests",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 53.5868612459999
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--lib",
+      "piper",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 2.04145571700019
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--lib",
+      "voice_coordinator::tests",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 0.5771942289998151
+  },
+  {
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant"
+    ],
+    "exit": 0,
+    "seconds": 55.589362378999795
+  }
+]

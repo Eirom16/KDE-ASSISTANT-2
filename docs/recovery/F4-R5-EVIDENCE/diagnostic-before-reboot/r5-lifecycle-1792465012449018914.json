@@ -1,0 +1,66 @@
+{
+  "category": "AUTOMATED_AUDIO_FIXTURE",
+  "audible": "NOT_TESTED",
+  "results": [
+    {
+      "test": "disable_preparing",
+      "status": "PASS",
+      "ms": 65.34268600080395
+    },
+    {
+      "test": "disable_ready",
+      "status": "PASS",
+      "ms": 62.17503600055352
+    },
+    {
+      "test": "cancel_actual_inference",
+      "status": "PASS",
+      "ms": 40.067447000183165
+    },
+    {
+      "test": "session_change_during_playback",
+      "status": "PASS",
+      "ms": 26.676863000830053
+    },
+    {
+      "test": "unexpected_worker_death_reaped",
+      "status": "PASS",
+      "ms": null
+    },
+    {
+      "test": "stalled_worker_cancel_kill_wait",
+      "status": "PASS",
+      "ms": 28.79502100040554
+    },
+    {
+      "test": "llm_cancel_during_preparation_no_partial_audio",
+      "status": "PASS",
+      "ms": 95.62992499922984
+    },
+    {
+      "test": "speaker_change_revokes",
+      "status": "PASS",
+      "ms": 53.20761599978141
+    },
+    {
+      "test": "resource_change_inotify_revokes_idle",
+      "status": "PASS",
+      "ms": 52.20565300078306
+    },
+    {
+      "test": "missing_model_no_orphan",
+      "status": "PASS",
+      "ms": null
+    },
+    {
+      "test": "repeated_toggle_no_preload",
+      "status": "PASS",
+      "ms": null
+    },
+    {
+      "test": "text_works_with_voice_disabled",
+      "status": "PASS",
+      "ms": null
+    }
+  ]
+}

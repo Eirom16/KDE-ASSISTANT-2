@@ -1,0 +1,6 @@
+{
+  "scope": "Absent private audio socket only; NO live retry",
+  "exit": 1,
+  "stdout_bytes": 0,
+  "stderr": "error: pw_context_connect() failed: Host is down\n"
+}

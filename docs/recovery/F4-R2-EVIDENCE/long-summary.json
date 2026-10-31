@@ -1,0 +1,377 @@
+{
+  "sample": "long",
+  "reference_confirmed": true,
+  "unique_human_recordings": 1,
+  "words": 21,
+  "scope": "Authorized human corpus; NOT product PTT; small single-speaker evaluation",
+  "results": [
+    {
+      "sample": "long",
+      "sha256": "18ae8a19591549a49173204455dc523d68b83a69b4fda2775507100a2a73a366",
+      "engine": "whisper_full",
+      "audio_ctx": 0,
+      "seconds": 15.0,
+      "inference": {
+        "n": 3,
+        "p50_ms": 38319.842878999996,
+        "p95_ms": 38353.461127,
+        "min_ms": 33344.725618,
+        "max_ms": 38353.461127,
+        "mean_ms": 36672.676541333334,
+        "stddev_ms": 2353.25668776075,
+        "mad_ms": 33.61824800000613
+      },
+      "text_available_warm": {
+        "n": 3,
+        "p50_ms": 38349.605857,
+        "p95_ms": 38385.500421000004,
+        "min_ms": 33373.488288,
+        "max_ms": 38385.500421000004,
+        "mean_ms": 36702.86485533333,
+        "stddev_ms": 2354.2703540959233,
+        "mad_ms": 35.89456400000199
+      },
+      "cold_model_load_ms": 112.888677,
+      "conversion_ms": 118.868196,
+      "score": {
+        "unique_clips": 1,
+        "reference_words": 21,
+        "primary_run0_errors": 3,
+        "primary_run0_wer": 0.14285714285714285,
+        "repeat_score_variation": false,
+        "substitutions": 2,
+        "deletions": 0,
+        "insertions": 1,
+        "unjustified_empty": 0
+      },
+      "checks_by_run": [
+        [
+          {
+            "alternatives": [
+              "sin cambiar mis archivos"
+            ],
+            "present": true
+          }
+        ],
+        [
+          {
+            "alternatives": [
+              "sin cambiar mis archivos"
+            ],
+            "present": true
+          }
+        ],
+        [
+          {
+            "alternatives": [
+              "sin cambiar mis archivos"
+            ],
+            "present": true
+          }
+        ]
+      ],
+      "process": {
+        "pid": 79726,
+        "command": [
+          "/home/eirom/KDE-ASSISTANT-2/target/debug/bench_voice",
+          "/var/tmp/kda-f4-tiny-jaan_09m/ggml-tiny.bin",
+          "/var/tmp/kda-f4r2-corpus-gjw89ydm/long.wav",
+          "3",
+          "/var/tmp/kda-f4r2-corpus-gjw89ydm/comparison/long-whisper_full.json",
+          "3",
+          "0",
+          "0.2"
+        ],
+        "exit": 0,
+        "reaped": true,
+        "elapsed_ms": 110445.85965499937,
+        "compiler_overlap": false,
+        "peak_rss_kib": 227692,
+        "peak_pss_kib": 223601,
+        "sampled_cpu_ticks": 32063,
+        "ticks_per_second": 100
+      },
+      "loadavg_min": [
+        0.7607421875,
+        1.86181640625,
+        1.68505859375
+      ],
+      "loadavg_max": [
+        4.17041015625,
+        2.75146484375,
+        2.02978515625
+      ],
+      "hypothesis": "OMITTED: retained only privately until evaluation closure",
+      "text_available_warm_ms": [
+        33373.488288,
+        38385.500421000004,
+        38349.605857
+      ],
+      "state_ms": [
+        20.13391,
+        22.180123,
+        21.70991
+      ],
+      "text_extraction_ms": [
+        0.009183,
+        0.009009,
+        0.01128
+      ],
+      "inference_region_cpu_ticks": [
+        9652,
+        11214,
+        11175
+      ]
+    },
+    {
+      "sample": "long",
+      "sha256": "18ae8a19591549a49173204455dc523d68b83a69b4fda2775507100a2a73a366",
+      "engine": "whisper_reduced",
+      "audio_ctx": 1024,
+      "seconds": 15.0,
+      "inference": {
+        "n": 3,
+        "p50_ms": 25694.620204,
+        "p95_ms": 25795.247665000003,
+        "min_ms": 25650.789088,
+        "max_ms": 25795.247665000003,
+        "mean_ms": 25713.552319000002,
+        "stddev_ms": 60.47527787449622,
+        "mad_ms": 43.831115999997564
+      },
+      "text_available_warm": {
+        "n": 3,
+        "p50_ms": 25722.79246,
+        "p95_ms": 25815.665214,
+        "min_ms": 25675.740273,
+        "max_ms": 25815.665214,
+        "mean_ms": 25738.065982333334,
+        "stddev_ms": 58.13609115293508,
+        "mad_ms": 47.05218700000114
+      },
+      "cold_model_load_ms": 114.55369999999999,
+      "conversion_ms": 119.61403600000001,
+      "score": {
+        "unique_clips": 1,
+        "reference_words": 21,
+        "primary_run0_errors": 3,
+        "primary_run0_wer": 0.14285714285714285,
+        "repeat_score_variation": false,
+        "substitutions": 2,
+        "deletions": 0,
+        "insertions": 1,
+        "unjustified_empty": 0
+      },
+      "checks_by_run": [
+        [
+          {
+            "alternatives": [
+              "sin cambiar mis archivos"
+            ],
+            "present": true
+          }
+        ],
+        [
+          {
+            "alternatives": [
+              "sin cambiar mis archivos"
+            ],
+            "present": true
+          }
+        ],
+        [
+          {
+            "alternatives": [
+              "sin cambiar mis archivos"
+            ],
+            "present": true
+          }
+        ]
+      ],
+      "process": {
+        "pid": 80214,
+        "command": [
+          "/home/eirom/KDE-ASSISTANT-2/target/debug/bench_voice",
+          "/var/tmp/kda-f4-tiny-jaan_09m/ggml-tiny.bin",
+          "/var/tmp/kda-f4r2-corpus-gjw89ydm/long.wav",
+          "3",
+          "/var/tmp/kda-f4r2-corpus-gjw89ydm/comparison/long-whisper_reduced.json",
+          "3",
+          "1024",
+          "0.2"
+        ],
+        "exit": 0,
+        "reaped": true,
+        "elapsed_ms": 77510.54223399842,
+        "compiler_overlap": false,
+        "peak_rss_kib": 189632,
+        "peak_pss_kib": 185578,
+        "sampled_cpu_ticks": 22429,
+        "ticks_per_second": 100
+      },
+      "loadavg_min": [
+        4.17041015625,
+        2.75146484375,
+        2.02978515625
+      ],
+      "loadavg_max": [
+        5.111328125,
+        3.33447265625,
+        2.29052734375
+      ],
+      "hypothesis": "OMITTED: retained only privately until evaluation closure",
+      "text_available_warm_ms": [
+        25675.740273,
+        25722.79246,
+        25815.665214
+      ],
+      "state_ms": [
+        19.197279,
+        22.549915,
+        14.537626999999999
+      ],
+      "text_extraction_ms": [
+        0.011802,
+        0.011701,
+        0.010866
+      ],
+      "inference_region_cpu_ticks": [
+        7467,
+        7476,
+        7478
+      ]
+    },
+    {
+      "sample": "long",
+      "sha256": "18ae8a19591549a49173204455dc523d68b83a69b4fda2775507100a2a73a366",
+      "engine": "vosk_small_es",
+      "audio_ctx": null,
+      "seconds": 15.0,
+      "inference": {
+        "n": 3,
+        "p50_ms": 2529.7664429999713,
+        "p95_ms": 2572.3164990013174,
+        "min_ms": 2505.008303000068,
+        "max_ms": 2572.3164990013174,
+        "mean_ms": 2535.6970816671187,
+        "stddev_ms": 27.79661452390509,
+        "mad_ms": 24.758139999903506
+      },
+      "text_available_warm": {
+        "n": 3,
+        "p50_ms": 2609.88730200188,
+        "p95_ms": 2655.469239998638,
+        "min_ms": 2583.8143100008892,
+        "max_ms": 2655.469239998638,
+        "mean_ms": 2616.390284000469,
+        "stddev_ms": 29.612202770716515,
+        "mad_ms": 26.07299200099078
+      },
+      "cold_model_load_ms": 616.5902900029323,
+      "conversion_ms": 0.07961699884617701,
+      "score": {
+        "unique_clips": 1,
+        "reference_words": 21,
+        "primary_run0_errors": 1,
+        "primary_run0_wer": 0.047619047619047616,
+        "repeat_score_variation": false,
+        "substitutions": 1,
+        "deletions": 0,
+        "insertions": 0,
+        "unjustified_empty": 0
+      },
+      "checks_by_run": [
+        [
+          {
+            "alternatives": [
+              "sin cambiar mis archivos"
+            ],
+            "present": true
+          }
+        ],
+        [
+          {
+            "alternatives": [
+              "sin cambiar mis archivos"
+            ],
+            "present": true
+          }
+        ],
+        [
+          {
+            "alternatives": [
+              "sin cambiar mis archivos"
+            ],
+            "present": true
+          }
+        ]
+      ],
+      "process": {
+        "pid": 80478,
+        "command": [
+          "/usr/bin/python3",
+          "/home/eirom/KDE-ASSISTANT-2/scripts/compare_f4_spanish.py",
+          "--worker",
+          "--profile",
+          "/var/tmp/kda-f4r2-corpus-gjw89ydm",
+          "--wav",
+          "/var/tmp/kda-f4r2-corpus-gjw89ydm/long.wav",
+          "--result",
+          "/var/tmp/kda-f4r2-corpus-gjw89ydm/comparison/long-vosk_small_es.json",
+          "--runs",
+          "3",
+          "--vosk-lib",
+          "/var/tmp/kda-f4r2-vosk-pruy5scb/vosk/libvosk.so",
+          "--vosk-model",
+          "/var/tmp/kda-f4r2-vosk-pruy5scb/vosk-model-small-es-0.42"
+        ],
+        "exit": 0,
+        "reaped": true,
+        "elapsed_ms": 10026.024614999187,
+        "compiler_overlap": false,
+        "peak_rss_kib": 191036,
+        "peak_pss_kib": 179763,
+        "sampled_cpu_ticks": 876,
+        "ticks_per_second": 100
+      },
+      "loadavg_min": [
+        4.8662109375,
+        3.32861328125,
+        2.29052734375
+      ],
+      "loadavg_max": [
+        5.111328125,
+        3.33984375,
+        2.3037109375
+      ],
+      "hypothesis": "OMITTED: retained only privately until evaluation closure",
+      "text_available_warm_ms": [
+        2655.469239998638,
+        2609.88730200188,
+        2583.8143100008892
+      ],
+      "state_ms": [
+        82.94199800002389,
+        79.90054800029611,
+        78.61660699927597
+      ],
+      "text_extraction_ms": [
+        0.21074299729662016,
+        0.220311001612572,
+        0.18940000154543668
+      ],
+      "inference_cpu_seconds": [
+        2.5461368049999997,
+        2.511203112,
+        2.4856158399999995
+      ],
+      "loaded_idle": {
+        "seconds": 1.0056330369989155,
+        "cpu_ticks": 0,
+        "rss_kib": 151348,
+        "pss_kib": 140121
+      },
+      "library_ms": 8.346451999386773
+    }
+  ]
+}

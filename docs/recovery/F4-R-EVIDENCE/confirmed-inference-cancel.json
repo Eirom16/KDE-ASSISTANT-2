@@ -1,0 +1,11 @@
+{
+  "category": "AUTOMATED_AUDIO_FIXTURE",
+  "shared_decoder_entry_observed": true,
+  "cpu_ticks_after_entry": 3,
+  "cancel_wait_ms": 15.601,
+  "pid": 68746,
+  "reaped": true,
+  "n": 1,
+  "phase": "after model/context/state allocation; inside shared Whisper full-processing call; generated WAV only",
+  "scope": "benchmark probe with production supervisor; timed main-worker cancellation/timeout checked separately"
+}

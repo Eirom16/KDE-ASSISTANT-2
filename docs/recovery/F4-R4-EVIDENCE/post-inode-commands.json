@@ -1,0 +1,35 @@
+[
+  {
+    "name": "playback-inode-safe-final",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/benchmark_f4r4_playback.py",
+      "--profile",
+      "/var/tmp/kda-f4r4-_rbmkh36",
+      "--resources",
+      "/var/tmp/kda-f4r3-piper-aqrh6h0h",
+      "--runs",
+      "5",
+      "--baseline",
+      "/var/tmp/kda-f4r4-_rbmkh36/baseline-kde-assistant",
+      "--label",
+      "playback-inode-safe-final",
+      "--paired"
+    ],
+    "exit": 0,
+    "seconds": 116.40194871899985
+  },
+  {
+    "name": "piper-inode-safe-lifecycle",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4_piper.py",
+      "--profile",
+      "/var/tmp/kda-f4r3-piper-aqrh6h0h"
+    ],
+    "exit": 0,
+    "seconds": 39.655598371999986
+  }
+]

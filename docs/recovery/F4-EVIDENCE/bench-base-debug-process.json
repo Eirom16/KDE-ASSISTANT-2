@@ -1,0 +1,9 @@
+{
+  "exit": 0,
+  "seconds": 475.0487579169999,
+  "cpu_user_seconds": 1219.121445,
+  "cpu_system_seconds": 3.897033,
+  "maxrss_kib": 335004,
+  "sample_peak_rss_kib": 335324,
+  "sample_peak_pss_kib": 332083
+}

@@ -1,0 +1,5 @@
+QSystemTrayIcon::setVisible: No Icon set
+qt.core.qobject.connect: QObject::connect: No such signal QPlatformNativeInterface::systemTrayWindowChanged(QScreen*)
+qml: F3_WINDOW_READY 1792355795932 true false 575 680
+kf.windowsystem: Could not find any platform plugin
+qml: F4_DRAFT Borrador conservado

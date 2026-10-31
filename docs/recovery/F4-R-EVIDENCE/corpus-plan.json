@@ -1,0 +1,36 @@
+{
+  "synthetic": {
+    "license": "CC0-1.0",
+    "generator": "scripts/voice_corpus.py --rate 16000",
+    "signals": [
+      "tone",
+      "silence",
+      "noise"
+    ],
+    "duration_seconds": 3,
+    "rights": "authored generated signals, no recordings"
+  },
+  "speech": {
+    "status": "NOT_TESTED",
+    "files": [],
+    "required_metadata": [
+      "sample_id",
+      "reference",
+      "speaker_consent_or_public_license",
+      "source",
+      "accent_if_authorized",
+      "duration",
+      "sample_rate",
+      "sha256"
+    ],
+    "categories": [
+      "short",
+      "long",
+      "numbers",
+      "application_names",
+      "natural_query",
+      "authorized_pronunciation_variants"
+    ],
+    "policy": "No personal recordings, microphone, TTS substitute or external corpus downloaded; WER remains NOT_TESTED"
+  }
+}

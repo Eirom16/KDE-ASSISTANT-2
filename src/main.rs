@@ -6,7 +6,7 @@
 // Flags:
 //   --ui-off       No lanzar UI (solo backend + KDE integration)
 //   --no-shortcuts No registrar global shortcuts
-//   --enable-voice Activar voz existente con dependencias locales instaladas
+//   --enable-voice Legado: no inicia escucha; usar dictado explícito en la UI
 //   --enable-shortcuts Solicitar el registro al portal (consentimiento del sistema)
 //   --http-port <n> Puerto de perfil; 0 elige uno libre
 //   --toggle       Alternar una instancia existente del mismo perfil
@@ -18,6 +18,118 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 fn main() -> Result<()> {
+    let worker_args: Vec<String> = std::env::args().collect();
+    if worker_args
+        .get(1)
+        .is_some_and(|a| a == "--voice-wake-worker" || a == "--voice-wake-stream")
+    {
+        anyhow::ensure!(worker_args.len() == 5, "Argumentos wake inválidos");
+        let worker = if worker_args[1] == "--voice-wake-stream" {
+            kde_assistant_lib::backend::wakeword::stream_worker
+        } else {
+            kde_assistant_lib::backend::wakeword::worker
+        };
+        return worker(
+            std::path::Path::new(&worker_args[2]),
+            std::path::Path::new(&worker_args[3]),
+            worker_args[4].parse()?,
+        );
+    }
+    if worker_args.get(1).is_some_and(|a| {
+        matches!(
+            a.as_str(),
+            "--voice-piper-check"
+                | "--voice-piper-worker"
+                | "--voice-piper-stream"
+                | "--voice-piper-warm-experiment"
+                | "--voice-piper-managed"
+        )
+    }) {
+        let check = worker_args[1] == "--voice-piper-check";
+        anyhow::ensure!(
+            worker_args.len() == if check { 4 } else { 6 },
+            "Argumentos Piper inválidos"
+        );
+        let runtime = std::path::Path::new(&worker_args[2]);
+        let model = std::path::Path::new(&worker_args[3]);
+        if check {
+            let error = kde_assistant_lib::backend::voice_tts::validate(runtime, model)
+                .err()
+                .map(|e| e.to_string());
+            use std::io::Write;
+            std::io::stdout().write_all(&serde_json::to_vec(&error)?)?;
+            return Ok(());
+        }
+        let worker = if worker_args[1] == "--voice-piper-managed" {
+            kde_assistant_lib::backend::voice_tts::managed_worker
+        } else if worker_args[1] == "--voice-piper-warm-experiment" {
+            kde_assistant_lib::backend::voice_tts::warm_experiment
+        } else if worker_args[1] == "--voice-piper-stream" {
+            kde_assistant_lib::backend::voice_tts::stream_worker
+        } else {
+            kde_assistant_lib::backend::voice_tts::worker
+        };
+        return worker(
+            runtime,
+            model,
+            worker_args[4].parse()?,
+            worker_args[5].parse()?,
+        );
+    }
+    if worker_args
+        .get(1)
+        .is_some_and(|a| a == "--voice-vosk-check" || a == "--voice-vosk-worker")
+    {
+        anyhow::ensure!(worker_args.len() == 4, "Argumentos Vosk inválidos");
+        let library = std::path::Path::new(&worker_args[2]);
+        let model = std::path::Path::new(&worker_args[3]);
+        if worker_args[1] == "--voice-vosk-worker" {
+            return kde_assistant_lib::backend::vosk::worker(library, model);
+        }
+        let error = kde_assistant_lib::backend::vosk::validate_paths(library, model)
+            .err()
+            .map(|e| e.to_string());
+        use std::io::Write;
+        std::io::stdout().write_all(&serde_json::to_vec(&error)?)?;
+        return Ok(());
+    }
+    if worker_args
+        .get(1)
+        .is_some_and(|a| a == "--voice-model-check")
+    {
+        anyhow::ensure!(worker_args.len() == 3, "Argumentos del validador inválidos");
+        let error = kde_assistant_lib::backend::voice_coordinator::validate_model(
+            std::path::Path::new(&worker_args[2]),
+        )
+        .err()
+        .map(|e| e.to_string());
+        use std::io::Write;
+        std::io::stdout().write_all(&serde_json::to_vec(&error)?)?;
+        return Ok(());
+    }
+
+    if worker_args
+        .get(1)
+        .is_some_and(|a| a == "--voice-stt-worker")
+    {
+        anyhow::ensure!(worker_args.len() == 4, "Argumentos del worker inválidos");
+        return kde_assistant_lib::backend::voice_coordinator::stt_worker(
+            worker_args[2].clone().into(),
+            worker_args[3].clone(),
+        );
+    }
+
+    anyhow::ensure!(
+        !worker_args
+            .iter()
+            .skip(1)
+            .any(|a| a.starts_with("--voice-")),
+        "Modo interno de voz inválido"
+    );
+
+    // A misspelled diagnostic must fail before touching a desktop profile.
+    validate_launch_args(&worker_args[1..])?;
+
     env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or("info,zbus=warn,tracing=warn"),
     )
@@ -142,111 +254,9 @@ fn main() -> Result<()> {
     });
     log::info!("Núcleo de texto listo en http://127.0.0.1:{actual_port}; voz diferida, descargas desactivadas");
 
-    // Iniciar pipeline de voz (captura de audio + deteccion de wake word)
-    // Solo si esta habilitado en config (por defecto desactivado por falsos positivos)
-    // Rust es la única autoridad de conversación: conserva una sola sesión,
-    // permisos, streaming y TTS. El sidecar experimental tenía otro LLM y
-    // rompía la conversación bidireccional al no compartir contexto.
-
-    let voice_events = if args.iter().any(|a| a == "--enable-voice") && cfg.speech.wake_word_enabled
-    {
-        runtime.block_on(async {
-            match backend.start_voice_pipeline().await {
-                Ok(rx) => {
-                    http_state.voice_enabled.store(true, Ordering::Relaxed);
-                    if cfg.speech.chimes_enabled {
-                        if let Err(e) = backend.chimes.initialize().await {
-                            log::warn!("Chimes no disponibles: {e}");
-                        }
-                    }
-                    Ok::<_, anyhow::Error>(Some(rx))
-                }
-                Err(e) => {
-                    log::warn!("No se pudo iniciar el pipeline de voz: {e}");
-                    log::warn!("(verifica que tienes microfono y permisos de audio)");
-                    Ok(None)
-                }
-            }
-        })?
-    } else {
-        log::info!(
-            "Voz diferida; requiere --enable-voice y dependencias locales. Usa el InputBar para escribir mensajes."
-        );
-        None
-    };
-
-    // Handler del wake word: saludo -> hilo conversacional (F3-2).
-    const MAX_RECORDING_SECS: u64 = 8;
-    const MAX_EXTRA_TURNS: u32 = 2;
-    let wake_word_label = cfg.speech.wake_word.clone();
-    if let Some(mut rx) = voice_events {
-        let vp = backend.voice.clone();
-        runtime.spawn(async move {
-            while let Some(event) = rx.recv().await {
-                match event {
-                    kde_assistant_lib::backend::hotword::HotwordEvent::Detected => {
-                        // El dictado al chat tiene el micro: ignorar el wake
-                        // word entero (ni saludo TTS ni escucha).
-                        if vp.is_dictating() {
-                            log::info!("[VOICE] wake word ignorado: dictado al chat en curso");
-                            continue;
-                        }
-                        // Si el pipeline esta ocupado (escuchando, pensando o
-                        // hablando), NO re-abrir: un "hey jarvis" repetido
-                        // pisaba el turno en curso y perdia el comando del
-                        // usuario. El barge-in durante TTS es aparte
-                        // (por amplitud, en push_audio).
-                        if !vp.wake_gate_open() {
-                            log::info!("[VOICE] wake word ignorado: pipeline ocupado");
-                            continue;
-                        }
-                        log::info!("[VOICE] Wake detected: '{wake_word_label}'");
-                        vp.emit_state(
-                            kde_assistant_lib::backend::voice_state::VoiceState::WakeDetected,
-                        );
-                        let vp2 = vp.clone();
-                        let greeting = {
-                            let cfg = vp2.config.read().await;
-                            cfg.speech.wake_greeting.trim().to_string()
-                        };
-                        tokio::spawn(async move {
-                            // Dar una señal audible de que Jarvis está atento
-                            // evita que el usuario empiece a hablar antes de
-                            // que el micrófono haya cambiado de estado. La
-                            // grabación comienza solo después del saludo para
-                            // que Whisper no lo confunda con el comando.
-                            if !greeting.is_empty() {
-                                vp2.emit_state(
-                                    kde_assistant_lib::backend::voice_state::VoiceState::Attentive,
-                                );
-                                if let Err(e) = vp2.speech.speak(&greeting).await {
-                                    log::warn!("Saludo de wake word fallo: {e}");
-                                }
-                            }
-                            vp2.start_listening();
-                            let turns = vp2
-                                .converse_voice_driven(MAX_RECORDING_SECS, MAX_EXTRA_TURNS)
-                                .await;
-                            for (t, r) in &turns {
-                                log::info!("Wake word: '{}' -> '{}'", t, truncate(r, 80));
-                            }
-                            if turns.is_empty() {
-                                log::info!("Turno de voz vacío, listo para siguiente wake word");
-                            } else {
-                                log::info!(
-                                    "Hilo de voz terminado ({} turno(s)), listo para siguiente wake word",
-                                    turns.len()
-                                );
-                            }
-                        });
-                    }
-                }
-            }
-        });
-        log::info!(
-            "Voice pipeline de wake word activo (max {}s de grabacion)",
-            MAX_RECORDING_SECS
-        );
+    // F4: no microphone/wake/prewarm at startup, including legacy --enable-voice.
+    if args.iter().any(|a| a == "--enable-voice") {
+        log::warn!("--enable-voice no inicia escucha; usa el botón de dictado. Hey Jarvis permanece OFF; se activa explícitamente desde el botón del robot.");
     }
 
     if let Some(bus) = &bus {
@@ -481,6 +491,7 @@ fn main() -> Result<()> {
         Ok(())
     })();
     backend.desktop.stop();
+    runtime.block_on(backend.native_voice.shutdown());
     // Stop admitting HTTP work before cancelling and draining existing turns.
     let _ = server_stop.send(());
     let drained = runtime.block_on(backend.turns.shutdown());
@@ -507,7 +518,6 @@ fn main() -> Result<()> {
             server.abort();
             let _ = server.await;
         }
-        backend.stop_voice_pipeline().await;
     });
     drop(bus);
     drop(backend);
@@ -516,12 +526,25 @@ fn main() -> Result<()> {
     ui_result
 }
 
-fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
-    } else {
-        let mut t: String = s.chars().take(max).collect();
-        t.push_str("...");
-        t
+fn validate_launch_args(args: &[String]) -> Result<()> {
+    let mut arguments = args.iter();
+    let mut port_seen = false;
+    while let Some(argument) = arguments.next() {
+        match argument.as_str() {
+            "--ui-off" | "--no-ui" | "--no-shortcuts" | "--enable-shortcuts" | "--enable-voice"
+            | "--toggle" => {}
+            "--http-port" => {
+                anyhow::ensure!(!port_seen, "--http-port duplicado");
+                port_seen = true;
+                arguments
+                    .next()
+                    .context("--http-port requiere un puerto")?
+                    .parse::<u16>()
+                    .context("Puerto inválido")?;
+            }
+            "--send-msg" => anyhow::bail!("--send-msg retirado: DBus no acepta mensajes"),
+            _ => anyhow::bail!("Argumento desconocido: {argument}"),
+        }
     }
+    Ok(())
 }

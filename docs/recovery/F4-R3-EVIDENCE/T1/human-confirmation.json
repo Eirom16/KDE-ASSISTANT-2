@@ -1,0 +1,21 @@
+{
+  "recorded_utc": "2026-10-20T00:46:13.563210+00:00",
+  "purpose": "live_f4r3_tts_t1",
+  "category": "HUMAN_VERIFIED / LIVE_TTS",
+  "user_statement": "Se escucho perfectamente, sin cortes y sin distorcion. El unico problema son los 8s.",
+  "heard_audio": true,
+  "audible_quality": "User reports perfect playback without cuts or distortion",
+  "naturalness": "Positive overall assessment; no separate numeric naturalness rating supplied",
+  "volume": "User confirmed comfortable volume before playback; no separate numeric output-volume rating supplied",
+  "latency_complaint": "User identifies the approximately eight-second wait as the only problem",
+  "technical_evidence_sha256": "fda851b42422402b55dad33f11198a6c23f106106d0237ef4457ab1cb54a1d86",
+  "playback_evidence_sha256": "e3fc5552d2052da712f01894c7428e10d3f2a35cad1a2989d40ebd2114c8ba9c",
+  "live_tts_result": "LIVE_TTS_PASS",
+  "scope": "T1, one fixed Spanish phrase, one playback on the tested default output",
+  "tts_overall": "PARTIAL",
+  "f4_review": "NEEDS_FIXES",
+  "performance_issue": "OPEN: cold start/wait approximately eight seconds",
+  "additional_trials_started": false,
+  "microphone_used": false,
+  "new_benchmarks": false
+}

@@ -1,0 +1,132 @@
+[
+  {
+    "name": "fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 1.2206599959999949
+  },
+  {
+    "name": "f4",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4.py",
+      "--output",
+      "/home/eirom/KDE-ASSISTANT-2/docs/recovery/F4-R5-EVIDENCE/gates/f4"
+    ],
+    "exit": 0,
+    "seconds": 82.18575352000062
+  },
+  {
+    "name": "f35",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f35.py",
+      "--plasma"
+    ],
+    "exit": 0,
+    "seconds": 32.35829718399964
+  },
+  {
+    "name": "f2",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f2.py"
+    ],
+    "exit": 1,
+    "seconds": 365.79292541499944
+  },
+  {
+    "name": "restore-default",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant"
+    ],
+    "exit": 0,
+    "seconds": 0.8237874329997794
+  },
+  {
+    "name": "f3",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f3.py",
+      "--runtime-only",
+      "--plasma"
+    ],
+    "exit": 0,
+    "seconds": 32.80300664300012
+  },
+  {
+    "name": "f1b3b",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f1b3b.py",
+      "--qml"
+    ],
+    "exit": 0,
+    "seconds": 112.64911355999993
+  },
+  {
+    "name": "clippy-default",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "seconds": 0.6164960220003195
+  },
+  {
+    "name": "clippy-legacy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--features",
+      "legacy-fixtures",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "seconds": 47.902509173
+  },
+  {
+    "name": "build-default",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant"
+    ],
+    "exit": 0,
+    "seconds": 0.9768516290005209
+  },
+  {
+    "name": "fmt-final",
+    "command": [
+      "cargo",
+      "fmt",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 1.2730949630004034
+  }
+]

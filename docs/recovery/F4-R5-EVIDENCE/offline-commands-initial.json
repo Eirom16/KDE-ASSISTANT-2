@@ -1,0 +1,176 @@
+[
+  {
+    "name": "paired-notify",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/benchmark_f4r5.py",
+      "--profile",
+      "/var/tmp/kda-f4r5-3y7zg8fs",
+      "--resources",
+      "/var/tmp/kda-f4r3-piper-aqrh6h0h",
+      "--baseline",
+      "/var/tmp/kda-f4r5-3y7zg8fs/baseline-r4",
+      "--runs",
+      "5"
+    ],
+    "exit": 0,
+    "seconds": 211.15104608799993
+  },
+  {
+    "name": "lifecycle-notify",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4_r5.py",
+      "--profile",
+      "/var/tmp/kda-f4r5-3y7zg8fs",
+      "--resources",
+      "/var/tmp/kda-f4r3-piper-aqrh6h0h",
+      "--lifecycle"
+    ],
+    "exit": 0,
+    "seconds": 90.10153931200057
+  },
+  {
+    "name": "mock-warm-notify",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4_r5.py",
+      "--profile",
+      "/var/tmp/kda-f4r5-3y7zg8fs",
+      "--resources",
+      "/var/tmp/kda-f4r3-piper-aqrh6h0h",
+      "--mock"
+    ],
+    "exit": 0,
+    "seconds": 74.03840421099994
+  },
+  {
+    "name": "mock-cold-notify",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4_r5.py",
+      "--profile",
+      "/var/tmp/kda-f4r5-3y7zg8fs",
+      "--resources",
+      "/var/tmp/kda-f4r3-piper-aqrh6h0h",
+      "--mock",
+      "--cold"
+    ],
+    "exit": 0,
+    "seconds": 108.83163668699945
+  },
+  {
+    "name": "ttl30-notify-0",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4_r5.py",
+      "--profile",
+      "/var/tmp/kda-f4r5-3y7zg8fs",
+      "--resources",
+      "/var/tmp/kda-f4r3-piper-aqrh6h0h",
+      "--ttl",
+      "30"
+    ],
+    "exit": 0,
+    "seconds": 58.50289485200028
+  },
+  {
+    "name": "ttl30-notify-1",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4_r5.py",
+      "--profile",
+      "/var/tmp/kda-f4r5-3y7zg8fs",
+      "--resources",
+      "/var/tmp/kda-f4r3-piper-aqrh6h0h",
+      "--ttl",
+      "30"
+    ],
+    "exit": 0,
+    "seconds": 56.43892664899977
+  },
+  {
+    "name": "ttl30-notify-2",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4_r5.py",
+      "--profile",
+      "/var/tmp/kda-f4r5-3y7zg8fs",
+      "--resources",
+      "/var/tmp/kda-f4r3-piper-aqrh6h0h",
+      "--ttl",
+      "30"
+    ],
+    "exit": 0,
+    "seconds": 52.390680006000366
+  },
+  {
+    "name": "ttl30-notify-3",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4_r5.py",
+      "--profile",
+      "/var/tmp/kda-f4r5-3y7zg8fs",
+      "--resources",
+      "/var/tmp/kda-f4r3-piper-aqrh6h0h",
+      "--ttl",
+      "30"
+    ],
+    "exit": 0,
+    "seconds": 57.92182851600046
+  },
+  {
+    "name": "ttl30-notify-4",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4_r5.py",
+      "--profile",
+      "/var/tmp/kda-f4r5-3y7zg8fs",
+      "--resources",
+      "/var/tmp/kda-f4r3-piper-aqrh6h0h",
+      "--ttl",
+      "30"
+    ],
+    "exit": 0,
+    "seconds": 54.40476339199995
+  },
+  {
+    "name": "coexist-notify",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4_r5.py",
+      "--profile",
+      "/var/tmp/kda-f4r5-3y7zg8fs",
+      "--resources",
+      "/var/tmp/kda-f4r3-piper-aqrh6h0h",
+      "--smoke",
+      "--qml-coexist"
+    ],
+    "exit": 0,
+    "seconds": 27.337577139999667
+  },
+  {
+    "name": "extended-notify",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4_r5_extended.py",
+      "--profile",
+      "/var/tmp/kda-f4r5-3y7zg8fs",
+      "--resources",
+      "/var/tmp/kda-f4r3-piper-aqrh6h0h"
+    ],
+    "exit": 1,
+    "seconds": 5.352450526999746
+  }
+]

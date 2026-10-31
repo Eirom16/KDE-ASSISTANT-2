@@ -1,0 +1,26 @@
+[
+  {
+    "command": [
+      "python3",
+      "scripts/validate_f4.py",
+      "--output",
+      "docs/recovery/F4-EVIDENCE/FINAL"
+    ],
+    "attempt": 1,
+    "exit": 0,
+    "seconds": 27.503,
+    "reason": "final code"
+  },
+  {
+    "command": [
+      "python3",
+      "scripts/validate_f4.py",
+      "--output",
+      "docs/recovery/F4-EVIDENCE/FINAL"
+    ],
+    "attempt": 2,
+    "exit": 0,
+    "seconds": 32.708,
+    "reason": "repeat with same evidence directory verifies stale-log fix"
+  }
+]

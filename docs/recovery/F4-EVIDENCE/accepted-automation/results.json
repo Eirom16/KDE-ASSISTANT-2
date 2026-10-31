@@ -1,0 +1,90 @@
+[
+  {
+    "name": "build",
+    "category": "UNIT",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant"
+    ],
+    "exit": 0,
+    "seconds": 12.209
+  },
+  {
+    "name": "coordinator",
+    "category": "UNIT",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--lib",
+      "voice_coordinator::tests",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 0.779
+  },
+  {
+    "name": "process",
+    "category": "UNIT",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--lib",
+      "voice_process::tests",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 0.575
+  },
+  {
+    "name": "native-http",
+    "category": "UNIT",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--lib",
+      "f4_native_tests",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 0.498
+  },
+  {
+    "name": "audio",
+    "category": "AUTOMATED_AUDIO_FIXTURE",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "f4_audio",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 10.202
+  },
+  {
+    "name": "qml",
+    "category": "AUTOMATED_QML",
+    "command": [
+      "/tmp/kda-f4-private-bsnr60p6/qmltest-qapplication",
+      "-import",
+      "/home/eirom/KDE-ASSISTANT-2",
+      "-input",
+      "/home/eirom/KDE-ASSISTANT-2/tests/qml/tst_f4_voice.qml",
+      "-o",
+      "-,txt"
+    ],
+    "exit": 0,
+    "seconds": 0.717
+  }
+]

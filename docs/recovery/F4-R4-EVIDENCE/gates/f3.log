@@ -1,0 +1,12 @@
+Evidence: /tmp/kda-f4r4-gates-shpx4zf5/tmp/kda-f3-validation-vsllgx8m
+Traceback (most recent call last):
+  File "/home/eirom/KDE-ASSISTANT-2/scripts/validate_f3.py", line 97, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/home/eirom/KDE-ASSISTANT-2/scripts/validate_f3.py", line 84, in main
+    results.extend(runtime_tests(repo, evidence, env, plasma=args.plasma))
+                   ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/eirom/KDE-ASSISTANT-2/scripts/f3_runtime.py", line 369, in runtime_tests
+    assert not kwin(profile, qml, allow_missing=True)["found"], "Active own window did not hide"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Active own window did not hide

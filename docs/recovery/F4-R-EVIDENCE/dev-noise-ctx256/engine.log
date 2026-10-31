@@ -1,0 +1,172 @@
+whisper_init_from_file_with_params_no_state: loading model from '/var/tmp/kda-f4-tiny-jaan_09m/ggml-tiny.bin'
+whisper_init_with_params_no_state: use gpu    = 0
+whisper_init_with_params_no_state: flash attn = 0
+whisper_init_with_params_no_state: gpu_device = 0
+whisper_init_with_params_no_state: dtw        = 0
+whisper_init_with_params_no_state: devices    = 1
+whisper_init_with_params_no_state: backends   = 1
+whisper_model_load: loading model
+whisper_model_load: n_vocab       = 51865
+whisper_model_load: n_audio_ctx   = 1500
+whisper_model_load: n_audio_state = 384
+whisper_model_load: n_audio_head  = 6
+whisper_model_load: n_audio_layer = 4
+whisper_model_load: n_text_ctx    = 448
+whisper_model_load: n_text_state  = 384
+whisper_model_load: n_text_head   = 6
+whisper_model_load: n_text_layer  = 4
+whisper_model_load: n_mels        = 80
+whisper_model_load: ftype         = 1
+whisper_model_load: qntvr         = 0
+whisper_model_load: type          = 1 (tiny)
+whisper_model_load: adding 1608 extra tokens
+whisper_model_load: n_langs       = 99
+whisper_model_load:          CPU total size =    77.11 MB
+whisper_model_load: model size    =   77.11 MB
+whisper_backend_init_gpu: no GPU found
+whisper_init_state: kv self size  =    3.15 MB
+whisper_init_state: kv cross size =    9.44 MB
+whisper_init_state: kv pad  size  =    2.36 MB
+whisper_init_state: compute buffer (conv)   =   13.21 MB
+whisper_init_state: compute buffer (encode) =   64.81 MB
+whisper_init_state: compute buffer (cross)  =    3.89 MB
+whisper_init_state: compute buffer (decode) =   95.91 MB
+
+whisper_full_with_state: strategy = 0, decoding with 1 decoders, temperature = 0.00
+
+
+whisper_full_with_state: prompt[0] = [_SOT_]
+whisper_full_with_state: prompt[1] = [_LANG_es]
+whisper_full_with_state: prompt[2] = [_TRANSCRIBE_]
+
+
+whisper_full_with_state: id =   0, decoder = 0, token =  50364, p =  0.651, ts =    [_BEG_],  0.651, result_len =    0 '[_BEG_]'
+whisper_full_with_state: id =   1, decoder = 0, token =    522, p =  0.138, ts =        [?],  0.000, result_len =    0 ' ('
+whisper_full_with_state: id =   2, decoder = 0, token =     76, p =  0.067, ts =        [?],  0.024, result_len =    0 'm'
+whisper_full_with_state: id =   3, decoder = 0, token =  14372, p =  0.258, ts =        [?],  0.012, result_len =    0 'úsica'
+whisper_full_with_state: id =   4, decoder = 0, token =      8, p =  0.719, ts =        [?],  0.014, result_len =    0 ')'
+whisper_full_with_state: id =   5, decoder = 0, token =  50514, p =  0.038, ts =        [?],  0.038, result_len =    6 '[_TT_150]'
+whisper_full_with_state: decoder 0 completed
+whisper_full_with_state: decoder  0: score = -1.68055, result_len =   6, avg_logprobs = -1.68055, entropy =  1.79176
+whisper_full_with_state: best decoder = 0
+whisper_full_with_state: failed due to avg_logprobs -1.68055 < -1.00000 and no_speech_prob  0.00002 <  0.60000
+
+whisper_full_with_state: failed to decode with temperature = 0.00
+
+whisper_full_with_state: strategy = 0, decoding with 1 decoders, temperature = 0.20
+
+
+whisper_full_with_state: prompt[0] = [_SOT_]
+whisper_full_with_state: prompt[1] = [_LANG_es]
+whisper_full_with_state: prompt[2] = [_TRANSCRIBE_]
+
+
+whisper_full_with_state: id =   0, decoder = 0, token =  50364, p =  1.000, ts =    [_BEG_],  1.000, result_len =    0 '[_BEG_]'
+whisper_full_with_state: id =   1, decoder = 0, token =    542, p =  0.333, ts =        [?],  0.000, result_len =    0 ' ['
+whisper_full_with_state: id =   2, decoder = 0, token =  38725, p =  0.215, ts =        [?],  0.004, result_len =    0 'Música'
+whisper_full_with_state: id =   3, decoder = 0, token =     60, p =  1.000, ts =        [?],  0.000, result_len =    0 ']'
+whisper_full_with_state: id =   4, decoder = 0, token =  50514, p =  0.995, ts =  [_TT_150],  0.995, result_len =    5 '[_TT_150]'
+whisper_full_with_state: decoder 0 completed
+whisper_full_with_state: decoder  0: score = -0.52815, result_len =   5, avg_logprobs = -0.52815, entropy =  1.60944
+whisper_full_with_state: best decoder = 0
+single timestamp ending - skip entire chunk
+seek = 299, seek_delta = 299
+run 0 inference_ms 5216.311
+whisper_backend_init_gpu: no GPU found
+whisper_init_state: kv self size  =    3.15 MB
+whisper_init_state: kv cross size =    9.44 MB
+whisper_init_state: kv pad  size  =    2.36 MB
+whisper_init_state: compute buffer (conv)   =   13.21 MB
+whisper_init_state: compute buffer (encode) =   64.81 MB
+whisper_init_state: compute buffer (cross)  =    3.89 MB
+whisper_init_state: compute buffer (decode) =   95.91 MB
+
+whisper_full_with_state: strategy = 0, decoding with 1 decoders, temperature = 0.00
+
+
+whisper_full_with_state: prompt[0] = [_SOT_]
+whisper_full_with_state: prompt[1] = [_LANG_es]
+whisper_full_with_state: prompt[2] = [_TRANSCRIBE_]
+
+
+whisper_full_with_state: id =   0, decoder = 0, token =  50364, p =  0.651, ts =    [_BEG_],  0.651, result_len =    0 '[_BEG_]'
+whisper_full_with_state: id =   1, decoder = 0, token =    522, p =  0.138, ts =        [?],  0.000, result_len =    0 ' ('
+whisper_full_with_state: id =   2, decoder = 0, token =     76, p =  0.067, ts =        [?],  0.024, result_len =    0 'm'
+whisper_full_with_state: id =   3, decoder = 0, token =  14372, p =  0.258, ts =        [?],  0.012, result_len =    0 'úsica'
+whisper_full_with_state: id =   4, decoder = 0, token =      8, p =  0.719, ts =        [?],  0.014, result_len =    0 ')'
+whisper_full_with_state: id =   5, decoder = 0, token =  50514, p =  0.038, ts =        [?],  0.038, result_len =    6 '[_TT_150]'
+whisper_full_with_state: decoder 0 completed
+whisper_full_with_state: decoder  0: score = -1.68055, result_len =   6, avg_logprobs = -1.68055, entropy =  1.79176
+whisper_full_with_state: best decoder = 0
+whisper_full_with_state: failed due to avg_logprobs -1.68055 < -1.00000 and no_speech_prob  0.00002 <  0.60000
+
+whisper_full_with_state: failed to decode with temperature = 0.00
+
+whisper_full_with_state: strategy = 0, decoding with 1 decoders, temperature = 0.20
+
+
+whisper_full_with_state: prompt[0] = [_SOT_]
+whisper_full_with_state: prompt[1] = [_LANG_es]
+whisper_full_with_state: prompt[2] = [_TRANSCRIBE_]
+
+
+whisper_full_with_state: id =   0, decoder = 0, token =  50364, p =  1.000, ts =    [_BEG_],  1.000, result_len =    0 '[_BEG_]'
+whisper_full_with_state: id =   1, decoder = 0, token =    542, p =  0.333, ts =        [?],  0.000, result_len =    0 ' ['
+whisper_full_with_state: id =   2, decoder = 0, token =  38725, p =  0.215, ts =        [?],  0.004, result_len =    0 'Música'
+whisper_full_with_state: id =   3, decoder = 0, token =     60, p =  1.000, ts =        [?],  0.000, result_len =    0 ']'
+whisper_full_with_state: id =   4, decoder = 0, token =  50514, p =  0.995, ts =  [_TT_150],  0.995, result_len =    5 '[_TT_150]'
+whisper_full_with_state: decoder 0 completed
+whisper_full_with_state: decoder  0: score = -0.52815, result_len =   5, avg_logprobs = -0.52815, entropy =  1.60944
+whisper_full_with_state: best decoder = 0
+single timestamp ending - skip entire chunk
+seek = 299, seek_delta = 299
+run 1 inference_ms 5379.278
+whisper_backend_init_gpu: no GPU found
+whisper_init_state: kv self size  =    3.15 MB
+whisper_init_state: kv cross size =    9.44 MB
+whisper_init_state: kv pad  size  =    2.36 MB
+whisper_init_state: compute buffer (conv)   =   13.21 MB
+whisper_init_state: compute buffer (encode) =   64.81 MB
+whisper_init_state: compute buffer (cross)  =    3.89 MB
+whisper_init_state: compute buffer (decode) =   95.91 MB
+
+whisper_full_with_state: strategy = 0, decoding with 1 decoders, temperature = 0.00
+
+
+whisper_full_with_state: prompt[0] = [_SOT_]
+whisper_full_with_state: prompt[1] = [_LANG_es]
+whisper_full_with_state: prompt[2] = [_TRANSCRIBE_]
+
+
+whisper_full_with_state: id =   0, decoder = 0, token =  50364, p =  0.651, ts =    [_BEG_],  0.651, result_len =    0 '[_BEG_]'
+whisper_full_with_state: id =   1, decoder = 0, token =    522, p =  0.138, ts =        [?],  0.000, result_len =    0 ' ('
+whisper_full_with_state: id =   2, decoder = 0, token =     76, p =  0.067, ts =        [?],  0.024, result_len =    0 'm'
+whisper_full_with_state: id =   3, decoder = 0, token =  14372, p =  0.258, ts =        [?],  0.012, result_len =    0 'úsica'
+whisper_full_with_state: id =   4, decoder = 0, token =      8, p =  0.719, ts =        [?],  0.014, result_len =    0 ')'
+whisper_full_with_state: id =   5, decoder = 0, token =  50514, p =  0.038, ts =        [?],  0.038, result_len =    6 '[_TT_150]'
+whisper_full_with_state: decoder 0 completed
+whisper_full_with_state: decoder  0: score = -1.68055, result_len =   6, avg_logprobs = -1.68055, entropy =  1.79176
+whisper_full_with_state: best decoder = 0
+whisper_full_with_state: failed due to avg_logprobs -1.68055 < -1.00000 and no_speech_prob  0.00002 <  0.60000
+
+whisper_full_with_state: failed to decode with temperature = 0.00
+
+whisper_full_with_state: strategy = 0, decoding with 1 decoders, temperature = 0.20
+
+
+whisper_full_with_state: prompt[0] = [_SOT_]
+whisper_full_with_state: prompt[1] = [_LANG_es]
+whisper_full_with_state: prompt[2] = [_TRANSCRIBE_]
+
+
+whisper_full_with_state: id =   0, decoder = 0, token =  50364, p =  1.000, ts =    [_BEG_],  1.000, result_len =    0 '[_BEG_]'
+whisper_full_with_state: id =   1, decoder = 0, token =    542, p =  0.333, ts =        [?],  0.000, result_len =    0 ' ['
+whisper_full_with_state: id =   2, decoder = 0, token =  38725, p =  0.215, ts =        [?],  0.004, result_len =    0 'Música'
+whisper_full_with_state: id =   3, decoder = 0, token =     60, p =  1.000, ts =        [?],  0.000, result_len =    0 ']'
+whisper_full_with_state: id =   4, decoder = 0, token =  50514, p =  0.995, ts =  [_TT_150],  0.995, result_len =    5 '[_TT_150]'
+whisper_full_with_state: decoder 0 completed
+whisper_full_with_state: decoder  0: score = -0.52815, result_len =   5, avg_logprobs = -0.52815, entropy =  1.60944
+whisper_full_with_state: best decoder = 0
+single timestamp ending - skip entire chunk
+seek = 299, seek_delta = 299
+run 2 inference_ms 5652.507

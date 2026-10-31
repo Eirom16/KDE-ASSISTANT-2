@@ -1,0 +1,124 @@
+[
+  {
+    "name": "fmt",
+    "command": [
+      "cargo",
+      "fmt"
+    ],
+    "exit": 0,
+    "seconds": 0.968
+  },
+  {
+    "name": "consent",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/test_f4_tts.py"
+    ],
+    "exit": 0,
+    "seconds": 0.466
+  },
+  {
+    "name": "f4",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4.py",
+      "--output",
+      "/home/eirom/KDE-ASSISTANT-2/docs/recovery/F4-R3-EVIDENCE/hardened/f4"
+    ],
+    "exit": 0,
+    "seconds": 54.812
+  },
+  {
+    "name": "clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "seconds": 8.616
+  },
+  {
+    "name": "clippy-legacy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--features",
+      "legacy-fixtures",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "seconds": 8.247
+  },
+  {
+    "name": "build",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant"
+    ],
+    "exit": 0,
+    "seconds": 0.516
+  },
+  {
+    "name": "fmt-check",
+    "command": [
+      "cargo",
+      "fmt",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 1.068
+  },
+  {
+    "name": "native-benchmark",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/benchmark_native_piper_f4.py",
+      "--profile",
+      "/var/tmp/kda-f4r3-piper-aqrh6h0h",
+      "--runs",
+      "3"
+    ],
+    "exit": 0,
+    "seconds": 47.626
+  },
+  {
+    "name": "coordinator-real",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4_piper.py",
+      "--profile",
+      "/var/tmp/kda-f4r3-piper-aqrh6h0h"
+    ],
+    "exit": 0,
+    "seconds": 51.617
+  },
+  {
+    "name": "prepare-t1",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/live_f4_tts.py",
+      "--prepare",
+      "--engine-profile",
+      "/var/tmp/kda-f4r3-piper-aqrh6h0h"
+    ],
+    "exit": 0,
+    "seconds": 0.566
+  }
+]

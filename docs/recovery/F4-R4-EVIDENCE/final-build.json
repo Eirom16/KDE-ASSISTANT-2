@@ -1,0 +1,49 @@
+[
+  {
+    "command": [
+      "cargo",
+      "fmt"
+    ],
+    "exit": 0,
+    "seconds": 1.0543624060001093
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--lib",
+      "voice_",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 35.110317587999816
+  },
+  {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "f4_cli",
+      "--",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 43.21463107399995
+  },
+  {
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 101,
+    "seconds": 10.936925381000037
+  }
+]

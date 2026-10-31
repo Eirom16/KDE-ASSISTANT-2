@@ -1,0 +1,18 @@
+{
+  "boot_id": "d26b8e59-614c-49fc-b764-5a18140fc399",
+  "uptime": "3522.45 11817.63",
+  "meminfo": "MemTotal:        7942728 kB\nMemFree:          785572 kB\nMemAvailable:    4903160 kB\nBuffers:             148 kB\nCached:          4693324 kB\nSwapCached:          412 kB\nActive:          1731296 kB\nInactive:        4745424 kB\nActive(anon):    1091256 kB\nInactive(anon):  1101376 kB\nActive(file):     640040 kB\nInactive(file):  3644048 kB\nUnevictable:      140880 kB\nMlocked:             216 kB\nSwapTotal:       7942140 kB\nSwapFree:        7625404 kB\nZswap:                 0 kB\nZswapped:              0 kB\nDirty:              1896 kB\nWriteback:             0 kB\nAnonPages:       1834888 kB\nMapped:           894504 kB\nShmem:            340568 kB\nKReclaimable:     116840 kB\nSlab:             237688 kB\nSReclaimable:     116840 kB\nSUnreclaim:       120848 kB\nKernelStack:       12384 kB\nPageTables:        52704 kB\nSecPageTables:         0 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    11913504 kB\nCommitted_AS:   16154040 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:       79548 kB\nVmallocChunk:          0 kB\nPercpu:             3104 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:    270336 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:         0 kB\nFilePmdMapped:         0 kB\nCmaTotal:              0 kB\nCmaFree:               0 kB\nUnaccepted:            0 kB\nBalloon:               0 kB\nGPUActive:             0 kB\nGPUReclaim:            0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:      153728 kB\nDirectMap2M:     4909056 kB\nDirectMap1G:     5242880 kB\n",
+  "psi": "some avg10=0.00 avg60=0.20 avg300=0.52 total=3572455\nfull avg10=0.00 avg60=0.11 avg300=0.28 total=2177637\n",
+  "loadavg": [
+    1.27685546875,
+    1.9892578125,
+    1.326171875
+  ],
+  "thermal": {
+    "/sys/class/thermal/thermal_zone2/temp": "66000",
+    "/sys/class/thermal/thermal_zone0/temp": "48000",
+    "/sys/class/thermal/thermal_zone3/temp": "42000",
+    "/sys/class/thermal/thermal_zone1/temp": "20000",
+    "/sys/class/thermal/thermal_zone4/temp": "66000"
+  }
+}

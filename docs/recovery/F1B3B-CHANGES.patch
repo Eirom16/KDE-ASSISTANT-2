@@ -1,0 +1,3716 @@
+diff --git a/docs/recovery/F1B3B-REPORT.md b/docs/recovery/F1B3B-REPORT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..af15e1155749c3982d11e0720d0bd3016fcbcb72
+--- /dev/null
++++ b/docs/recovery/F1B3B-REPORT.md
+@@ -0,0 +1,73 @@
++# F1B-3B — Historial íntegro, retención y recuperación visible
++
++Fecha: 2026-10-12. Estado: **IMPLEMENTED**. Recomendación: **READY_FOR_REVIEW** para F1B-3B, con los límites descritos abajo. No implica aprobación de merge ni certificación de proveedores, voz o Plasma reales.
++
++Los trece gates de `python3 scripts/validate_f1b3b.py --qml` finalizaron con exit 0: formato, check, Clippy, F1A/F1B1/F1B2/F1B3A/F1B3B, unitarios seguros, app-paths y tres selecciones Qt. Resultados finales: 269 PASS de tests padre Rust y 6 PASS de harnesses QML; cero FAIL. IGNORED, FILTERED, fallos de iteraciones anteriores y NOT_TESTED se distinguen en [F1B3B-RESULTS.md](F1B3B-RESULTS.md). El manifiesto SHA256 de 127 fuentes no cambió durante la validación y coincide con el árbol final de código. Contrato: [F1B3B-STORAGE-CONTRACT.md](F1B3B-STORAGE-CONTRACT.md).
++
++## Baseline y preparación
++
++Repositorio local `Eirom16/KDE-ASSISTANT-2`. HEAD inicial y base obligatoria: **`d8a6972b5bc3977408c8d0956fce3196623d5458`**, rama anterior `recovery/f1b3a-persistence`. Tracked/staged estaban limpios. Se conservaron los veinte documentos/parches previos sin versionar; no se añadieron al índice ni se modificaron. Rama nueva: **`recovery/f1b3b-history-retention`**. Durante la implementación HEAD y rama anterior permanecieron en el baseline. La consolidación local posterior se registra en F1B3B-CLOSURE y F1B3B-COMMIT-VALIDATION; sin push, merge, release, reset, clean ni stash.
++
++Se leyeron AGENTS, los tres documentos de arquitectura/UI y los contratos, informes, resultados, cierre, validación y plan de recuperación solicitados. Se inspeccionaron las ocho tablas, los callers de contexto de texto/voz, el bucle ReAct, APIs, QML y los workspaces de SafePath/previews/imágenes. No hubo delegación ni trabajo de F2. Cargo.toml/Cargo.lock y las migraciones 002/003 se conservan.
++
++## Implementación
++
++El defecto principal de contexto era una ventana de 40 mensajes después de cargar toda la sesión. El caller heredado de voz recortaba a 12 y quitaba tools de los bordes. Ambas rutas usan ahora un selector compartido de unidades de input completas con presupuesto, validación causal y metadatos honestos sobre intentos cancelados/fallidos/inciertos. El resto de la arquitectura de voz no se modifica. Antes de cada request ReAct se vuelve a comprobar el presupuesto, incluyendo esquemas y reserva de respuesta. Las consultas `octet_length` aprovechan el tamaño en el registro SQLite sin cargar payloads overflow antes de comprobarlo; una fixture rechaza un JSON legacy inválido de 4 MiB por presupuesto antes de parsearlo. Historial original y UUID no se reescriben; un grupo legacy incompleto dentro de la ventana produce error explícito. Los resúmenes no reemplazan el original; la generación legacy opcional usa un excerpt acotado.
++
++El borrado anterior eliminaba `messages` y `sessions` sin transacción ni journal. Ahora arbitra con reservas/supervisores, rechaza turnos/operaciones activos, comprueba ownership y elimina los dependientes de las ocho tablas dentro de BEGIN IMMEDIATE/COMMIT. UnknownOutcome requiere consentimiento adicional en QML y API. La política automática destructiva de DB permanece desactivada. También se permite investigar y eliminar explícitamente los metadatos exactos de una sesión que el borrado legacy ya hubiera eliminado; no se purgan durante migración.
++
++Los recursos nuevos tienen raíz propia, UUID/UID/marker verificables, leases y cuotas de admisión. Las copias usadas sólo como fuente de render se recogen al terminar; imágenes publicadas y recursos referenciados/activos se conservan. Guards recogen recursos fallidos no publicados. Sweep sólo durante arranque sobre recursos verificables, inactivos, no referenciados y con periodo de gracia de caché; nunca sobre `/tmp` legacy. El límite de download se aplica durante lectura, y la publicación verifica el tamaño del recurso.
++
++RecoveryHistory integra el diseño actual con tokens/Octicons, aviso por sesión y acceso desde el historial del drawer. Muestra metadatos seguros, estados honestos, páginas de 50 y confirmación antes de borrar evidencia. No ofrece replay/retry. Errores, registros incompletos, sesión eliminada y callbacks obsoletos tienen estados explícitos. `/api/storage` añade diagnóstico de tamaño, conteos, orfandad y política; `/api/tools/audit` redacta argumentos **en la respuesta**, preservando las filas históricas originales.
++
++## Archivos del alcance
++
++| Archivos | Cambio |
++| --- | --- |
++| `src/backend/history_context.rs` | Selector acotado de unidades, invariantes tool/result, presupuesto por request, inputs/facts/excerpt acotados. |
++| `src/backend/storage_retention.rs` | Borrado transaccional/confirmado, ownership, diagnóstico y referencias de recursos. |
++| `src/backend/resource_cache.rs` | Ownership, leases, cuotas, publicación, guards y sweep seguro. |
++| `migrations/004_storage_retention.sql` | Índices, guards de borrado de padres y de inserción de mensajes, marcador aditivo 004. |
++| `src/backend/session_manager.rs`, `operation_journal.rs` | Wiring del borrado/migración, tamaño de WAL, cursor/filtro de recuperación. |
++| `src/backend/ai_service.rs`, `http_server.rs`, `conversation_turn.rs` | Presupuesto antes de cada request, selector, errores explícitos, redacción de API, diagnóstico/borrado y arbitraje de registry. |
++| `src/backend/safe_fs.rs`, `tool_executor.rs`, `mod.rs` | Cache propia, fuentes privadas acotadas, guards, snapshots/previews e inicio de mantenimiento. |
++| `src/backend/voice_pipeline.rs` | Caller de historial compartido; dos unitarios legacy de recorte sustituidos por selección íntegra/error conservador. Audio/estado/STT/TTS sin cambio. |
++| `src/models/config.rs` | Presupuestos de contexto con defaults compatibles. |
++| `qml/Main.qml`, `qml/qmldir`, `qml/components/RecoveryHistory.qml` | Aviso, consulta por sesión/global, estados/paginación y confirmación de eliminación. |
++| `tests/f1b3b_storage.rs`, `tests/qml/F1B3BRecovery.qml`, `tests/qml/F1B3BMain.qml` | Bases/directorios privados, router real, mocks, guards/quotas, integridad y harnesses Qt. |
++| `tests/f1b1_text_startup.rs` | Esperar al último owner DB en un teardown de reinicio que podía competir con el flock. No se debilita exclusión de instancia. |
++| `tests/f1b3a_persistence.rs` | Comprobar idempotencia del marcador 003 por versión; el marcador nuevo 004 se comprueba aparte. |
++| `scripts/validate_f1b3b.py` | Gates exactos con XDG/TMPDIR privados, exclusiones seguras, Qt opt-in y manifiesto de fuentes. |
++| `docs/recovery/F1B3B-{REPORT,RESULTS,STORAGE-CONTRACT}.md` | Entregables y evidencia. |
++
++## Demostración de eliminación e integridad
++
++`uncertain_deletion_requires_confirmation_and_leaves_no_orphans` prepara dos operaciones UnknownOutcome y un snapshot turn_recovery en una sesión, además de otra sesión con un turno completo. El primer borrado sin confirmación falla conservando ambas operaciones. El borrado confirmado deja cero mensajes, turnos, auditorías y operaciones de la sesión eliminada; cero eventos de esas operaciones y cero snapshots; conserva el input, turno y cinco mensajes de la sesión independiente. integrity_check=ok y foreign_key_check sin filas.
++
++`deletion_failure_mid_transaction_rolls_back_every_table` inyecta RAISE(ABORT) cuando se borran mensajes, después de retirar eventos/journal/inputs/audit dentro de la transacción. El retorno es error; rollback conserva el usuario, la operación y sus cuatro eventos. Al retirar el trigger el mismo manager completa el borrado y vuelve a pasar integridad. Otros casos comprueban matches exactos, supervisor reservado antes de persistencia, turno activo y Dispatched con turno ya terminal.
++
++Una fixture de borrado legacy retira sesión/input dejando metadatos inciertos. Sólo para sembrar esa corrupción sintética se desactiva el enforcement de FK en su conexión de fixture y se retiran dos guards; inmediatamente se reactiva y se comprueba que foreign_key_check detecta el defecto. Producción no desactiva constraints ni oculta errores. Reabrir no elimina ni reejecuta la evidencia; diagnóstico informa orfandad, borrar sin consentimiento falla y la eliminación confirmada por Session ID exacto deja cero enlaces huérfanos y SQLite íntegro. Bases previas a F1B2 conservan contenido/UUID/NULL turn_id en tres aperturas. Se conserva la cobertura de SIGKILL/no replay F1B3A.
++
++## Recuperación QML
++
++Harness de componente: texto exacto UnknownOutcome, Failed con efectos parciales, Abandoned previo al despacho, fila antigua incompleta, lista vacía, HTTP 500, cierre de confirmación sin borrado y respuesta tardía descartada.
++
++Harness de Main: aviso de sesión, primer DELETE rechazado con 409, historial conservado mientras se muestra confirmación, activación explícita de «Eliminar evidencia», segundo DELETE confirmado y sesión borrada representada como vacía. El mock cuenta las eliminaciones confirmadas. Las pruebas de Auth/HTTP/SQLite son separadas y usan el router real; Qt offscreen no certifica Plasma.
++
++## Límites
++
++La cota de tokens es conservadora por bytes, sin tokenizer específico ni descubrimiento de capacidades del modelo. La ventana configurada debe corresponder al modelo; templates privados y proveedores reales no se certifican. La memoria acotada corresponde a contextos para proveedor; la carga legacy de mensajes para UI sigue siendo completa. Un historial seleccionado corrupto se conserva y falla; no se repara silenciosamente.
++
++DB automática no caduca; imágenes todavía referenciadas pueden conservarse hasta eliminar su conversación. La cuota puede impedir generar más recursos antes de poder recoger los activos. El periodo de gracia de caché no equivale a eliminación inmediata ni forense, y el renderer externo puede consumir espacio transitorio antes de que se valide su salida. Leases protegen el lifecycle cooperante de la aplicación, no procesos huérfanos/ajenos fuera de esa autoridad. Ownership desconocido o inconsistente se conserva/rechaza.
++
++No exactly-once externo, rollback de efectos ni secure delete ficticio. Auditoría antigua y mensajes pueden contener información privada; redacción de API no significa redacción histórica de SQLite. Facts, recordatorios, archivos creados por tools y backups no tienen ownership de conversación que se pueda inventar. Auth/ToolCtx conservan los límites F1A–F1B3A y no se convierten en permisos definitivos F2. No proveedores remotos, micrófono/modelos, Plasma ni fallos físicos durante las pruebas.
++
++## Revisión final antes de consolidación
++
++Se reprodujeron dos defectos adicionales con fixtures privadas. `replaced_workspace_cannot_publish_or_delete_another_live_resource` fallaba: publish y cleanup devolvían Ok para una ruta cuyo directorio pertenecía a otro lease activo. `image_download_does_not_follow_planted_output_symlinks` fallaba: la descarga sobrescribía el target sintético antes de que la publicación rechazara el enlace. Ambos pasan después del arreglo.
++
++Los leases guardan descriptores de raíz/directorio/marker y comparan device/inode. La limpieza reclama un nombre nuevo y valida identidad antes del borrado; una identidad inesperada no se elimina. Las escrituras de descargas/SVGs usan CREATE|EXCL por descriptor; el PDF se recibe por stdout en un archivo creado de esa forma. Se comprobó también un PDF sintético con pdftoppm local y firma PNG. Los dos unitarios de render heredados se adaptaron a una caché registrada de fixture, manteniendo sus assertions de contenido; no se añadió fallback inseguro para rutas no gestionadas.
++
++Fuentes finales: trece gates PASS en `/tmp/kda-f1b3b-check-4js24vaa`, 269 Rust + 6 Qt. Se conservan las evidencias de FAIL antes del arreglo y de las iteraciones de validación. El usuario autorizó expresamente incluir en A las dos adaptaciones mínimas de tests heredados (marcador 003 y teardown SQLite); todas las pruebas nuevas quedan en B.
++
++El orden de locks revisado es Registry -> Turn -> SQLite, y Registry -> SQLite en borrado. Ningún caller inspeccionado toma Registry mientras conserva SQLite; start_turn suelta SQLite antes de reserve, complete toma Turn antes del callback SQLite, manual/voz preparan sus turnos mediante transacción y comprobación de sesión. El scheduler sólo toma SQLite para recordatorios globales y no tiene enlace de sesión que deba borrarse. Una inserción posterior al borrado es rechazada por el guard de sesión. No se afirma una certificación general contra procesos hostiles con el mismo UID o acceso directo a la DB fuera del backend.
+diff --git a/docs/recovery/F1B3B-RESULTS.md b/docs/recovery/F1B3B-RESULTS.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..b62d524b3b1e17c40cd45263ad50b07d5498d803
+--- /dev/null
++++ b/docs/recovery/F1B3B-RESULTS.md
+@@ -0,0 +1,107 @@
++# F1B-3B — Resultados reproducibles
++
++Fecha: 2026-10-12. **IMPLEMENTED / READY_FOR_REVIEW**, dentro del alcance de historial, almacenamiento y recuperación. Baseline: `d8a6972b5bc3977408c8d0956fce3196623d5458`; rama `recovery/f1b3b-history-retention`. Consolidación local posterior documentada en F1B3B-CLOSURE/F1B3B-COMMIT-VALIDATION; sin push, merge ni release.
++
++## Ejecución final
++
++Comando: `python3 scripts/validate_f1b3b.py --qml`.
++
++Evidencia final local: `/tmp/kda-f1b3b-check-4js24vaa/`, con `results.json`, `source-manifest.json` y un log por gate. Transcript `/tmp/kda-f1b3b-consolidation-f24ll7kk/final-sources-third.log`. Estos archivos son evidencia temporal privada, no entregables publicados ni volcados de SQLite personal. El manifiesto SHA256 incluye 127 archivos Rust/QML/SQL/Python/JS/qmldir y coincide con el código final; no hubo cambios de fuentes durante los gates. Los tres documentos entregables contienen el resultado durable y la descripción de cobertura.
++
++El harness usa umask 077, XDG_CONFIG_HOME/XDG_CACHE_HOME/XDG_DATA_HOME/TMPDIR privados, SQLite sintético, mocks loopback y fixtures propias. Retira claves API, proxies y flags heredados KDA_F1; Cargo offline. El runner limpia únicamente sus directorios de fixture. No se descargaron modelos, no se abrió micrófono y no se borraron conversaciones/archivos personales. No constituye un sandbox general de egress; la selección y los mocks evitan los tests externos conocidos.
++
++Todos los comandos de la siguiente tabla terminaron con exit 0. Los números corresponden al resumen final del proceso padre; los hijos controlados que repiten un test o generan una fixture no se suman otra vez. FILTERED de hijos tampoco se atribuye al padre.
++
++| Gate / comando exacto | Estado | PASS | FAIL | IGNORED | FILTERED |
++| --- | --- | ---: | ---: | ---: | ---: |
++| `cargo fmt --check` | PASS | — | — | — | — |
++| `cargo check --locked --all-targets` | PASS | — | — | — | — |
++| `cargo clippy --locked --all-targets -- -D warnings` | PASS | — | — | — | — |
++| `cargo test --locked --test f1a_security` | PASS | 19 | 0 | 1 | 0 |
++| `cargo test --locked --test f1b1_text_startup -- --test-threads=1` | PASS | 13 | 0 | 1 | 0 |
++| `cargo test --locked --test f1b2_conversation -- --test-threads=1` | PASS | 20 | 0 | 3 | 0 |
++| `cargo test --locked --test f1b3a_persistence -- --test-threads=1` | PASS | 26 | 0 | 1 | 0 |
++| `cargo test --locked --test f1b3b_storage -- --test-threads=1` | PASS | 33 | 0 | 3 | 0 |
++| `cargo test --locked --lib -- --test-threads=1 --skip backend::wakeword_ml::tests::download_and_extract_onnx_runtime --skip backend::tool_executor::tests::show_image_huge_url_is_rejected_before_download` | PASS | 156 | 0 | 1 | 2 |
++| `cargo test --locked --test app_paths` | PASS | 2 | 0 | 0 | 0 |
++| `cargo test --locked --test f1b1_text_startup qml_offscreen -- --ignored --nocapture` | PASS | 1 | 0 | 0 | 13 |
++| `cargo test --locked --test f1b2_conversation qml_ -- --ignored --nocapture --test-threads=1` | PASS | 3 | 0 | 0 | 20 |
++| `cargo test --locked --test f1b3b_storage qml_ -- --ignored --nocapture --test-threads=1` | PASS | 2 | 0 | 0 | 34 |
++
++Total de ejecuciones de tests padre que pasaron: **269 Rust + 6 Qt/QML = 275**, cero FAIL finales. No significa haber ejecutado `cargo test` sin filtros ni toda posible prueba del repositorio.
++
++IGNORED conserva su significado: F1A mount namespace requiere unshare/mount y no se ejecutó; los Qt opt-in de F1B1/F1B2/F1B3B sí se ejecutaron en los últimos tres gates. Los workers crash/cache no son pruebas independientes ignoradas que puedan invocarse indiscriminadamente: sus padres los ejecutan en fixtures privadas. Lo mismo aplica al crash worker unitario. Los dos unitarios externos listados permanecen FILTERED y su funcionalidad remota es NOT_TESTED. Los 13/20/34 FILTERED en selecciones Qt son pruebas fuera del filtro, ya cubiertas por su suite normal cuando corresponde.
++
++## Cobertura F1B-3B solicitada
++
++| Requisito | Evidencia ejecutada / resultado |
++| --- | --- |
++| 1. Historial corto/largo | `short_history_preserves_multi_call_causality_and_failures`, `long_history_selects_complete_suffix_without_summary`: PASS. Sufijo causal completo sin inyectar resumen. |
++| 2. Múltiples calls/results | Batch de dos calls, resultados en orden causal inverso a sus IDs, output fallido conservado; `orphan_duplicate_and_missing_results_fail`: PASS. |
++| 3. Corte assistant/tool/result | `cutoff_never_splits_assistant_and_results`: PASS sobre varios presupuestos; nunca quedan pares separados. |
++| 4. Tokens/tamaño/respuesta | `oversized_latest_input_and_response_fail_explicitly`, `essential_instructions_cannot_be_cropped`, `regeneration_input_is_bounded`, `live_request_growth_is_checked_each_iteration`: PASS. Contabilidad conservadora por bytes; JSON legacy inválido de 4 MiB rechazado antes de parsear; no tokenizer remoto certificado. |
++| 5. Cancelación/fallo | `cancelled_failed_and_previous_retry_unknown_are_visible_in_context`, `interrupted_outputs_and_post_deletion_writes_are_rejected`: PASS; conserva input y no acepta outputs no completados. |
++| 6. UnknownOutcome previo | Retry enlazado a input original; aviso esencial y regenerate restringido: PASS. Cobertura de no replay/SIGKILL heredada sigue PASS. |
++| 7. Legacy sin Turn ID | `legacy_null_turn_ids_remain_causal`, `incomplete_legacy_groups_are_errors_never_fabricated`: PASS; no reasignación de UUID ni resultados inventados. |
++| 8. Borrar sesión con varias operaciones | `uncertain_deletion_requires_confirmation_and_leaves_no_orphans`: PASS, dos UnknownOutcome y snapshot turn_recovery. |
++| 9. Fallo a mitad de borrado | `deletion_failure_mid_transaction_rolls_back_every_table`: PASS con trigger RAISE(ABORT); journal/eventos restaurados y conexión reutilizable. |
++| 10. Sesiones independientes | Mismo test de eliminación y `exact_session_matching_preserves_independent_metadata`: PASS; igualdad exacta, contenido/metadata ajenos conservados. |
++| 11. Borrado activo | `deletion_rejects_persisted_and_reserved_active_turns`, `dispatched_operation_blocks_deletion_even_with_terminal_turn`: PASS. Router real devuelve 409 para reserva activa. |
++| 12. Confirmar evidencia incierta | Primer DELETE real 409 y conservación de filas; segundo explícito 200. Harness Main no borra antes de pulsar confirmación: PASS. |
++| 13. Symlinks maliciosos | `cache_symlinks_are_not_followed_and_cleanup_can_recover`, `inactive_symlink_cleanup_failure_retries_without_touching_target`, `cache_ownerless_and_symlink_roots_are_never_removed`: PASS. Target externo de fixture intacto. |
++| 14. Recursos abiertos | `active_open_and_persistent_resources_are_retained`, `referenced_and_young_cache_survive_repeated_sweeps`: PASS, leases/referencias/gracia conservados. |
++| 15. Reinicio/migración | `migrations_repeat_and_preserve_pre_f1b2_uuid_history`: PASS, tres aperturas y marcador 004 único. Suites anteriores conservan restart/recovery. |
++| 16. UI incierta | `qml_recovery_states_and_stale_responses`, `qml_session_banner_and_explicit_evidence_confirmation`: PASS Qt offscreen con componentes reales. |
++| 17. API cero/error | Router real: lista vacía tras eliminación, 401 sin auth, 404 sesión ausente, 409 actividad/consentimiento, 500 fallo de tabla, 502 presupuesto. QML mock: empty/unavailable/respuesta tardía: PASS. |
++| 18. Privacidad | `diagnostics_and_paged_recovery_are_private_and_non_destructive` y router: PASS; metadata sin argumentos privados, API audit redacta mientras SQLite conserva evidencia raw histórica. |
++| 19. Integridad mantenimiento | integrity_check=ok, foreign_key_check vacío y diagnóstico sin enlaces huérfanos tras borrado/rollback/migración: PASS. No VACUUM nuevo. |
++| 20. Seguridad/cancelación | F1A/F1B1/F1B2/F1B3A y selección segura unitaria: PASS con exclusiones explícitas arriba. Autorización/IPC/no replay conservados. |
++
++Además: límites de cuotas/admisión concurrente, guard de recursos no publicados, preview de imagen que conserva su snapshot y fallo de render que recoge temporales, orden causal de system históricos y eliminación explícita de metadatos huérfanos legacy: PASS. El caller heredado de voz tiene dos unitarios de selección íntegra/error conservador; no se certifica captura o síntesis de voz real.
++
++## Demostración de borrado
++
++La fixture crea una sesión con dos operaciones inciertas, sus eventos y un snapshot de recuperación. Otra sesión contiene un turno Completed con input + assistant/tool/tool/final. Sin flag de consentimiento no se retira ninguna operación. Con consentimiento, cero messages/conversation_turns/tool_audit/operation_journal pertenecen a la sesión eliminada, cero operation_events y turn_recovery quedan de ella, y la otra sesión conserva sus cinco mensajes y su turn_inputs. foreign_key_check no devuelve filas y integrity_check devuelve `ok`.
++
++El trigger de fallo se ejecuta al borrar messages, después de eliminar eventos, journal, recovery, inputs y audit dentro de la misma transacción. Rollback conserva la operación, sus cuatro eventos y el input; al retirar el trigger el borrado se completa en la misma conexión y vuelve a pasar integridad. Guards adicionales impiden borrar padres fuera del procedimiento con dependientes vivos.
++
++La fixture de corrupción legacy desactiva FK **sólo durante la siembra sintética**, retira dos guards para reproducir el borrado anterior y reactiva FK inmediatamente. Antes de abrir producción afirma que foreign_key_check detecta la orfandad. Migración conserva UnknownOutcome, diagnóstico lo informa, borrado sin consentimiento falla y borrado confirmado por ID exacto repara la orfandad. No se desactiva enforcement durante la migración ni durante el procedimiento probado.
++
++## QML y aislamiento
++
++Componente RecoveryHistory: frase exacta de incertidumbre, semántica Failed/Abandoned, placeholders de fila antigua, ausencia de registros, indisponibilidad HTTP 500, cancelación de confirmación sin eliminación y generación de requests que descarta una respuesta tardía. Main real: aviso de sesión, 409 de primer intento, pausa sin borrar antes de consentimiento, acción «Eliminar evidencia», segunda petición explícita y sesión eliminada como vacía. El mock verifica el contador de eliminaciones confirmadas.
++
++Los harnesses se ejecutan con Qt offscreen en XDG privados. F1B1 prueba también fallo de carga QML visible y liberación de puerto sin matar un QML ajeno; F1B2 mantiene sus tres escenarios de cancelación/regenerate/cambio de sesión. Los mocks de UI y las pruebas del router real son evidencias separadas; no se presenta un mock como prueba de SQLite ni offscreen como certificación Wayland.
++
++## Iteraciones previas y correcciones
++
++| Ejecución | Resultado observado | Corrección y revalidación |
++| --- | --- | --- |
++| `/tmp/kda-f1b3b-check-102aycs9` | FAIL F1B3A: 25 PASS, 1 FAIL, 1 IGNORED. Un test suponía que sólo existía el marcador de migración 003. Gates posteriores NOT_TESTED en esa ejecución. | Se comprueba versión 3 por separado, sin eliminar el marcador nuevo 4; nueva suite prueba su unicidad. |
++| `/tmp/kda-f1b3b-check-v6vbqd64` | FAIL F1B1: 12 PASS, 1 FAIL, 1 IGNORED. Reapertura compitió con último owner SQLite del servidor detenido. Gates posteriores NOT_TESTED allí. | Teardown espera a que desaparezca el Weak de SessionManager antes de reabrir; no se debilita flock ni la exclusión de instancia de producción. |
++| `/tmp/kda-f1b3b-check-rwn4owjw` | FAIL F1B3B: 30 PASS, 1 FAIL, 3 IGNORED. FK impedía sembrar deliberadamente una base huérfana legacy. Gates posteriores NOT_TESTED allí. | La conexión de siembra reproduce explícitamente el enforcement antiguo, lo reactiva y afirma el error real antes del ejercicio de producción. |
++| `/tmp/kda-f1b3b-check-ghouod_0` | PASS de los 13 gates, cero FAIL. | Después, la revisión de memoria sustituyó length(CAST(...)) por octet_length y amplió el caso de payload legacy. |
++| `/tmp/kda-f1b3b-check-fedrbire` | PASS previo a la auditoría de consolidación, cero FAIL. | Código de implementación con guards de tamaño optimizados validado; manifiesto inalterado. |
++
++Durante desarrollo también se corrigieron un import faltante de anyhow::Context y un import de test no usado señalado por Clippy. No quedan warnings/fallos en la ejecución final. El fallo de fixture y los cambios de compatibilidad de tests no se contabilizan como pruebas ignoradas que hubieran pasado.
++
++## NOT_TESTED y límites de la recomendación
++
++Proveedores externos/tokenizadores/templates privados, modelos descargables, voz/micrófono/TTS reales, Plasma Wayland/tray real, namespace mount de F1A, fallos físicos de disco/dispositivo, destrucción forense de datos y uso de recursos por procesos QML huérfanos fuera del lifecycle cooperante: **NOT_TESTED**. No se implementaron exportación, ACL multiusuario, exactamente una ejecución externa ni F2.
++
++La ventana del modelo debe configurarse; la cota conservadora local no descubre sus capacidades. La carga legacy de mensajes para UI sigue completa. Quota de caché puede denegar recursos nuevos si todos están protegidos; un renderer puede usar espacio transitorio antes de validar su salida. Eliminar filas no destruye WAL/backups/copias cacheadas inmediatamente. UnknownOutcome nunca se limpia automáticamente y la auditoría histórica no se presenta como redactada en disco. Véanse [contrato](F1B3B-STORAGE-CONTRACT.md) e [informe](F1B3B-REPORT.md).
++
++## Auditoría de consolidación: antes / después
++
++Evidencia de revisión `/tmp/kda-f1b3b-consolidation-f24ll7kk/`: manifests, archives, diffs, before.json/after.json y logs por reproducción. Ambos tests se invocaron individualmente con `cargo test --locked --test f1b3b_storage <nombre> -- --exact --nocapture`, XDG/TMPDIR privados y sin claves/proxies.
++
++| Test | Antes | Después | Invariante |
++| --- | --- | --- | --- |
++| replaced_workspace_cannot_publish_or_delete_another_live_resource | FAIL (exit 101): publish=Ok y cleanup=Ok sobre workspace sustituido. | PASS (exit 0) | Rechazo por identidad de lease; recurso ajeno activo intacto; restaurar la ruta original permite cleanup legítimo. |
++| image_download_does_not_follow_planted_output_symlinks | FAIL (exit 101): bytes del target cambiaron a PNG. | PASS (exit 0) | Archivo destino de fixture intacto, operación rechazada sin seguir enlace. |
++
++Se añadió a la prueba de preview una página PDF sintética, ejecutada con pdftoppm local y firma PNG comprobada; sin documentos personales. Los cambios compartidos de escritura abarcan también SVGs. Dos unitarios heredados de render conservan sus assertions y usan ahora allocate_at en una fixture, porque una ruta sin lease debe seguir siendo rechazada.
++
++Iteraciones de esta revisión: `/tmp/kda-f1b3b-check-jxng6pnz` FAIL Clippy por import tokio::fs ya no usado; `/tmp/kda-f1b3b-check-idmdtx9c` FAIL unit-safe (154 PASS, 2 FAIL por fixtures no registradas, 1 IGNORED, 2 FILTERED); gates posteriores NOT_TESTED en esas ejecuciones. Se corrigieron el import y las fixtures. `/tmp/kda-f1b3b-check-4js24vaa`: **13 gates PASS**, 33 PASS/3 IGNORED nuevos, 156 PASS/1 IGNORED/2 FILTERED unitarios, 6 Qt PASS; 275 ejecuciones padre totales, cero FAIL finales.
++
++Las comprobaciones sobre cada árbol staged y su comparación con los commits se registran en F1B3B-COMMIT-VALIDATION. El árbol A sólo dispone de suites heredadas; suite/harness/runner F1B3B nuevos se incorporan en B. Esta disponibilidad no se confunde con un test omitido que hubiera pasado.
+diff --git a/docs/recovery/F1B3B-STORAGE-CONTRACT.md b/docs/recovery/F1B3B-STORAGE-CONTRACT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..3670e226856ec45f9051214340c4eefb2c97be69
+--- /dev/null
++++ b/docs/recovery/F1B3B-STORAGE-CONTRACT.md
+@@ -0,0 +1,85 @@
++# F1B-3B — Contrato de historial, almacenamiento y recuperación visible
++
++Baseline obligatorio `d8a6972b5bc3977408c8d0956fce3196623d5458`; rama `recovery/f1b3b-history-retention`. Complementa F1B2-CONTRACT y F1B3A-JOURNAL-CONTRACT; no sustituye el motor, la autorización SEC-01/02 ni la política de no replay.
++
++## Historial e identidades
++
++SQLite sigue siendo la fuente del historial original. `messages.id` define el orden causal de inserción dentro de cada sesión; no se ordena por fechas que puedan empatar o cambiar. `messages.turn_id` identifica el intento que produjo la fila. Los UUID originales y los NULL legacy se conservan. `conversation_turns` contiene el estado de cada intento; `turn_inputs` vincula todos los intentos de regenerate con el mismo `messages.id` de usuario. Operación, intento, input y sesión son identidades distintas.
++
++Una unidad de contexto abarca un input de usuario y todas las filas hasta el siguiente input, incluyendo batches assistant/tool y el assistant final. Los outputs de retries permanecen en la unidad de su input; los enlaces de `turn_inputs` permiten detectar resultados inciertos de intentos anteriores sin reasignar el Turn ID original. El segmento legacy previo al primer usuario también puede constituir una unidad. Las instrucciones históricas `system` son esenciales: se conservan todas; dentro de las unidades seleccionadas mantienen su posición causal. Las anteriores a la ventana se anteponen en su orden original. El prompt configurado y los facts habilitados también son esenciales.
++
++No se transforma un estado Failed/Cancelled en una respuesta completa. Sólo se aceptan outputs con Turn ID conocido si ese intento está Completed y pertenece a la sesión; los outputs legacy sin Turn ID se validan estructuralmente. Los inputs de intentos fallidos/cancelados siguen conservados. Se añade un aviso explícito de intentos interrumpidos/operaciones fallidas, abandonadas o inciertas. Si hay operaciones UnknownOutcome/Dispatched en la sesión, un aviso esencial de incertidumbre permanece incluso cuando el input original queda fuera de la ventana o la operación no tiene input de chat. Estos avisos son metadatos de recuperación, nunca tool results ni afirmaciones de éxito o rollback.
++
++## Selección y presupuestos
++
++Configuración JSON `ai.context_window_tokens` (default 32768), `ai.max_context_bytes` (default 1048576), `ai.max_tokens` (reserva de respuesta existente, default 2048). No se adivina la ventana real del modelo remoto: el mantenedor debe configurar una ventana que el modelo admita. Un rechazo del proveedor conserva la semántica de error F1B2, sin retry automático.
++
++La contabilidad local usa una envolvente conservadora: dos veces los bytes JSON serializados más framing. Contar se hace mediante un writer sin construir otra copia JSON del historial. La segunda contabilización cubre también el escaping de argumentos al convertirse en strings del formato OpenAI. Se carga contra el menor presupuesto de bytes y de ventana menos respuesta; los esquemas completos de herramientas se descuentan antes de seleccionar historial. No se usa la heurística optimista de cuatro caracteres por token. Es una cota local conservadora para tokenizadores que representan el texto mediante bytes; no se certifica un conteo exacto ni el template privado de cualquier proveedor/modelo custom. Los límites reales del proveedor y su tokenizador no se consultan ni certifican en pruebas externas.
++
++Se reserva primero el contenido esencial y el input actual. Después se recorre el historial desde el input más reciente, seleccionando un sufijo de unidades completas. Antes de leer contenido se consultan tamaños y cantidad de filas con SQL `octet_length(column)`. La SQLite bundled del lockfile optimiza esa función para no cargar payloads de páginas overflow, a diferencia de `length(CAST(... AS BLOB))`. No se exige actualizar el formato de bases antiguas. Una unidad demasiado grande no se materializa ni se parsea su JSON. Se detiene ante la primera unidad antigua que no cabe, sin saltar unidades intermedias ni alterar su orden. La unidad más reciente es obligatoria: si no cabe, se devuelve un error. Facts, instrucciones históricas y input de regenerate tienen comprobaciones de tamaño antes de reconstruirse. La memoria de esta reconstrucción depende del presupuesto configurado, no de todos los mensajes de la sesión. El endpoint/UI legacy de carga de mensajes conserva su comportamiento; esta cota corresponde a la reconstrucción para el proveedor.
++
++Antes de **cada** request del bucle ReAct, `AiService` vuelve a comprobar presupuesto y grupos, incluyendo el crecimiento de la operación actual y la reserva de respuesta. Si los resultados de un batch hacen exceder el presupuesto, no se envía la siguiente petición. Los efectos ya registrados permanecen con su estado real en el journal; un fallo del turno no los deshace. No se recortan instrucciones ni resultados dentro de un grupo para conseguir que quepa.
++
++Una llamada assistant con tool_calls debe preceder a exactamente un resultado por ID. Se rechazan IDs ausentes/duplicados, resultados huérfanos, resultados repetidos, JSON almacenado inválido y grupos interrumpidos por otro mensaje. Varios resultados pueden llegar en el orden causal guardado; no se ordenan artificialmente por ID. Nunca se sintetizan resultados faltantes.
++
++Política legacy conservadora: si una unidad que entra en la ventana tiene un grupo incompleto o corrupto, la petición falla con `context_invalid`; SQLite queda intacto. Una unidad fuera del presupuesto no se lee ni se repara. Si no cabe el contenido imprescindible, falla con `context_budget_exceeded`. SSE informa error terminal; complete devuelve 502 y código explícito. Los resúmenes históricos siguen almacenados y la opción heredada de generar resúmenes no se convierte en otra autoridad: **ningún resumen se inyecta como sustituto silencioso del historial** en los contextos de chat escrito y del caller heredado de voz. Este último usa el mismo selector; no se cambia la arquitectura de audio ni su supervisión.
++
++## Retención y eliminación
++
++La retención automática destructiva de conversaciones/metadatos está **desactivada**. No existe caducidad obligatoria, scheduler de poda, VACUUM ni checkpoint forzado nuevo. El diagnóstico informa `automatic_destructive_retention=false` y `retention_period_days=null`; un periodo futuro necesitará una política explícita y no podrá incluir UnknownOutcome de forma automática.
++
++`DELETE /api/session?session_id=...` usa igualdad parametrizada exacta. Con UnknownOutcome devuelve 409 `uncertain_evidence_confirmation_required`; no elimina ninguna fila. La UI explica que la operación pudo realizarse y que eliminar la evidencia impedirá investigar después. Sólo una segunda acción explícita añade `erase_uncertain_evidence=true`, vinculada a esa sesión. Este flag es consentimiento de eliminación para la aplicación local autenticada; no es una capacidad nueva de F2.
++
++Se rechaza con 409 si el registry todavía posee un supervisor de esa sesión, incluso antes de crear su turno SQLite o mientras recoge tareas después del terminal. El bloqueo de registry se mantiene durante el borrado para arbitrar con reservas nuevas. Dentro de BEGIN IMMEDIATE también se rechazan turnos persistidos no terminales y operaciones Prepared/Authorized/Dispatched. El orden de locks es registry -> DB; el callback nunca adquiere un lock Turn ni hace await. Los escritores manuales/de voz que preparan un turno pasan por la misma conexión y su validación transaccional de sesión. Nuevos mensajes no pueden insertarse en una sesión eliminada.
++
++Orden transaccional:
++
++1. Comprobar existencia o evidencia legacy todavía asociada, actividad, incertidumbre y enlaces de ownership cruzados.
++2. Eliminar `operation_events` de operaciones de la sesión.
++3. Eliminar `operation_journal` de esa sesión.
++4. Eliminar `turn_recovery` y `turn_inputs` de sus turnos.
++5. Eliminar `tool_audit` de esa sesión, incluidas filas históricas con argumentos.
++6. Eliminar `messages`, `conversation_turns` y finalmente `sessions`.
++7. Confirmar COMMIT. Cualquier error de statement/COMMIT usa el rollback propio F1B3A; no existe éxito parcial.
++
++Nunca se usa LIKE, prefijos de Session ID ni coincidencia por nombres de herramienta para borrar. No se desactivan constraints. Triggers aditivos impiden borrar padres con dependientes, incluso con el modo foreign_keys heredado; no se cambia globalmente ese modo ni se reescribe el esquema antiguo. Un enlace cruzado inconsistente provoca rechazo, en vez de borrar datos de otra sesión.
++
++Las bases que sufrieron un borrado legacy pueden tener sesión/input ausentes pero turnos/journal todavía existentes. La migración **no borra esa evidencia** ni inventa contenido perdido. El diagnóstico cuenta enlaces huérfanos. La consulta global de recuperación permite inspeccionarlos y solicitar la eliminación explícita de todos los metadatos de su Session ID exacto, con la misma confirmación de UnknownOutcome. Si no hay sesión ni registros asociados se responde 404. Los registros sin Session ID no se asignan por conjetura a otra conversación ni se incluyen en un borrado de sesión.
++
++Facts globales y recordatorios del scheduler no tienen ownership de sesión en el esquema heredado y quedan fuera del borrado de una conversación. No se inventa esa relación. Los archivos que una herramienta haya creado/editado fuera de la caché tampoco son contenido de conversación que pueda borrarse por esta API.
++
++## Cachés y copias privadas
++
++Los nuevos workspaces usan `$XDG_CACHE_HOME/kde-assistant/resources-v1/<UUID>`: directorios 0700, marker `.lease` con formato fijo, UID comprobado y flock exclusivo. Las rutas se abren por descriptor con openat2; no se siguen symlinks, magic links ni submontajes dentro de las raíces. Los leases fijan raíz, directorio y marker por descriptor y comparan dispositivo/inodo antes de publicar o recoger un recurso; una ruta sustituida no transmite ownership. Las salidas se crean con openat2 y CREATE|EXCL (0600), incluidas imágenes descargadas y SVGs; pdftoppm entrega el PNG por stdout a ese descriptor. La limpieza reclama un nombre UUID nuevo con renameat2 NOREPLACE y comprueba identidad antes de unlink; una sustitución se conserva y se intenta restaurar sin sobrescribir. La limpieza sólo acepta archivos regulares sin hardlinks en workspaces planos verificables. Nombres/markers desconocidos, directorios anidados o enlaces causan conservación/fallo diagnosticable. No se recorre ni borra HOME, `/tmp` compartido, cachés ajenas o workspaces legacy `kda-view-*`, cuya propiedad no se puede reconstruir de forma confiable.
++
++Los recursos publicados conservan un lease durante la vida del backend para proteger su uso por QML. Los snapshots privados usados únicamente como entrada de render se eliminan después del render, también cuando éste falla; una imagen ya preparada como snapshot se conserva si es el propio recurso mostrado. Guards recogen recursos **no publicados** en errores/drop. Un fallo de limpieza conserva ownership para un intento posterior; si el último rmdir falla, se intenta restaurar el marker. No se afirma recuperación ante cualquier fallo físico.
++
++Sweep automático únicamente al arrancar el Backend, antes de lanzar su QML: candidatos sin lease activo, sin referencia `messages.image_url` y con al menos siete días. Siete días es un periodo de gracia de caché regenerable, **no** caducidad de conversaciones ni del journal. Recursos todavía referenciados, abiertos en el lifecycle activo o poseídos por otro backend cooperante permanecen. No se limpia en medio de una operación ni se invalidan imágenes de una sesión viva. Este lifecycle no certifica procesos QML ajenos u huérfanos que ignoren el ownership de la aplicación; la supervisión global de procesos sigue perteneciendo a F3.
++
++Admisión: máximo 1024 workspaces y 256 MiB; cada productor reserva 32 MiB mientras genera. Se valida el tamaño antes de publicar y se libera esa reserva conservando el lease. Copias fuente y recursos publicados: máximo 32 MiB por workspace; descargas de imágenes: lectura incremental limitada a 10 MiB. Quota llena devuelve error en vez de borrar un recurso activo/referenciado. Son límites de almacenamiento gestionado/admisión, no una cuota del filesystem contra escritores del mismo UID ni una cota del espacio transitorio que un renderer externo podría consumir antes de terminar. Una imagen demasiado grande no se publica y su guard intenta limpiarla.
++
++Eliminar una conversación retira sus referencias SQLite; las imágenes que su QML aún use conservan el lease. Los derivados no referenciados se recogen en un arranque posterior elegible; no se promete eliminación inmediata de todas las copias cacheadas. Caché regenerable y snapshots son temporales; los mensajes, journal y evidencias de resultado son persistentes y jamás se sustituyen por esa caché.
++
++## Privacidad, exportación y límites
++
++| Datos | Persistencia / eliminación / exposición |
++| --- | --- |
++| Mensajes completos y tool_calls/results publicados | SQLite; pueden contener prompts, rutas, argumentos o contenido privado. Eliminables por sesión. No se redactan retrospectivamente ni se envían automáticamente fuera de las peticiones de chat autorizadas. |
++| Journal, eventos y recuperación | Metadatos F1B3A, sin argumentos/destinos/resultados privados; conservados hasta eliminación explícita. UnknownOutcome nunca se poda automáticamente. |
++| Auditoría histórica | Puede contener hasta 2000 caracteres de argumentos privados u otros valores heredados. **No** se afirma redacción histórica de SQLite. El endpoint `/api/tools/audit` redacta el campo args en su respuesta; no modifica las filas. |
++| Caché y snapshots | Copias privadas temporales, potencialmente con contenido sensible; lifecycle y límites anteriores. No incluidos en listados de recuperación. |
++| Facts, recordatorios, config | Persistentes con sus APIs/políticas existentes; sin enlace confiable de sesión, no se borran por coincidencias. |
++
++No se implementa exportación nueva ni se generan dumps automáticos. El contenido original y los metadatos son conceptualmente exportables mediante una futura acción explícita a un destino privado; nunca se trataría un dump crudo de toda SQLite como exportación redactada. APIs de recuperación y diagnóstico retornan sólo allowlists de metadatos/conteos, sin rutas de DB ni argumentos/resultados. Auth/host/origin siguen siendo los de F1A/F1B1: el bearer local autoriza la aplicación completa, no implementa ACL multiusuario.
++
++Borrar filas SQLite **no garantiza destrucción forense inmediata** de WAL, backups, snapshots, copias cacheadas, espacio libre o bloques del dispositivo. No se implementa secure-delete ficticio ni se promete deshacer efectos de herramientas. Failed puede tener efectos parciales; Succeeded conserva la semántica del executor, no verificación externa; UnknownOutcome no demuestra ni ausencia ni éxito del efecto.
++
++## Compatibilidad y UI
++
++Migración `004_storage_retention.sql`: índices y triggers nuevos, marcador `recovery_migrations(version=4)`, dentro de la transacción de arranque F1B3A. Aditiva, idempotente y sin UPDATE/DELETE de datos históricos. `user_version`, UUID, mensajes, resumen, estados terminales y evidencias inciertas quedan intactos. El recovery previo conserva no replay y funciona antes de servir HTTP. La capacidad de texto no depende de voz.
++
++`GET /api/storage` autenticado: tamaño lógico DB, WAL, páginas libres, conteos de las ocho tablas, enlaces huérfanos, operaciones activas/inciertas y política de retención; sólo lectura, sin mantenimiento pesado. `GET /api/tools/operations` añade `recovery_only=true` y cursor `before=<audit_id>`, con orden por anchor de auditoría descendente y limit 1..500. El cursor estable permite acceder a evidencia antigua aunque existan operaciones recientes exitosas. Se conservan formato y filtro de sesión parametrizado.
++
++QML añade un aviso en la sesión y acceso desde el botón de historial del drawer. RecoveryHistory muestra herramienta, fecha, estado, Session ID y Operation ID. Nunca renderiza args, destinos ni resultados; metadatos variables se dibujan como PlainText. Texto UnknownOutcome: «La operación pudo haberse realizado, pero no se pudo confirmar su resultado.» Failed advierte efectos parciales; Abandoned explica abandono previo al marcador de despacho. No hay botón de retry/replay.
++
++Estados: loading, ready, empty, unavailable. Empty no implica éxito de herramientas ni demuestra que existiera una sesión; cubre también sesión eliminada. Un error de API muestra indisponibilidad explícita y no afirma ausencia de evidencia. Filas antiguas incompletas muestran placeholders. Generaciones de request invalidan respuestas tardías al cambiar/cerrar la vista o sesión. La lista usa páginas de 50, reemplazadas al consultar anteriores; no acumula todas las páginas en QML. Confirmación de eliminación y cancelación son acciones separadas; cerrar la confirmación no borra nada.
+diff --git a/migrations/004_storage_retention.sql b/migrations/004_storage_retention.sql
+new file mode 100644
+index 0000000000000000000000000000000000000000..1eff673a64864318d72f54676997cc6b4b9f0e59
+--- /dev/null
++++ b/migrations/004_storage_retention.sql
+@@ -0,0 +1,31 @@
++-- Additive indexes only. Retention is non-destructive by default; legacy rows unchanged.
++CREATE INDEX IF NOT EXISTS idx_turns_session ON conversation_turns(session_id);
++CREATE INDEX IF NOT EXISTS idx_audit_session ON tool_audit(session_id);
++CREATE INDEX IF NOT EXISTS idx_messages_context ON messages(session_id,role,id);
++INSERT OR IGNORE INTO recovery_migrations VALUES(4,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
++-- Parent deletion must never hide dependants, even with legacy FK mode.
++CREATE TRIGGER IF NOT EXISTS storage_session_delete BEFORE DELETE ON sessions
++WHEN EXISTS(SELECT 1 FROM messages WHERE session_id=OLD.id)
++ OR EXISTS(SELECT 1 FROM conversation_turns WHERE session_id=OLD.id)
++ OR EXISTS(SELECT 1 FROM operation_journal WHERE session_id=OLD.id)
++ OR EXISTS(SELECT 1 FROM tool_audit WHERE session_id=OLD.id)
++BEGIN SELECT RAISE(ABORT,'session_dependants_exist'); END;
++CREATE TRIGGER IF NOT EXISTS storage_turn_delete BEFORE DELETE ON conversation_turns
++WHEN EXISTS(SELECT 1 FROM operation_journal WHERE turn_id=OLD.id)
++ OR EXISTS(SELECT 1 FROM turn_inputs WHERE turn_id=OLD.id)
++ OR EXISTS(SELECT 1 FROM turn_recovery WHERE turn_id=OLD.id)
++ OR EXISTS(SELECT 1 FROM messages WHERE turn_id=OLD.id)
++BEGIN SELECT RAISE(ABORT,'turn_dependants_exist'); END;
++CREATE TRIGGER IF NOT EXISTS storage_message_delete BEFORE DELETE ON messages
++WHEN EXISTS(SELECT 1 FROM turn_inputs WHERE user_message_id=OLD.id)
++BEGIN SELECT RAISE(ABORT,'message_dependants_exist'); END;
++CREATE TRIGGER IF NOT EXISTS storage_operation_delete BEFORE DELETE ON operation_journal
++WHEN EXISTS(SELECT 1 FROM operation_events WHERE operation_id=OLD.id)
++BEGIN SELECT RAISE(ABORT,'operation_dependants_exist'); END;
++CREATE TRIGGER IF NOT EXISTS storage_audit_delete BEFORE DELETE ON tool_audit
++WHEN EXISTS(SELECT 1 FROM operation_journal WHERE audit_id=OLD.id)
++ OR EXISTS(SELECT 1 FROM operation_events WHERE audit_id=OLD.id)
++BEGIN SELECT RAISE(ABORT,'audit_dependants_exist'); END;
++CREATE TRIGGER IF NOT EXISTS storage_message_session BEFORE INSERT ON messages
++WHEN NOT EXISTS(SELECT 1 FROM sessions WHERE id=NEW.session_id)
++BEGIN SELECT RAISE(ABORT,'message_session_missing'); END;
+diff --git a/qml/Main.qml b/qml/Main.qml
+index debf7f2b36da642e6d4853082737ccff7210ee44..73fcc03490ef1e5d9da7844b744959428273c6e8 100644
+--- a/qml/Main.qml
++++ b/qml/Main.qml
+@@ -454,12 +454,23 @@ ApplicationWindow {
+     }
+ 
+     // Elimina una sesion en el backend y refresca la lista
+-    function deleteSession(sessionId) {
++    function deleteSession(sessionId, eraseEvidence) {
+         var xhr = new XMLHttpRequest()
+-        xhr.open("DELETE", backendUrl + "/api/session?session_id=" + encodeURIComponent(sessionId))
++        xhr.open("DELETE", backendUrl + "/api/session?session_id=" + encodeURIComponent(sessionId) + (eraseEvidence ? "&erase_uncertain_evidence=true" : ""))
+         setAuth(xhr)
+         xhr.onreadystatechange = function() {
+-            if (xhr.readyState === XMLHttpRequest.DONE && (xhr.status === 200 || xhr.status === 201)) {
++            if (xhr.readyState !== XMLHttpRequest.DONE) return
++            if (xhr.status === 409 && xhr.responseText.indexOf("uncertain_evidence_confirmation_required") >= 0) {
++                recoveryHistory.confirmDeletion(sessionId)
++                return
++            }
++            if (xhr.status !== 200 && xhr.status !== 201) {
++                lastError = qsTr("No se pudo eliminar la conversación")
++                lastErrorDetail = xhr.status === 409 ? qsTr("Hay un turno u operación en curso. Espera a que termine.") : qsTr("El backend no confirmó el borrado; el historial se conserva.")
++                showErrorBanner = true
++                return
++            }
++            if (xhr.status === 200 || xhr.status === 201) {
+                 if (currentSessionId === sessionId) {
+                     detachChat()
+                     currentSessionId = ""
+@@ -1000,7 +1011,7 @@ ApplicationWindow {
+                 root.renameSession(id, title)
+             }
+             onAuditRequested: {
+-                auditDialog.show()
++                recoveryHistory.show("")
+             }
+             onSettingsClicked: {
+                 root.drawerOpen = false
+@@ -1116,6 +1127,17 @@ ApplicationWindow {
+                 }
+             }
+ 
++            PillButton {
++                Layout.fillWidth: true
++                Layout.leftMargin: Theme.spacingMd
++                Layout.rightMargin: Theme.spacingMd
++                visible: root.recoveryCount > 0 || root.recoveryStatus === "unavailable"
++                text: root.recoveryStatus === "unavailable" ? qsTr("Recuperación no disponible · Consultar historial") : qsTr("Hay operaciones inciertas, fallidas o abandonadas · Revisar")
++                elideText: true
++                iconName: "history-16"
++                onClicked: recoveryHistory.show(root.currentSessionId)
++            }
++
+             // === Error banner (F0-5: antes muerto, ahora cableado) ===
+             ErrorBanner {
+                 Layout.fillWidth: true
+@@ -1254,11 +1276,39 @@ ApplicationWindow {
+         backendUrl: root.backendUrl
+     }
+ 
+-    AuditDialog {
+-        id: auditDialog
++    RecoveryHistory {
++        id: recoveryHistory
+         anchors.fill: parent
+-        open_: false
+         backendUrl: root.backendUrl
++        authToken: root.authToken
++        onEraseConfirmed: function(sessionId) { root.deleteSession(sessionId, true) }
++    }
++
++    property string recoveryStatus: "idle"
++    property int recoveryCount: 0
++    property int recoveryGeneration: 0
++    onCurrentSessionIdChanged: refreshRecovery()
++    onStreamingChanged: { if (!streaming) refreshRecovery() }
++    function refreshRecovery() {
++        var session = currentSessionId
++        var generation = ++recoveryGeneration
++        recoveryCount = 0
++        recoveryStatus = "idle"
++        if (!session) return
++        var xhr = new XMLHttpRequest()
++        xhr.open("GET", backendUrl + "/api/tools/operations?recovery_only=true&limit=1&session_id=" + encodeURIComponent(session))
++        setAuth(xhr)
++        xhr.onreadystatechange = function() {
++            if (xhr.readyState !== XMLHttpRequest.DONE || generation !== recoveryGeneration || session !== currentSessionId) return
++            if (xhr.status !== 200) { recoveryStatus = "unavailable"; return }
++            try {
++                var rows = JSON.parse(xhr.responseText)
++                if (!Array.isArray(rows)) throw new Error("invalid operations")
++                recoveryCount = rows.length
++                recoveryStatus = rows.length ? "attention" : "empty"
++            } catch (e) { recoveryStatus = "unavailable" }
++        }
++        xhr.send()
+     }
+ 
+     // === Settings dialog (overlay) ===
+diff --git a/qml/components/RecoveryHistory.qml b/qml/components/RecoveryHistory.qml
+new file mode 100644
+index 0000000000000000000000000000000000000000..499396a871fbdb5617d9826a2e0a89cbd824910a
+--- /dev/null
++++ b/qml/components/RecoveryHistory.qml
+@@ -0,0 +1,206 @@
++import QtQuick
++import QtQuick.Controls
++import QtQuick.Layouts
++import qml 1.0
++
++Rectangle {
++    id: root
++    objectName: "recoveryHistory"
++    property bool open_: false
++    property string backendUrl: ""
++    property string authToken: ""
++    property string sessionId: ""
++    property var entries: []
++    property string status: "idle"
++    property int generation: 0
++    property bool hasOlder: false
++    property string deletionSession: ""
++    property bool confirmingDeletion: false
++    readonly property string uncertainExplanation: qsTr("La operación pudo haberse realizado, pero no se pudo confirmar su resultado.")
++    readonly property string deletionExplanation: qsTr("Eliminará la conversación y la evidencia de operaciones inciertas. Esa información no podrá utilizarse después para investigar la operación. Borrar filas SQLite no garantiza destruir copias, WAL o backups.")
++    signal eraseConfirmed(string sessionId)
++    signal closed()
++    function explanation(state) {
++        if (state === "unknown_outcome") return uncertainExplanation
++        if (state === "failed") return qsTr("La operación falló; pudo dejar efectos parciales.")
++        if (state === "abandoned") return qsTr("El intento se abandonó antes de registrar el despacho.")
++        return qsTr("Estado histórico sin información completa.")
++    }
++    function show(session) {
++        sessionId = session || ""
++        confirmingDeletion = false
++        open_ = true
++        load(null)
++    }
++    function confirmDeletion(session) {
++        deletionSession = session
++        sessionId = session
++        confirmingDeletion = true
++        open_ = true
++        load(null)
++    }
++    function hide() {
++        generation++
++        open_ = false
++        confirmingDeletion = false
++        closed()
++    }
++    function load(before) {
++        var requestGeneration = ++generation
++        status = "loading"
++        entries = []
++        hasOlder = false
++        var url = backendUrl + "/api/tools/operations?recovery_only=true&limit=50"
++        if (sessionId) url += "&session_id=" + encodeURIComponent(sessionId)
++        if (before !== null) url += "&before=" + before
++        var xhr = new XMLHttpRequest()
++        xhr.open("GET", url)
++        if (authToken) xhr.setRequestHeader("Authorization", "Bearer " + authToken)
++        xhr.onreadystatechange = function() {
++            if (xhr.readyState !== XMLHttpRequest.DONE || requestGeneration !== generation || !open_) return
++            if (xhr.status !== 200) { status = "unavailable"; return }
++            try {
++                var records = JSON.parse(xhr.responseText)
++                if (!Array.isArray(records)) throw new Error("invalid records")
++                entries = records
++                hasOlder = records.length === 50
++                status = entries.length ? "ready" : "empty"
++            } catch (e) { status = "unavailable" }
++        }
++        xhr.send()
++    }
++    focus: open_
++    Keys.onEscapePressed: hide()
++    visible: open_
++    color: Theme.overlayBackdrop
++    z: 999
++    MouseArea { anchors.fill: parent; onClicked: root.hide() }
++    Rectangle {
++        anchors.centerIn: parent
++        width: Math.min(parent.width - Theme.spacingLg * 2, Theme.windowDefaultWidth)
++        height: Math.min(parent.height - Theme.spacingLg * 2, Theme.windowDefaultHeight)
++        color: Theme.surface
++        radius: Theme.radiusLg
++        border.color: Theme.hairline
++        MouseArea { anchors.fill: parent }
++        ColumnLayout {
++            anchors.fill: parent
++            anchors.margins: Theme.spacingLg
++            spacing: Theme.spacingMd
++            Text {
++                text: qsTr("Historial de recuperación")
++                color: Theme.ink
++                font: Theme.font(Theme.fontSizeTagline, Theme.weightBold, Theme.lsBody)
++                Layout.fillWidth: true
++                wrapMode: Text.Wrap
++            }
++            Text {
++                text: qsTr("Inspecciona el posible efecto antes de repetir una operación. Para repetirla, envía una solicitud nueva y explícita.")
++                color: Theme.inkMuted
++                font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, Theme.lsBody)
++                Layout.fillWidth: true
++                wrapMode: Text.Wrap
++            }
++            Text {
++                visible: root.status !== "ready"
++                text: root.status === "loading" ? qsTr("Cargando…") : root.status === "unavailable" ? qsTr("No se pudo consultar la recuperación. No se ha confirmado la ausencia de registros.") : qsTr("Sin registros de recuperación. La sesión puede haberse eliminado o no tener operaciones registradas.")
++                color: root.status === "unavailable" ? Theme.error : Theme.inkMuted
++                font: Theme.font(Theme.fontSizeBodySmall, Theme.weightNormal, Theme.lsBody)
++                wrapMode: Text.Wrap
++                Layout.fillWidth: true
++            }
++            ScrollView {
++                Layout.fillWidth: true
++                Layout.fillHeight: true
++                clip: true
++                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
++                Column {
++                    width: parent.width
++                    spacing: Theme.spacingMd
++                    Repeater {
++                        model: root.entries
++                        delegate: Column {
++                            required property var modelData
++                            width: parent.width
++                            spacing: Theme.spacingXs
++                            Text {
++                                width: parent.width
++                                textFormat: Text.PlainText
++                                text: (modelData.tool || qsTr("Herramienta desconocida")) + " · " + (modelData.prepared_at || qsTr("Fecha desconocida")) + " · " + (modelData.state || qsTr("Estado desconocido"))
++                                wrapMode: Text.Wrap
++                                color: Theme.ink
++                                font: Theme.font(Theme.fontSizeCaption, Theme.weightBold, Theme.lsBody)
++                            }
++                            Text {
++                                width: parent.width
++                                text: root.explanation(modelData.state)
++                                color: modelData.state === "unknown_outcome" ? Theme.warn : Theme.inkMuted
++                                wrapMode: Text.Wrap
++                                font: Theme.font(Theme.fontSizeBodySmall, Theme.weightNormal, Theme.lsBody)
++                            }
++                            Text {
++                                width: parent.width
++                                textFormat: Text.PlainText
++                                text: qsTr("Sesión: ") + (modelData.session_id || qsTr("Sin asociación")) + "\n" + qsTr("Operación: ") + (modelData.id || qsTr("Identidad no disponible"))
++                                wrapMode: Text.WrapAnywhere
++                                color: Theme.inkMuted
++                                font: Theme.font(Theme.fontSizeMicro, Theme.weightNormal, Theme.lsBody)
++                            }
++                            PillButton {
++                                visible: !!modelData.session_id && !root.confirmingDeletion
++                                width: parent.width
++                                elideText: true
++                                text: qsTr("Eliminar conversación y metadatos…")
++                                onClicked: root.confirmDeletion(modelData.session_id)
++                            }
++
++                        }
++                    }
++                }
++            }
++            Text {
++                visible: root.confirmingDeletion
++                text: root.deletionExplanation
++                color: Theme.error
++                wrapMode: Text.Wrap
++                Layout.fillWidth: true
++                font: Theme.font(Theme.fontSizeBodySmall, Theme.weightNormal, Theme.lsBody)
++            }
++            RowLayout {
++                visible: !root.confirmingDeletion
++                Layout.fillWidth: true
++                spacing: Theme.spacingXs
++                PillButton { text: qsTr("Actualizar"); onClicked: root.load(null) }
++                PillButton {
++                    visible: root.hasOlder
++                    text: qsTr("Anteriores")
++                    onClicked: root.load(root.entries[root.entries.length - 1].audit_id)
++                }
++                Item { Layout.fillWidth: true }
++                PillButton { text: qsTr("Cerrar"); onClicked: root.hide() }
++            }
++            RowLayout {
++                visible: root.confirmingDeletion
++                Layout.fillWidth: true
++                spacing: Theme.spacingXs
++                PillButton {
++                    Layout.fillWidth: true
++                    elideText: true
++                    activeFocusOnTab: true
++                    Keys.onReturnPressed: clicked()
++                    Keys.onSpacePressed: clicked()
++                    objectName: "eraseEvidenceButton"
++                    text: qsTr("Eliminar evidencia")
++                    activeColor: Theme.error
++                    active: true
++                    onClicked: {
++                        var session = root.deletionSession
++                        root.hide()
++                        root.eraseConfirmed(session)
++                    }
++                }
++                PillButton { text: qsTr("Cancelar"); activeFocusOnTab: true; Keys.onReturnPressed: root.hide(); Keys.onSpacePressed: root.hide(); onClicked: root.hide() }
++            }
++        }
++    }
++}
+diff --git a/qml/qmldir b/qml/qmldir
+index c0e9611ef0de578e3b680f5a3d07dcf24fba61d4..fbf449a43c53750a72e64cc3a903355f6c9d6a6a 100644
+--- a/qml/qmldir
++++ b/qml/qmldir
+@@ -16,3 +16,4 @@ WelcomeScreen 1.0 components/WelcomeScreen.qml
+ ToolDetailDialog 1.0 components/ToolDetailDialog.qml
+ AuditDialog 1.0 components/AuditDialog.qml
+ Main 1.0 Main.qml
++RecoveryHistory 1.0 components/RecoveryHistory.qml
+diff --git a/scripts/validate_f1b3b.py b/scripts/validate_f1b3b.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..7237d25bfd3762f78c253bfd9ca32c1fad7e06cc
+--- /dev/null
++++ b/scripts/validate_f1b3b.py
+@@ -0,0 +1,82 @@
++#!/usr/bin/env python3
++"""Validación F1B3B con XDG/SQLite privados y mocks loopback; Qt opt-in."""
++import argparse
++import hashlib
++import json
++import os
++from pathlib import Path
++import shutil
++import subprocess
++import tempfile
++import time
++import sys
++sys.dont_write_bytecode = True
++from validate_f1a import EXTERNAL_TESTS
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--qml", action="store_true", help="Flujo QML y ejecutable offscreen (puerto 8765 libre); no Plasma.")
++    args = parser.parse_args()
++    repo = Path(__file__).resolve().parent.parent
++    os.umask(0o077)
++    evidence = Path(tempfile.mkdtemp(prefix="kda-f1b3b-check-"))
++    env = os.environ.copy()
++    for key in list(env):
++        if key.endswith("_API_KEY") or key.upper().endswith("_PROXY") or key.startswith("KDA_F1"):
++            env.pop(key)
++    for key, directory in [("XDG_CONFIG_HOME", "config"), ("XDG_CACHE_HOME", "cache"), ("XDG_DATA_HOME", "data"), ("TMPDIR", "tmp")]:
++        path = evidence / directory
++        path.mkdir(mode=0o700)
++        env[key] = str(path)
++    env["CARGO_NET_OFFLINE"] = "true"
++    skips = [argument for name in EXTERNAL_TESTS for argument in ["--skip", name]]
++    commands = [
++        ("fmt", ["cargo", "fmt", "--check"]),
++        ("check", ["cargo", "check", "--locked", "--all-targets"]),
++        ("clippy", ["cargo", "clippy", "--locked", "--all-targets", "--", "-D", "warnings"]),
++        ("f1a-security", ["cargo", "test", "--locked", "--test", "f1a_security"]),
++        ("f1b1", ["cargo", "test", "--locked", "--test", "f1b1_text_startup", "--", "--test-threads=1"]),
++        ("f1b2-conversation", ["cargo", "test", "--locked", "--test", "f1b2_conversation", "--", "--test-threads=1"]),
++        ("f1b3a-persistence", ["cargo", "test", "--locked", "--test", "f1b3a_persistence", "--", "--test-threads=1"]),
++        ("f1b3b-storage", ["cargo", "test", "--locked", "--test", "f1b3b_storage", "--", "--test-threads=1"]),
++        ("unit-safe", ["cargo", "test", "--locked", "--lib", "--", "--test-threads=1"] + skips),
++        ("app-paths", ["cargo", "test", "--locked", "--test", "app_paths"]),
++    ]
++    if args.qml:
++        commands.append(("qml-offscreen", ["cargo", "test", "--locked", "--test", "f1b1_text_startup", "qml_offscreen", "--", "--ignored", "--nocapture"]))
++        commands.append(("qml-f1b2-review", ["cargo", "test", "--locked", "--test", "f1b2_conversation", "qml_", "--", "--ignored", "--nocapture", "--test-threads=1"]))
++        commands.append(("qml-f1b3b-recovery", ["cargo", "test", "--locked", "--test", "f1b3b_storage", "qml_", "--", "--ignored", "--nocapture", "--test-threads=1"]))
++    results = {"base": "d8a6972b5bc3977408c8d0956fce3196623d5458", "commands": [], "excluded": EXTERNAL_TESTS, "qml_offscreen": args.qml, "plasma_wayland": "NOT_TESTED"}
++    source_paths = sorted(p for base in ["src", "qml", "tests", "migrations", "scripts"] for p in (repo / base).rglob("*") if p.is_file() and (p.suffix in [".rs", ".qml", ".sql", ".py", ".js"] or p.name == "qmldir"))
++    manifest = {str(p.relative_to(repo)): hashlib.sha256(p.read_bytes()).hexdigest() for p in source_paths}
++    (evidence / "source-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
++    print(f"Evidencia privada: {evidence}", flush=True)
++    print("Sin modelos ni proveedores remotos. Unitarios excluyen sólo los 2 tests externos F1A. QML es opt-in.", flush=True)
++    try:
++        for name, command in commands:
++            start = time.monotonic()
++            log = evidence / f"{name}.log"
++            with log.open("w") as output:
++                result = subprocess.run(command, cwd=repo, env=env, stdout=output, stderr=subprocess.STDOUT)
++            results["commands"].append({"name": name, "command": command, "exit": result.returncode, "seconds": round(time.monotonic()-start, 3)})
++            (evidence / "results.json").write_text(json.dumps(results, indent=2) + "\n")
++            print(f"{name}: exit {result.returncode}; log {log}", flush=True)
++            if result.returncode:
++                print(log.read_text(), flush=True)
++                return 1
++        changed = [name for name, digest in manifest.items() if hashlib.sha256((repo / name).read_bytes()).hexdigest() != digest]
++        if changed:
++            results["source_changed_during_validation"] = changed
++            (evidence / "results.json").write_text(json.dumps(results, indent=2) + "\n")
++            print("FAIL: sources changed during validation", flush=True)
++            return 1
++        print("PASS de la selección F1B3B; Plasma Wayland y voz real NOT_TESTED.", flush=True)
++        return 0
++    finally:
++        for directory in ["tmp", "config", "cache", "data"]:
++            shutil.rmtree(evidence / directory)
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/src/backend/ai_service.rs b/src/backend/ai_service.rs
+index 0c58d755d6bddf5546a288ee989a687517904118..99ab37b8de00fc921421e92cde9ab8e4986f45e7 100644
+--- a/src/backend/ai_service.rs
++++ b/src/backend/ai_service.rs
+@@ -201,6 +201,12 @@ impl AiService {
+         max_tokens: Option<u32>,
+         tx: &mpsc::Sender<StreamEvent>,
+     ) -> Result<String> {
++        crate::backend::history_context::validate_request(
++            &cfg.ai,
++            messages,
++            tools,
++            max_tokens.unwrap_or(cfg.ai.max_tokens),
++        )?;
+         let provider_id = cfg.ai.provider_id().to_string();
+         let provider_name = crate::models::AiConfig::provider_name(&provider_id);
+         let api_key = cfg.ai.effective_api_key();
+diff --git a/src/backend/conversation_turn.rs b/src/backend/conversation_turn.rs
+index 768d3b060f1a076cff427e6c3a601f33ab58b52f..a0d43260f191b1329314b2e48efb6613a787ae81 100644
+--- a/src/backend/conversation_turn.rs
++++ b/src/backend/conversation_turn.rs
+@@ -241,6 +241,20 @@ impl TurnRegistry {
+             entry.task = Some(task);
+         }
+     }
++    pub fn while_session_idle<T>(
++        &self,
++        session: &str,
++        work: impl FnOnce() -> Result<T>,
++    ) -> Result<T> {
++        let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
++        if let Some(entry) = entries.get(&Some(session.to_owned())) {
++            anyhow::ensure!(
++                entry.task.as_ref().is_some_and(JoinHandle::is_finished),
++                "session_busy: supervisor still owns session"
++            );
++        }
++        work()
++    }
+     pub fn current(&self, session: &Option<String>) -> Option<Arc<Turn>> {
+         self.entries
+             .lock()
+diff --git a/src/backend/history_context.rs b/src/backend/history_context.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..cc5cb48812968a443a99206df4027d8b1312d67e
+--- /dev/null
++++ b/src/backend/history_context.rs
+@@ -0,0 +1,249 @@
++//! Bounded context reconstruction. Original history is never rewritten or summarized.
++//! Size guards use bundled SQLite octet_length(column), which skips overflow payload reads.
++use super::session_manager::SessionManager;
++use crate::models::{AiConfig, Message, Tool};
++use anyhow::{ensure, Context, Result};
++use rusqlite::{params, OptionalExtension};
++use serde::Serialize;
++use std::{collections::HashSet, io::Write};
++
++struct Counter(usize);
++impl Write for Counter {
++    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
++        self.0 = self.0.saturating_add(buf.len());
++        Ok(buf.len())
++    }
++    fn flush(&mut self) -> std::io::Result<()> {
++        Ok(())
++    }
++}
++// Includes JSON escaping of arguments a second time in OpenAI's string field,
++// message framing, and a conservative one-token-per-byte envelope.
++fn charge(value: &impl Serialize) -> Result<usize> {
++    let mut count = Counter(0);
++    serde_json::to_writer(&mut count, value)?;
++    Ok(count.0.saturating_mul(2).saturating_add(64))
++}
++pub fn input_budget(cfg: &AiConfig, tools: &[Tool], response: u32) -> Result<usize> {
++    ensure!(
++        response > 0 && response < cfg.context_window_tokens,
++        "context_budget_invalid: response reservation exceeds window"
++    );
++    let total = cfg
++        .max_context_bytes
++        .min((cfg.context_window_tokens - response) as usize);
++    total
++        .checked_sub(charge(&tools)?)
++        .filter(|v| *v > 0)
++        .context("context_budget_exceeded: essential tool schemas exceed budget")
++}
++pub fn validate_groups(messages: &[Message]) -> Result<()> {
++    let mut pending = HashSet::new();
++    for message in messages {
++        match message {
++            Message::Tool { tool_call_id, .. } => {
++                ensure!(
++                    pending.remove(tool_call_id.as_str()),
++                    "context_invalid: orphan or duplicate tool result"
++                );
++            }
++            Message::Assistant { tool_calls, .. } => {
++                ensure!(pending.is_empty(), "context_invalid: incomplete tool group");
++                for call in tool_calls {
++                    ensure!(
++                        !call.id.is_empty() && pending.insert(call.id.as_str()),
++                        "context_invalid: duplicate or missing tool identity"
++                    );
++                }
++            }
++            _ => ensure!(pending.is_empty(), "context_invalid: incomplete tool group"),
++        }
++    }
++    ensure!(pending.is_empty(), "context_invalid: incomplete tool group");
++    Ok(())
++}
++pub fn validate_request(
++    cfg: &AiConfig,
++    messages: &[Message],
++    tools: &[Tool],
++    response: u32,
++) -> Result<()> {
++    validate_groups(messages)?;
++    ensure!(
++        charge(&messages)? <= input_budget(cfg, tools, response)?,
++        "context_budget_exceeded: request including response reservation exceeds budget"
++    );
++    Ok(())
++}
++impl SessionManager {
++    /// Bounded legacy summary input; never used as conversation context replacement.
++    pub(crate) fn summary_excerpt(&self, session: &str) -> Result<(String, i64, String)> {
++        let (previous,count):(String,i64)=self.conn.query_row("SELECT substr(COALESCE(summary,''),1,1500),COALESCE(summary_count,0) FROM sessions WHERE id=?1",[session],|r|Ok((r.get(0)?,r.get(1)?)))?;
++        let total = self.count_messages(session)?;
++        let end = total.saturating_sub(20).max(0);
++        let start = count.clamp(0, end);
++        let mut text = String::new();
++        let mut stmt=self.conn.prepare("SELECT role,substr(content,1,600) FROM messages WHERE session_id=?1 ORDER BY id LIMIT ?2 OFFSET ?3")?;
++        let mut rows = stmt.query(params![session, (end - start).min(32), start])?;
++        while let Some(row) = rows.next()? {
++            let role: String = row.get(0)?;
++            let content: String = row.get(1)?;
++            if text.len() + role.len() + content.len() + 4 > 12000 {
++                break;
++            }
++            text.push_str(&format!("[{role}] {content}\n"));
++        }
++        Ok((previous, count, text))
++    }
++    pub fn context_facts(&self, max_bytes: usize) -> Result<Vec<super::session_manager::UserFact>> {
++        let size: i64 = self.conn.query_row("SELECT COALESCE(SUM(octet_length(key)+octet_length(value)+octet_length(updated_at)+128),0) FROM user_facts",[],|r|r.get(0))?;
++        ensure!(
++            size as usize <= max_bytes,
++            "context_budget_exceeded: essential remembered facts"
++        );
++        self.list_facts()
++    }
++    pub fn retry_input(&self, session: &str, max_bytes: usize) -> Result<String> {
++        let (id,role,size):(i64,String,i64)=self.conn.query_row("SELECT id,role,octet_length(content) FROM messages WHERE session_id=?1 ORDER BY id DESC LIMIT 1",[session],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
++        ensure!(role == "user", "regeneration_requires_unanswered_user");
++        ensure!(
++            size as usize <= max_bytes,
++            "context_budget_exceeded: retry input"
++        );
++        Ok(self
++            .conn
++            .query_row("SELECT content FROM messages WHERE id=?1", [id], |r| {
++                r.get(0)
++            })?)
++    }
++
++    /// A causal suffix of user input units. Retries share an input through turn_inputs.
++    /// Metadata is read before payloads; oversized units never enter memory.
++    pub fn select_context(
++        &self,
++        session: Option<&str>,
++        essential: Vec<Message>,
++        current: Option<Message>,
++        cfg: &AiConfig,
++        tools: &[Tool],
++    ) -> Result<Vec<Message>> {
++        let mut budget = input_budget(cfg, tools, cfg.max_tokens)?;
++        let mut prefix = essential;
++        let mut historical_systems = Vec::new();
++        let mut selected_start = i64::MAX;
++        if let Some(sid) = session {
++            let size: i64 = self.conn.query_row("SELECT COALESCE(SUM(octet_length(content)+128),0) FROM messages WHERE session_id=?1 AND role='system'", [sid], |r|r.get(0))?;
++            ensure!(
++                size as usize <= budget,
++                "context_budget_exceeded: essential historical instructions"
++            );
++            let mut stmt = self.conn.prepare(
++                "SELECT id,content FROM messages WHERE session_id=?1 AND role='system' ORDER BY id",
++            )?;
++            for row in
++                stmt.query_map([sid], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
++            {
++                let (id, content) = row?;
++                historical_systems.push((id, Message::system(content)));
++            }
++            let uncertain: bool=self.conn.query_row("SELECT EXISTS(SELECT 1 FROM operation_journal WHERE session_id=?1 AND state IN ('unknown_outcome','dispatched'))",[sid],|r|r.get(0))?;
++            if uncertain {
++                prefix.push(Message::system("Esta sesión conserva operaciones inciertas. La operación pudo haberse realizado, pero no se pudo confirmar su resultado. No supongas éxito ni rollback ni repitas acciones previas sin una solicitud nueva y explícita después de inspeccionar el posible efecto."));
++            }
++        }
++        let fixed = charge(&prefix)?
++            + charge(&historical_systems)?
++            + current.as_ref().map(charge).transpose()?.unwrap_or(0)
++            + 128;
++        ensure!(
++            fixed <= budget,
++            "context_budget_exceeded: essential instructions or current input"
++        );
++        budget -= fixed;
++        let mut units = Vec::new();
++        if let Some(sid) = session {
++            let mut end = i64::MAX;
++            let mut newest = true;
++            loop {
++                let start: Option<i64> = self.conn.query_row("SELECT id FROM messages WHERE session_id=?1 AND role='user' AND id<?2 ORDER BY id DESC LIMIT 1", params![sid,end], |r|r.get(0)).optional()?;
++                let start = start.unwrap_or(0);
++                let (size, count): (i64,i64) = self.conn.query_row("SELECT COALESCE(SUM(octet_length(content)+COALESCE(octet_length(tool_result),0)+COALESCE(octet_length(tool_call_id),0)+COALESCE(octet_length(image_url),0)+octet_length(role)+256),0),COUNT(*) FROM messages WHERE session_id=?1 AND id>=?2 AND id<?3 AND role!='system'",params![sid,start,end],|r|Ok((r.get(0)?,r.get(1)?)))?;
++                if count == 0 {
++                    if start == 0 {
++                        break;
++                    }
++                    end = start;
++                    continue;
++                }
++                if size as usize > budget {
++                    ensure!(!newest, "context_budget_exceeded: most recent logical turn");
++                    break;
++                }
++                let mut group = Vec::new();
++                let mut stmt = self.conn.prepare("SELECT role,content,tool_call_id,tool_result,image_url FROM messages WHERE session_id=?1 AND id>=?2 AND id<?3 ORDER BY id")?;
++                let mut rows = stmt.query(params![sid, start, end])?;
++                while let Some(row) = rows.next()? {
++                    let content: String = row.get(1)?;
++                    group.push(match row.get::<_, String>(0)?.as_str() {
++                        "system" => Message::system(content),
++                        "user" => Message::user(content),
++                        "assistant" => Message::assistant_with_tools(
++                            content,
++                            row.get::<_, Option<String>>(3)?
++                                .map(|s| serde_json::from_str(&s))
++                                .transpose()
++                                .context("context_invalid: malformed stored tool calls")?
++                                .unwrap_or_default(),
++                        ),
++                        "tool" => Message::tool_with_image(
++                            row.get::<_, Option<String>>(2)?
++                                .context("context_invalid: missing tool result identity")?,
++                            content,
++                            row.get(4)?,
++                        ),
++                        _ => anyhow::bail!("context_invalid: unknown historical role"),
++                    });
++                }
++                let inconsistent: bool=self.conn.query_row("SELECT EXISTS(SELECT 1 FROM messages m LEFT JOIN conversation_turns t ON t.id=m.turn_id WHERE m.session_id=?1 AND m.id>=?2 AND m.id<?3 AND m.role IN ('assistant','tool') AND m.turn_id IS NOT NULL AND (t.id IS NULL OR t.session_id IS NOT m.session_id OR t.state!='completed'))",params![sid,start,end],|r|r.get(0))?;
++                ensure!(
++                    !inconsistent,
++                    "context_invalid: uncompleted or unrelated historical output"
++                );
++                // Strict policy: don't silently hide an incomplete legacy group.
++                validate_groups(&group)?;
++                let unresolved: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM operation_journal j WHERE j.session_id=?1 AND j.state IN ('unknown_outcome','failed','abandoned','dispatched') AND j.turn_id IN (SELECT turn_id FROM turn_inputs WHERE user_message_id=?2 UNION SELECT turn_id FROM messages WHERE session_id=?1 AND id>=?2 AND id<?3 AND turn_id IS NOT NULL))", params![sid,start,end], |r|r.get(0))?;
++                let interrupted: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM conversation_turns t WHERE t.session_id=?1 AND t.state IN ('failed','cancelled') AND t.id IN (SELECT turn_id FROM turn_inputs WHERE user_message_id=?2 UNION SELECT turn_id FROM messages WHERE session_id=?1 AND id>=?2 AND id<?3 AND turn_id IS NOT NULL))", params![sid,start,end], |r|r.get(0))?;
++                if unresolved || interrupted {
++                    group.push(Message::system("Este input tiene intentos cancelados, fallidos o con operaciones abandonadas/inciertas. No supongas éxito ni rollback. No repitas acciones anteriores sin una solicitud nueva y explícita después de inspeccionar el posible efecto."));
++                }
++                let cost = charge(&group)?;
++                if cost > budget {
++                    ensure!(!newest, "context_budget_exceeded: most recent logical turn");
++                    break;
++                }
++                budget -= cost;
++                selected_start = start;
++                units.push(group);
++                newest = false;
++                if start == 0 {
++                    break;
++                }
++                end = start;
++            }
++        }
++        prefix.extend(
++            historical_systems
++                .into_iter()
++                .filter(|(id, _)| *id < selected_start)
++                .map(|(_, message)| message),
++        );
++        for group in units.into_iter().rev() {
++            prefix.extend(group);
++        }
++        if let Some(current) = current {
++            prefix.push(current);
++        }
++        validate_request(cfg, &prefix, tools, cfg.max_tokens)?;
++        Ok(prefix)
++    }
++}
+diff --git a/src/backend/http_server.rs b/src/backend/http_server.rs
+index 5602282337039567531fcf57c1ea171119e9e2ce..97098eb8e716a6ecfd6be6c99f590fba608496a9 100644
+--- a/src/backend/http_server.rs
++++ b/src/backend/http_server.rs
+@@ -16,7 +16,7 @@
+ //! - event: done,       data: {"full_content":"..."}
+ //! - event: error,      data: {"message":"..."}
+ 
+-use anyhow::Result;
++use anyhow::{Context, Result};
+ use axum::{
+     extract::{Query, Request, State},
+     http::StatusCode,
+@@ -186,6 +186,7 @@ pub fn router(state: AppState) -> Router {
+         .route("/api/tools/approve", post(approve_tool))
+         .route("/api/tools/audit", get(list_tool_audit))
+         .route("/api/tools/operations", get(list_operations))
++        .route("/api/storage", get(storage_diagnostics))
+         .route(
+             "/api/memory/facts",
+             get(list_facts).post(upsert_fact).delete(delete_fact),
+@@ -1051,6 +1052,9 @@ fn default_audit_limit() -> i64 {
+ #[derive(Deserialize)]
+ struct OperationQuery {
+     session_id: Option<String>,
++    #[serde(default)]
++    recovery_only: bool,
++    before: Option<i64>,
+     #[serde(default = "default_audit_limit")]
+     limit: i64,
+ }
+@@ -1062,8 +1066,12 @@ async fn list_operations(
+         .sessions
+         .lock()
+         .unwrap_or_else(|e| e.into_inner())
+-        .list_operations(query.session_id.as_deref(), query.limit)
+-    {
++        .operation_page(
++            query.session_id.as_deref(),
++            query.limit,
++            query.recovery_only,
++            query.before,
++        ) {
+         Ok(records) => Json(records).into_response(),
+         Err(error) => (
+             StatusCode::INTERNAL_SERVER_ERROR,
+@@ -1079,7 +1087,13 @@ async fn list_tool_audit(
+ ) -> impl IntoResponse {
+     let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+     match sessions.list_tool_audit(q.limit) {
+-        Ok(rows) => Json(rows).into_response(),
++        Ok(mut rows) => {
++            // Redaction at the API boundary does not rewrite historical SQLite evidence.
++            for row in &mut rows {
++                row.args = "[redacted]".into();
++            }
++            Json(rows).into_response()
++        }
+         Err(e) => (
+             StatusCode::INTERNAL_SERVER_ERROR,
+             Json(serde_json::json!({ "error": e.to_string() })),
+@@ -1346,6 +1360,8 @@ async fn list_ai_models(
+ #[derive(Debug, Deserialize)]
+ pub struct DeleteSessionQuery {
+     pub session_id: String,
++    #[serde(default)]
++    pub erase_uncertain_evidence: bool,
+ }
+ 
+ /// Renombra una sesion (F1-2). Body: {"id": "...", "title": "..."}.
+@@ -1382,12 +1398,50 @@ async fn delete_session(
+     State(state): State<AppState>,
+     Query(q): Query<DeleteSessionQuery>,
+ ) -> impl IntoResponse {
+-    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+-    match sessions.delete_session(&q.session_id) {
+-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "status": "ok" }))),
+-        Err(e) => (
++    let result = tokio::task::spawn_blocking(move || {
++        state.chat_tasks.while_session_idle(&q.session_id, || {
++            state
++                .sessions
++                .lock()
++                .unwrap_or_else(|e| e.into_inner())
++                .delete_session_confirmed(&q.session_id, q.erase_uncertain_evidence)
++        })
++    })
++    .await;
++    match result {
++        Ok(Ok(())) => (StatusCode::OK, Json(serde_json::json!({"status":"ok"}))),
++        Ok(Err(e)) => {
++            let error = e.to_string();
++            let status =
++                if error.contains("session_busy") || error.contains("confirmation_required") {
++                    StatusCode::CONFLICT
++                } else if error == "session_not_found" {
++                    StatusCode::NOT_FOUND
++                } else {
++                    StatusCode::INTERNAL_SERVER_ERROR
++                };
++            (status, Json(serde_json::json!({"error":error})))
++        }
++        Err(_) => (
+             StatusCode::INTERNAL_SERVER_ERROR,
+-            Json(serde_json::json!({ "error": e.to_string() })),
++            Json(serde_json::json!({"error":"storage_worker_failed"})),
++        ),
++    }
++}
++async fn storage_diagnostics(State(state): State<AppState>) -> impl IntoResponse {
++    match tokio::task::spawn_blocking(move || {
++        state
++            .sessions
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .storage_diagnostics()
++    })
++    .await
++    {
++        Ok(Ok(data)) => (StatusCode::OK, Json(data)),
++        _ => (
++            StatusCode::INTERNAL_SERVER_ERROR,
++            Json(serde_json::json!({"error":"storage_diagnostics_unavailable"})),
+         ),
+     }
+ }
+@@ -1507,23 +1561,22 @@ fn start_turn(
+                 let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+                 if regenerate {
+                     anyhow::ensure!(sessions.regeneration_is_safe(req.session_id.as_deref().unwrap_or_default())?,"regeneration_requires_new_message: inspecciona efectos anteriores y envía un mensaje nuevo");
+-                    let history =
+-                        sessions.get_messages(req.session_id.as_deref().unwrap_or_default())?;
+-                    // Regeneration never replays tools which may already have effects.
+-                    anyhow::ensure!(history.last().is_some_and(|m|matches!(m,Message::User{..})),"regeneration_requires_unanswered_user: crea un nuevo mensaje para repetir una acción");
+-                    if let Some(Message::User { content }) = history.last() {
+-                        req.message = content.clone();
+-                    }
++                    let cap = state
++                        .config
++                        .try_read()
++                        .context("config unavailable")?
++                        .ai
++                        .max_context_bytes;
++                    req.message =
++                        sessions.retry_input(req.session_id.as_deref().unwrap_or_default(), cap)?;
+                 }
+             }
+-            let mut messages = crate::backend::conversation_turn::cancellable(
++            let messages = crate::backend::conversation_turn::cancellable(
+                 Some(&owned),
+-                build_messages(&state, &req),
++                build_messages(&state, &req, regenerate),
+             )
+             .await?;
+-            if regenerate {
+-                messages.pop();
+-            } // The existing unanswered user is already in history.
++
+             {
+                 let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+                 let user = Message::user(&req.message);
+@@ -1689,7 +1742,11 @@ fn start_turn(
+ 
+ fn error_code(error: &anyhow::Error) -> &'static str {
+     let detail = format!("{error:#}");
+-    if detail.contains("sse_") || detail.contains("malformed_tool") {
++    if detail.contains("context_invalid") {
++        "context_invalid"
++    } else if detail.contains("context_budget") {
++        "context_budget_exceeded"
++    } else if detail.contains("sse_") || detail.contains("malformed_tool") {
+         "invalid_provider_stream"
+     } else if detail.contains("timed out") || detail.contains("timeout") {
+         "provider_timeout"
+@@ -1855,55 +1912,46 @@ fn maybe_auto_title(
+     }
+ }
+ 
+-async fn build_messages(state: &AppState, req: &ChatRequest) -> Result<Vec<Message>> {
++async fn build_messages(
++    state: &AppState,
++    req: &ChatRequest,
++    regenerate: bool,
++) -> Result<Vec<Message>> {
+     let cfg = state.config.read().await.clone();
+     let mut system_prompt = cfg.ai.system_prompt.clone();
+-    // F5: facts del usuario (solo si hay y está habilitado).
+-    if cfg.memory.enabled {
+-        let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+-        if let Ok(facts) = sessions.list_facts() {
++    let sessions = state.sessions.clone();
++    let sid = req.session_id.clone();
++    let current = if regenerate {
++        None
++    } else {
++        Some(Message::user(req.message.clone()))
++    };
++    tokio::task::spawn_blocking(move || {
++        let sessions = sessions.lock().unwrap_or_else(|e| e.into_inner());
++        if cfg.memory.enabled {
++            let facts = sessions.context_facts(cfg.ai.max_context_bytes)?;
+             if !facts.is_empty() {
+-                let mut block = String::from(
++                system_prompt.push_str(
+                     "\n\nDatos del usuario (recordados localmente, pueden estar desactualizados):",
+                 );
+-                for f in &facts {
+-                    block.push_str(&format!("\n- {}: {}", f.key, f.value));
++                for fact in facts {
++                    system_prompt.push_str(&format!("\n- {}: {}", fact.key, fact.value));
+                 }
+-                system_prompt.push_str(&block);
+             }
+         }
+-    }
+-    let mut messages = Vec::new();
+-    messages.push(Message::system(system_prompt));
+-
+-    // Cargar historial si hay session_id (ventana deslizante: últimos 40
+-    // para no saturar contexto ni superar max_tokens del proveedor).
+-    const MAX_HISTORY: usize = 40;
+-    if let Some(sid) = &req.session_id {
+-        let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+-        // F5: resumen del hilo largo (contexto más allá de la ventana).
+-        if let Ok((summary, _)) = sessions.get_summary(sid) {
+-            if !summary.trim().is_empty() {
+-                let short: String = summary.chars().take(1500).collect();
+-                messages.push(Message::system(format!(
+-                    "Resumen de la conversación anterior en esta sesión:\n{short}"
+-                )));
+-            }
+-        }
+-        {
+-            let history = sessions.get_messages(sid)?;
+-            // Inyectar historial (sin el system prompt duplicado)
+-            let start = history.len().saturating_sub(MAX_HISTORY);
+-            messages.extend(history.into_iter().skip(start));
+-        }
+-    }
+-
+-    messages.push(Message::user(req.message.clone()));
+-    Ok(messages)
++        sessions.select_context(
++            sid.as_deref(),
++            vec![Message::system(system_prompt)],
++            current,
++            &cfg.ai,
++            &tool_registry::filtered_tools(&cfg),
++        )
++    })
++    .await?
+ }
+ 
+ /// Revisa si toca resumir el hilo y lo lanza en segundo plano (F5).
+-/// No bloquea la respuesta: el resumen estará en el siguiente turno.
++/// Artefacto legacy opcional; nunca sustituye el contexto conversacional.
+ fn maybe_summarize(state: &AppState, session_id: &str) {
+     let enabled = state
+         .config
+@@ -1938,28 +1986,7 @@ fn maybe_summarize(state: &AppState, session_id: &str) {
+ async fn summarize_session(state: &AppState, session_id: &str) -> anyhow::Result<()> {
+     let (prev_summary, prev_count, chunk) = {
+         let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+-        let (prev, prev_count) = sessions.get_summary(session_id).unwrap_or_default();
+-        let all = sessions.get_messages(session_id).unwrap_or_default();
+-        // Dejar los últimos 20 mensajes fuera del resumen (contexto fresco).
+-        let end = all.len().saturating_sub(20);
+-        let start = (prev_count as usize).min(end);
+-        let mut text = String::new();
+-        for m in &all[start..end] {
+-            let (role, content) = match m {
+-                Message::System { content } => ("sistema", content.as_str()),
+-                Message::User { content } => ("usuario", content.as_str()),
+-                Message::Assistant { content, .. } => ("asistente", content.as_str()),
+-                Message::Tool { content, .. } => ("herramienta", content.as_str()),
+-            };
+-            // Envolver outputs (ya vienen envueltos) y recortar por mensaje.
+-            let short: String = content.chars().take(600).collect();
+-            text.push_str(&format!("[{role}] {short}\n"));
+-            if text.len() > 12000 {
+-                text.push_str("…[truncado]");
+-                break;
+-            }
+-        }
+-        (prev, prev_count, text)
++        sessions.summary_excerpt(session_id)?
+     };
+     if chunk.trim().is_empty() {
+         return Ok(());
+diff --git a/src/backend/mod.rs b/src/backend/mod.rs
+index 374832e50d20b06cb5e0236fb5a407dd99df9ca5..1bf1ab354610f27980c1e2e2ab562c723dd58326 100644
+--- a/src/backend/mod.rs
++++ b/src/backend/mod.rs
+@@ -78,7 +78,11 @@ impl Backend {
+         log::info!("Config cargada desde ~/.config/kde-assistant/config.json");
+ 
+         let ai = Arc::new(ai_service::AiService::new(config.clone()).await?);
+-        let sessions = Arc::new(Mutex::new(session_manager::SessionManager::new().await?));
++        let manager = session_manager::SessionManager::new().await?;
++        if let Err(error) = resource_cache::startup(&manager) {
++            log::warn!("Owned cache maintenance unavailable: {error}");
++        }
++        let sessions = Arc::new(Mutex::new(manager));
+         // F4-3: el executor audita en SQLite.
+         let tools = Arc::new(tool_executor::ToolExecutor::with_audit(
+             config.clone(),
+@@ -240,3 +244,7 @@ impl Backend {
+         self.voice.process_utterance(&audio, None).await
+     }
+ }
++
++pub mod history_context;
++pub mod resource_cache;
++pub mod storage_retention;
+diff --git a/src/backend/operation_journal.rs b/src/backend/operation_journal.rs
+index dd07e526b88a9b187fd100d2d9f6cf4f0317549c..8057cdf43e742a263552bdb518501891e6b6732d 100644
+--- a/src/backend/operation_journal.rs
++++ b/src/backend/operation_journal.rs
+@@ -79,6 +79,7 @@ pub(crate) fn atomic<T>(conn: &Connection, work: impl FnOnce() -> Result<T>) ->
+ 
+ pub(crate) fn migrate(conn: &Connection) -> Result<()> {
+     conn.execute_batch(include_str!("../../migrations/003_operation_journal.sql"))?;
++    conn.execute_batch(include_str!("../../migrations/004_storage_retention.sql"))?;
+     #[cfg(test)]
+     crash_checkpoint("migration");
+     Ok(())
+@@ -254,22 +255,34 @@ impl SessionManager {
+     }
+     /// Bounded, newest-first metadata; never returns tool arguments or output text.
+     pub fn list_operations(&self, session: Option<&str>, limit: i64) -> Result<Vec<Operation>> {
+-        let mut stmt = self.conn.prepare("SELECT id,turn_id,session_id,kind,tool,state,prepared_at,updated_at,consent,audit_id,result_bytes FROM operation_journal WHERE (?1 IS NULL OR session_id=?1) ORDER BY prepared_at DESC,id DESC LIMIT ?2")?;
+-        let rows = stmt.query_map(params![session, limit.clamp(1, 500)], |r| {
+-            Ok(Operation {
+-                id: r.get(0)?,
+-                turn_id: r.get(1)?,
+-                session_id: r.get(2)?,
+-                kind: r.get(3)?,
+-                tool: r.get(4)?,
+-                state: r.get(5)?,
+-                prepared_at: r.get(6)?,
+-                updated_at: r.get(7)?,
+-                consent: r.get(8)?,
+-                audit_id: r.get(9)?,
+-                result_bytes: r.get(10)?,
+-            })
+-        })?;
++        self.operation_page(session, limit, false, None)
++    }
++    pub fn operation_page(
++        &self,
++        session: Option<&str>,
++        limit: i64,
++        recovery_only: bool,
++        before: Option<i64>,
++    ) -> Result<Vec<Operation>> {
++        let mut stmt = self.conn.prepare("SELECT id,turn_id,session_id,kind,tool,state,prepared_at,updated_at,consent,audit_id,result_bytes FROM operation_journal WHERE (?1 IS NULL OR session_id=?1) AND (?3=0 OR state IN ('unknown_outcome','failed','abandoned')) AND (?4 IS NULL OR audit_id<?4) ORDER BY audit_id DESC LIMIT ?2")?;
++        let rows = stmt.query_map(
++            params![session, limit.clamp(1, 500), recovery_only, before],
++            |r| {
++                Ok(Operation {
++                    id: r.get(0)?,
++                    turn_id: r.get(1)?,
++                    session_id: r.get(2)?,
++                    kind: r.get(3)?,
++                    tool: r.get(4)?,
++                    state: r.get(5)?,
++                    prepared_at: r.get(6)?,
++                    updated_at: r.get(7)?,
++                    consent: r.get(8)?,
++                    audit_id: r.get(9)?,
++                    result_bytes: r.get(10)?,
++                })
++            },
++        )?;
+         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+     }
+     pub fn authorize_operation(
+diff --git a/src/backend/resource_cache.rs b/src/backend/resource_cache.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..8928745150cec4b58b59cfd7e1db42a60db55e41
+--- /dev/null
++++ b/src/backend/resource_cache.rs
+@@ -0,0 +1,410 @@
++//! Owned cache v1. Sweep only at backend startup, before QML can acquire resources.
++//! Live workspaces hold a flock lease for the process lifetime; legacy /tmp is untouched.
++use super::session_manager::SessionManager;
++use anyhow::{ensure, Context, Result};
++use rustix::fs::{self, AtFlags, Mode, OFlags, RenameFlags, ResolveFlags, CWD};
++use std::{
++    ffi::OsStr,
++    fs::File,
++    io::{Read, Write},
++    os::unix::{ffi::OsStrExt, fs::MetadataExt},
++    path::{Path, PathBuf},
++    sync::Mutex,
++    time::Duration,
++};
++const RESOLVE: ResolveFlags = ResolveFlags::NO_SYMLINKS
++    .union(ResolveFlags::NO_MAGICLINKS)
++    .union(ResolveFlags::BENEATH)
++    .union(ResolveFlags::NO_XDEV);
++const MAX_WORKSPACES: usize = 1024;
++const MAX_BYTES: u64 = 256 * 1024 * 1024;
++const MAX_RESOURCE_BYTES: u64 = 32 * 1024 * 1024;
++const OWNER: &[u8] = b"KDE Assistant resource-cache v1\n";
++struct Lease {
++    path: PathBuf,
++    root: File,
++    directory: File,
++    marker: File,
++    reserved: u64,
++}
++static LEASES: Mutex<Vec<Lease>> = Mutex::new(Vec::new());
++fn same_file(a: &File, b: &File) -> Result<bool> {
++    let a = a.metadata()?;
++    let b = b.metadata()?;
++    Ok(a.dev() == b.dev() && a.ino() == b.ino())
++}
++fn verify_lease(entry: &Lease) -> Result<()> {
++    let parent = entry.path.parent().context("cache root missing")?;
++    let root: File = fs::openat2(
++        CWD,
++        parent,
++        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
++        Mode::empty(),
++        ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_MAGICLINKS,
++    )?
++    .into();
++    let dir = open_dir(
++        &root,
++        entry.path.file_name().context("cache identity missing")?,
++    )?;
++    ensure!(
++        same_file(&root, &entry.root)?
++            && same_file(&dir, &entry.directory)?
++            && same_file(&lease(&dir)?, &entry.marker)?,
++        "cache_identity_changed"
++    );
++    Ok(())
++}
++fn private(file: &File) -> Result<()> {
++    let m = file.metadata()?;
++    ensure!(
++        m.uid() == rustix::process::getuid().as_raw() && m.mode() & 0o777 == 0o700,
++        "cache_owner_invalid"
++    );
++    Ok(())
++}
++fn directory(parent: &File, name: &str) -> Result<File> {
++    match fs::mkdirat(parent, name, Mode::RUSR | Mode::WUSR | Mode::XUSR) {
++        Ok(()) | Err(rustix::io::Errno::EXIST) => {}
++        Err(e) => return Err(e.into()),
++    }
++    Ok(fs::openat2(
++        parent,
++        name,
++        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
++        Mode::empty(),
++        RESOLVE,
++    )?
++    .into())
++}
++fn root_at(cache: &Path) -> Result<(PathBuf, File)> {
++    let base: File = fs::openat2(
++        CWD,
++        cache,
++        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
++        Mode::empty(),
++        ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_MAGICLINKS,
++    )?
++    .into();
++    let app = directory(&base, "kde-assistant")?;
++    let root = directory(&app, "resources-v1")?;
++    private(&root)?;
++    Ok((cache.join("kde-assistant/resources-v1"), root))
++}
++fn names(dir: &File) -> Result<Vec<std::ffi::OsString>> {
++    let mut names = Vec::new();
++    for item in fs::Dir::read_from(dir)? {
++        let item = item?;
++        let name = OsStr::from_bytes(item.file_name().to_bytes());
++        if name != "." && name != ".." {
++            ensure!(names.len() < MAX_WORKSPACES * 4, "cache_entry_limit");
++            names.push(name.to_owned());
++        }
++    }
++    Ok(names)
++}
++fn open_dir(root: &File, name: &OsStr) -> Result<File> {
++    let dir: File = fs::openat2(
++        root,
++        name,
++        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
++        Mode::empty(),
++        RESOLVE,
++    )?
++    .into();
++    private(&dir)?;
++    Ok(dir)
++}
++fn lease(dir: &File) -> Result<File> {
++    let mut file: File = fs::openat2(
++        dir,
++        ".lease",
++        OFlags::RDWR | OFlags::CLOEXEC,
++        Mode::empty(),
++        RESOLVE,
++    )?
++    .into();
++    let m = file.metadata()?;
++    ensure!(
++        m.is_file()
++            && m.nlink() == 1
++            && m.uid() == rustix::process::getuid().as_raw()
++            && m.len() == OWNER.len() as u64,
++        "cache_identity_invalid"
++    );
++    let mut bytes = Vec::new();
++    Read::by_ref(&mut file)
++        .take(OWNER.len() as u64 + 1)
++        .read_to_end(&mut bytes)?;
++    ensure!(bytes == OWNER, "cache_identity_invalid");
++    Ok(file)
++}
++fn size(dir: &File) -> Result<u64> {
++    let mut total = 0u64;
++    for name in names(dir)? {
++        let fd: File = fs::openat2(
++            dir,
++            &name,
++            OFlags::PATH | OFlags::CLOEXEC,
++            Mode::empty(),
++            RESOLVE,
++        )?
++        .into();
++        let m = fd.metadata()?;
++        ensure!(m.is_file() && m.nlink() == 1, "cache_resource_invalid");
++        total = total.saturating_add(m.len());
++    }
++    Ok(total)
++}
++pub fn allocate() -> Result<(PathBuf, File)> {
++    allocate_at(&dirs::cache_dir().context("cache directory unavailable")?)
++}
++pub fn allocate_at(cache: &Path) -> Result<(PathBuf, File)> {
++    let mut leases = LEASES.lock().unwrap_or_else(|e| e.into_inner());
++    let (path, root) = root_at(cache)?;
++    let entries = names(&root)?;
++    ensure!(
++        entries.len() < MAX_WORKSPACES,
++        "cache_quota_exceeded: workspace limit"
++    );
++    let mut bytes = 0u64;
++    for name in entries {
++        let dir = open_dir(&root, &name)?;
++        lease(&dir)?;
++        bytes = bytes.saturating_add(size(&dir)?);
++    }
++    let reserved: u64 = leases
++        .iter()
++        .filter(|entry| entry.path.parent() == Some(path.as_path()))
++        .map(|entry| entry.reserved)
++        .sum();
++    ensure!(
++        bytes.saturating_add(reserved) < MAX_BYTES - MAX_RESOURCE_BYTES,
++        "cache_quota_exceeded: storage limit"
++    );
++    let name = uuid::Uuid::new_v4().to_string();
++    let dir = directory(&root, &name)?;
++    let mut marker: File = fs::openat2(
++        &dir,
++        ".lease",
++        OFlags::CREATE | OFlags::EXCL | OFlags::RDWR | OFlags::CLOEXEC,
++        Mode::RUSR | Mode::WUSR,
++        RESOLVE,
++    )?
++    .into();
++    marker.write_all(OWNER)?;
++    fs::flock(&marker, fs::FlockOperation::NonBlockingLockExclusive)?;
++    let path = path.join(name);
++    leases.push(Lease {
++        path: path.clone(),
++        root: root.try_clone()?,
++        directory: dir.try_clone()?,
++        marker,
++        reserved: MAX_RESOURCE_BYTES,
++    });
++    Ok((path, dir))
++}
++/// Refuse nested directories, symlinks and unknown ownership; never traverse them.
++fn remove_flat(root: &File, name: &OsStr, dir: &File) -> Result<()> {
++    let entries = names(dir)?;
++    size(dir)?;
++    let marker = lease(dir)?;
++    // Claim a fresh name atomically before destructive work. If the original name
++    // changed, preserve the replacement and restore it without overwriting anything.
++    let claimed = uuid::Uuid::new_v4().to_string();
++    fs::renameat_with(root, name, root, &claimed, RenameFlags::NOREPLACE)?;
++    let identity = (|| -> Result<()> {
++        let actual = open_dir(root, OsStr::new(&claimed))?;
++        ensure!(
++            same_file(dir, &actual)? && same_file(&marker, &lease(&actual)?)?,
++            "cache_identity_changed"
++        );
++        Ok(())
++    })();
++    if identity.is_err() {
++        let _ = fs::renameat_with(root, &claimed, root, name, RenameFlags::NOREPLACE);
++        return identity;
++    }
++    let result = (|| -> Result<()> {
++        for file in &entries {
++            if file != ".lease" {
++                fs::unlinkat(dir, file, AtFlags::empty())?;
++            }
++        }
++        fs::unlinkat(dir, ".lease", AtFlags::empty())?;
++        fs::unlinkat(root, &claimed, AtFlags::REMOVEDIR)?;
++        Ok(())
++    })();
++    if result.is_err() {
++        // Retain recoverable ownership after a partial cleanup failure.
++        if let Ok(fd) = fs::openat2(
++            dir,
++            ".lease",
++            OFlags::CREATE | OFlags::EXCL | OFlags::WRONLY | OFlags::CLOEXEC,
++            Mode::RUSR | Mode::WUSR,
++            RESOLVE,
++        ) {
++            let mut restored: File = fd.into();
++            let _ = restored.write_all(OWNER);
++        }
++        let _ = fs::renameat_with(root, &claimed, root, name, RenameFlags::NOREPLACE);
++    }
++    result
++}
++pub fn release_private_snapshot(path: &Path) -> Result<()> {
++    let directory = path.parent().context("snapshot parent missing")?;
++    let mut leases = LEASES.lock().unwrap_or_else(|e| e.into_inner());
++    let index = leases
++        .iter()
++        .position(|entry| entry.path == directory)
++        .context("cache_not_owned")?;
++    let entry = &leases[index];
++    verify_lease(entry)?;
++    remove_flat(
++        &entry.root,
++        directory.file_name().context("snapshot identity missing")?,
++        &entry.directory,
++    )?;
++    leases.swap_remove(index);
++    Ok(())
++}
++/// Create through the pinned workspace descriptor; never overwrite or follow a link.
++pub(crate) fn create_resource(path: &Path) -> Result<File> {
++    let directory = path.parent().context("resource parent missing")?;
++    let leases = LEASES.lock().unwrap_or_else(|e| e.into_inner());
++    let entry = leases
++        .iter()
++        .find(|entry| entry.path == directory)
++        .context("cache_not_owned")?;
++    verify_lease(entry)?;
++    let name = path.file_name().context("resource identity missing")?;
++    ensure!(name != ".lease", "cache_identity_invalid");
++    Ok(fs::openat2(
++        &entry.directory,
++        name,
++        OFlags::CREATE | OFlags::EXCL | OFlags::WRONLY | OFlags::CLOEXEC,
++        Mode::RUSR | Mode::WUSR,
++        RESOLVE,
++    )?
++    .into())
++}
++pub(crate) fn write_resource(path: &Path, bytes: &[u8]) -> Result<()> {
++    ensure!(
++        bytes.len() as u64 <= MAX_RESOURCE_BYTES,
++        "cache_resource_limit"
++    );
++    create_resource(path)?.write_all(bytes)?;
++    Ok(())
++}
++pub fn check_resource(path: &Path) -> Result<()> {
++    let directory = path.parent().context("resource parent missing")?;
++    let leases = LEASES.lock().unwrap_or_else(|e| e.into_inner());
++    let entry = leases
++        .iter()
++        .find(|entry| entry.path == directory)
++        .context("cache_not_owned")?;
++    verify_lease(entry)?;
++    let file: File = fs::openat2(
++        &entry.directory,
++        path.file_name().context("resource identity missing")?,
++        OFlags::PATH | OFlags::CLOEXEC,
++        Mode::empty(),
++        RESOLVE,
++    )?
++    .into();
++    let m = file.metadata()?;
++    ensure!(
++        m.is_file()
++            && m.nlink() == 1
++            && m.uid() == rustix::process::getuid().as_raw()
++            && m.len() <= MAX_RESOURCE_BYTES,
++        "cache_resource_limit"
++    );
++    Ok(())
++}
++/// Before exposing a resource, validate workspace size and release its admission reserve.
++pub fn publish_resource(path: &Path) -> Result<()> {
++    check_resource(path)?;
++    let directory = path.parent().context("resource parent missing")?;
++    let mut leases = LEASES.lock().unwrap_or_else(|e| e.into_inner());
++    let entry = leases
++        .iter_mut()
++        .find(|entry| entry.path == directory)
++        .context("cache_not_owned")?;
++    verify_lease(entry)?;
++    ensure!(
++        size(&entry.directory)? <= MAX_RESOURCE_BYTES,
++        "cache_resource_limit"
++    );
++    entry.reserved = 0;
++    Ok(())
++}
++/// Unpublished resources cannot be used by QML and may be removed on failure/drop.
++pub struct PendingResource(Option<PathBuf>);
++impl PendingResource {
++    pub fn new(directory: &Path) -> Self {
++        Self(Some(directory.join(".unpublished")))
++    }
++    pub fn keep(mut self) {
++        self.0 = None;
++    }
++}
++impl Drop for PendingResource {
++    fn drop(&mut self) {
++        if let Some(path) = &self.0 {
++            if let Err(error) = release_private_snapshot(path) {
++                log::warn!("Unpublished cache cleanup pending: {error}");
++            }
++        }
++    }
++}
++/// Failure leaves evidence/resources for the next sweep. No runtime sweep or VACUUM.
++pub fn sweep_at(
++    cache: &Path,
++    protected: impl Fn(&str) -> Result<bool>,
++    minimum_age: Duration,
++) -> Result<serde_json::Value> {
++    let (path, root) = root_at(cache)?;
++    let mut removed = 0;
++    let mut skipped = 0;
++    let mut failures = 0;
++    for name in names(&root)? {
++        let work = (|| -> Result<bool> {
++            ensure!(
++                uuid::Uuid::parse_str(&name.to_string_lossy()).is_ok(),
++                "cache_unknown_identity"
++            );
++            let dir = open_dir(&root, &name)?;
++            let marker = lease(&dir)?;
++            if fs::flock(&marker, fs::FlockOperation::NonBlockingLockExclusive).is_err() {
++                return Ok(false);
++            }
++            if marker.metadata()?.modified()?.elapsed().unwrap_or_default() < minimum_age
++                || protected(&path.join(&name).to_string_lossy())?
++            {
++                return Ok(false);
++            }
++            remove_flat(&root, &name, &dir)?;
++            Ok(true)
++        })();
++        match work {
++            Ok(true) => removed += 1,
++            Ok(false) => skipped += 1,
++            Err(_) => failures += 1,
++        }
++    }
++    Ok(
++        serde_json::json!({"removed":removed,"skipped":skipped,"failures":failures,"max_bytes":MAX_BYTES,"max_workspaces":MAX_WORKSPACES}),
++    )
++}
++pub fn startup(sessions: &SessionManager) -> Result<()> {
++    let cache = dirs::cache_dir().context("cache directory unavailable")?;
++    // Qt hasn't started yet. Persisted references and other process leases remain live.
++    let stats = sweep_at(
++        &cache,
++        |directory| sessions.resource_is_referenced(directory),
++        Duration::from_secs(7 * 86400),
++    )?;
++    log::info!("Owned resource cache maintenance: {stats}");
++    Ok(())
++}
+diff --git a/src/backend/safe_fs.rs b/src/backend/safe_fs.rs
+index b80bfc785e48a6206b4c44de97a32bd2b3f9df72..00d891b366a5c904a3b3d11a0e613bb895ab185f 100644
+--- a/src/backend/safe_fs.rs
++++ b/src/backend/safe_fs.rs
+@@ -76,8 +76,15 @@ impl SafePath {
+     }
+ 
+     pub fn snapshot(&self) -> Result<PathBuf> {
+-        let bytes = self.read()?;
++        let mut source = self.open(OFlags::RDONLY | OFlags::NONBLOCK)?;
++        check_regular(&source)?;
++        let mut bytes = Vec::new();
++        std::io::Read::by_ref(&mut source)
++            .take(32 * 1024 * 1024 + 1)
++            .read_to_end(&mut bytes)?;
++        anyhow::ensure!(bytes.len() <= 32 * 1024 * 1024, "cache_resource_limit");
+         let (directory, root) = private_workspace()?;
++        let pending = super::resource_cache::PendingResource::new(&directory);
+         let name = self.relative.file_name().context("archivo sin nombre")?;
+         let snapshot = Self {
+             root,
+@@ -85,6 +92,8 @@ impl SafePath {
+             display: directory.join(name),
+         };
+         snapshot.create(&bytes)?;
++        super::resource_cache::publish_resource(&snapshot.display)?;
++        pending.keep();
+         Ok(snapshot.display)
+     }
+ 
+@@ -367,22 +376,5 @@ fn checked_absolute(path: &str) -> Result<PathBuf> {
+ 
+ // Cache de vistas: nombre impredecible y 0700 desde mkdirat; sin fallback compartido.
+ pub(super) fn private_workspace() -> Result<(PathBuf, File)> {
+-    let base = std::env::temp_dir();
+-    let root = fs::openat2(
+-        CWD,
+-        &base,
+-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+-        Mode::empty(),
+-        ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_MAGICLINKS,
+-    )?;
+-    let name = format!("kda-view-{}", uuid::Uuid::new_v4());
+-    fs::mkdirat(&root, &name, Mode::RUSR | Mode::WUSR | Mode::XUSR)?;
+-    let dir = fs::openat2(
+-        &root,
+-        &name,
+-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+-        Mode::empty(),
+-        RESOLVE,
+-    )?;
+-    Ok((base.join(name), dir.into()))
++    super::resource_cache::allocate()
+ }
+diff --git a/src/backend/session_manager.rs b/src/backend/session_manager.rs
+index deccb1f44e2527f23845ba296e27ad3ddeccf8e7..ccff021b179acaad33c752eba8bdb2a8ec96de9a 100644
+--- a/src/backend/session_manager.rs
++++ b/src/backend/session_manager.rs
+@@ -373,11 +373,13 @@ impl SessionManager {
+     }
+ 
+     pub fn delete_session(&self, id: &str) -> Result<()> {
+-        self.conn
+-            .execute("DELETE FROM messages WHERE session_id = ?1", params![id])?;
+-        self.conn
+-            .execute("DELETE FROM sessions WHERE id = ?1", params![id])?;
+-        Ok(())
++        self.delete_session_confirmed(id, false)
++    }
++
++    pub(crate) fn db_file_bytes(&self, suffix: &str) -> u64 {
++        let mut path = self.db_path.as_os_str().to_os_string();
++        path.push(suffix);
++        std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
+     }
+ 
+     pub fn touch_session(&self, id: &str) -> Result<()> {
+diff --git a/src/backend/storage_retention.rs b/src/backend/storage_retention.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..6ab940d3e246f755dc67100e8bb9281309019989
+--- /dev/null
++++ b/src/backend/storage_retention.rs
+@@ -0,0 +1,54 @@
++//! Explicit deletion; automatic destructive retention is disabled.
++use super::{operation_journal::atomic, session_manager::SessionManager};
++use anyhow::{ensure, Result};
++use rusqlite::params;
++impl SessionManager {
++    pub fn delete_session_confirmed(&self, id: &str, erase_uncertain_evidence: bool) -> Result<()> {
++        atomic(&self.conn, || {
++            let exists = self.get_session(id)?.is_some();
++            let retained: bool=self.conn.query_row("SELECT EXISTS(SELECT 1 FROM messages WHERE session_id=?1) OR EXISTS(SELECT 1 FROM conversation_turns WHERE session_id=?1) OR EXISTS(SELECT 1 FROM operation_journal WHERE session_id=?1) OR EXISTS(SELECT 1 FROM tool_audit WHERE session_id=?1)",[id],|r|r.get(0))?;
++            // An old legacy deletion may have removed the session but left its evidence.
++            ensure!(exists || retained, "session_not_found");
++            let active: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM conversation_turns WHERE session_id=?1 AND state NOT IN ('completed','cancelled','failed')) OR EXISTS(SELECT 1 FROM operation_journal WHERE session_id=?1 AND state IN ('prepared','authorized','dispatched'))",[id],|r|r.get(0))?;
++            ensure!(!active, "session_busy: active turn or operation");
++            let uncertain: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM operation_journal WHERE session_id=?1 AND state='unknown_outcome')",[id],|r|r.get(0))?;
++            ensure!(
++                !uncertain || erase_uncertain_evidence,
++                "uncertain_evidence_confirmation_required"
++            );
++            // Exact ownership only; verify old links before touching shared records.
++            let inconsistent: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM operation_journal j JOIN conversation_turns t ON t.id=j.turn_id WHERE (j.session_id=?1 OR t.session_id=?1) AND j.session_id IS NOT t.session_id) OR EXISTS(SELECT 1 FROM turn_inputs i JOIN conversation_turns t ON t.id=i.turn_id JOIN messages m ON m.id=i.user_message_id WHERE (t.session_id=?1 OR m.session_id=?1) AND t.session_id IS NOT m.session_id) OR EXISTS(SELECT 1 FROM operation_journal j JOIN tool_audit a ON a.id=j.audit_id WHERE (j.session_id=?1 OR a.session_id=?1) AND j.session_id IS NOT a.session_id)",[id],|r|r.get(0))?;
++            ensure!(!inconsistent, "storage_ownership_inconsistent");
++            self.conn.execute("DELETE FROM operation_events WHERE operation_id IN (SELECT id FROM operation_journal WHERE session_id=?1)",[id])?;
++            self.conn
++                .execute("DELETE FROM operation_journal WHERE session_id=?1", [id])?;
++            self.conn.execute("DELETE FROM turn_recovery WHERE turn_id IN (SELECT id FROM conversation_turns WHERE session_id=?1)",[id])?;
++            self.conn.execute("DELETE FROM turn_inputs WHERE turn_id IN (SELECT id FROM conversation_turns WHERE session_id=?1)",[id])?;
++            self.conn
++                .execute("DELETE FROM tool_audit WHERE session_id=?1", [id])?;
++            self.conn
++                .execute("DELETE FROM messages WHERE session_id=?1", [id])?;
++            self.conn
++                .execute("DELETE FROM conversation_turns WHERE session_id=?1", [id])?;
++            self.conn
++                .execute("DELETE FROM sessions WHERE id=?1", params![id])?;
++            Ok(())
++        })
++    }
++    pub fn storage_diagnostics(&self) -> Result<serde_json::Value> {
++        let scalar = |sql| self.conn.query_row(sql, [], |r| r.get::<_, i64>(0));
++        let pages = scalar("PRAGMA page_count")?;
++        let page_size = scalar("PRAGMA page_size")?;
++        let wal = self.db_file_bytes("-wal");
++        Ok(
++            serde_json::json!({"automatic_destructive_retention":false,"retention_period_days":null,"logical_db_bytes":pages*page_size,"wal_bytes":wal,"orphan_links":scalar("SELECT (SELECT COUNT(*) FROM turn_inputs i WHERE NOT EXISTS(SELECT 1 FROM messages WHERE id=i.user_message_id) OR NOT EXISTS(SELECT 1 FROM conversation_turns WHERE id=i.turn_id)) + (SELECT COUNT(*) FROM operation_events e WHERE NOT EXISTS(SELECT 1 FROM operation_journal WHERE id=e.operation_id) OR NOT EXISTS(SELECT 1 FROM tool_audit WHERE id=e.audit_id)) + (SELECT COUNT(*) FROM operation_journal j WHERE NOT EXISTS(SELECT 1 FROM conversation_turns WHERE id=j.turn_id) OR NOT EXISTS(SELECT 1 FROM tool_audit WHERE id=j.audit_id) OR (j.session_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM sessions WHERE id=j.session_id))) + (SELECT COUNT(*) FROM messages m WHERE NOT EXISTS(SELECT 1 FROM sessions WHERE id=m.session_id)) + (SELECT COUNT(*) FROM conversation_turns t WHERE t.session_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM sessions WHERE id=t.session_id)) + (SELECT COUNT(*) FROM turn_recovery r WHERE NOT EXISTS(SELECT 1 FROM conversation_turns WHERE id=r.turn_id)) + (SELECT COUNT(*) FROM tool_audit a WHERE a.session_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM sessions WHERE id=a.session_id))")?,"free_pages":scalar("PRAGMA freelist_count")?,"sessions":scalar("SELECT COUNT(*) FROM sessions")?,"messages":scalar("SELECT COUNT(*) FROM messages")?,"conversation_turns":scalar("SELECT COUNT(*) FROM conversation_turns")?,"turn_inputs":scalar("SELECT COUNT(*) FROM turn_inputs")?,"turn_recovery":scalar("SELECT COUNT(*) FROM turn_recovery")?,"tool_audit":scalar("SELECT COUNT(*) FROM tool_audit")?,"operation_events":scalar("SELECT COUNT(*) FROM operation_events")?,"operations":scalar("SELECT COUNT(*) FROM operation_journal")?,"unknown_outcome":scalar("SELECT COUNT(*) FROM operation_journal WHERE state='unknown_outcome'")?,"active_operations":scalar("SELECT COUNT(*) FROM operation_journal WHERE state IN ('prepared','authorized','dispatched')")?}),
++        )
++    }
++    pub(crate) fn resource_is_referenced(&self, directory: &str) -> Result<bool> {
++        Ok(self.conn.query_row(
++            "SELECT EXISTS(SELECT 1 FROM messages WHERE substr(image_url,1,length(?1))=?1)",
++            [format!("{directory}/")],
++            |r| r.get(0),
++        )?)
++    }
++}
+diff --git a/src/backend/tool_executor.rs b/src/backend/tool_executor.rs
+index 3041a377fa57001912dfd93d0126a33b6bc362f9..a56bf64235a3d9783cede01779ff668a0f66f2db 100644
+--- a/src/backend/tool_executor.rs
++++ b/src/backend/tool_executor.rs
+@@ -8,11 +8,11 @@
+ //! - show_image descarga o copia a cache local
+ 
+ use anyhow::{anyhow, bail, Context, Result};
++use futures_util::StreamExt;
+ use serde::Deserialize;
+ use std::collections::HashMap;
+ use std::path::{Path, PathBuf};
+ use std::process::{Command, Stdio};
+-use tokio::fs;
+ 
+ use crate::backend::document_suite;
+ use crate::backend::safe_fs::SafePath;
+@@ -444,6 +444,7 @@ impl ToolExecutor {
+             // Descargar a cache con límites (10MB, timeout 15s, solo imágenes).
+             const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
+             let cache_dir = crate::backend::safe_fs::private_workspace()?.0;
++            let pending = crate::backend::resource_cache::PendingResource::new(&cache_dir);
+ 
+             let ext = sanitize_image_ext(source);
+             let file_name = format!("{}.{}", chrono::Utc::now().timestamp_millis(), ext);
+@@ -466,15 +467,27 @@ impl ToolExecutor {
+                     bail!("Imagen demasiado grande ({} bytes, máx 10MB)", len);
+                 }
+             }
+-            let bytes = resp.bytes().await?;
+-            if bytes.len() > MAX_IMAGE_BYTES {
+-                bail!("Imagen demasiado grande ({} bytes, máx 10MB)", bytes.len());
++            let mut stream = resp.bytes_stream();
++            let mut bytes = Vec::new();
++            while let Some(chunk) = stream.next().await {
++                let chunk = chunk?;
++                anyhow::ensure!(
++                    bytes.len().saturating_add(chunk.len()) <= MAX_IMAGE_BYTES,
++                    "Imagen demasiado grande (máx 10MB)"
++                );
++                bytes.extend_from_slice(&chunk);
+             }
+             // Verificación mínima de firma (JPEG/PNG/GIF/WebP/BMP).
+             if !looks_like_image(&bytes) {
+                 log::warn!("show_image: la descarga no parece imagen conocida, se guarda igual");
+             }
+-            fs::write(&dest, &bytes).await?;
++            let write_path = dest.clone();
++            tokio::task::spawn_blocking(move || {
++                crate::backend::resource_cache::write_resource(&write_path, &bytes)
++            })
++            .await??;
++            crate::backend::resource_cache::publish_resource(&dest)?;
++            pending.keep();
+             dest.to_string_lossy().to_string()
+         } else {
+             let path = source.strip_prefix("file://").unwrap_or(source);
+@@ -562,7 +575,18 @@ impl ToolExecutor {
+             .clamp(1, 999) as u32;
+         let preview_path = tokio::task::spawn_blocking(move || {
+             let snapshot = validated.snapshot()?;
+-            preview_document_sync(&snapshot, page)
++            let result = preview_document_sync(&snapshot, page);
++            // Image inputs are already a private display resource, not a render source.
++            if !result.as_ref().is_ok_and(|preview| preview == &snapshot) {
++                if let Err(error) =
++                    crate::backend::resource_cache::release_private_snapshot(&snapshot)
++                {
++                    log::warn!("Private snapshot cleanup pending: {error}");
++                }
++            }
++            let preview = result?;
++            crate::backend::resource_cache::check_resource(&preview)?;
++            Ok::<_, anyhow::Error>(preview)
+         })
+         .await??;
+         Ok(ToolResult::success(
+@@ -1749,6 +1773,7 @@ fn preview_document_sync(path: &Path, page: u32) -> Result<PathBuf> {
+         return Ok(path.to_path_buf());
+     }
+     let cache_dir = writable_preview_cache_dir()?;
++    let pending = crate::backend::resource_cache::PendingResource::new(&cache_dir);
+     let clean_stem = path
+         .file_stem()
+         .and_then(|s| s.to_str())
+@@ -1758,28 +1783,31 @@ fn preview_document_sync(path: &Path, page: u32) -> Result<PathBuf> {
+         .take(40)
+         .collect::<String>();
+     let stem = format!("{}_{}", chrono::Utc::now().timestamp_millis(), clean_stem);
+-    match ext.as_str() {
++    let preview = match ext.as_str() {
+         "pdf" => render_pdf_preview(path, page, &cache_dir, &stem),
+         "txt" | "md" | "markdown" | "log" | "csv" => render_text_preview(path, &cache_dir, &stem),
+         "docx" | "odt" | "ods" | "xlsx" => {
+             render_office_placeholder_preview(path, &cache_dir, &stem)
+         }
+         other => bail!("Tipo de documento no soportado para preview: {other}"),
+-    }
++    }?;
++    crate::backend::resource_cache::publish_resource(&preview)?;
++    pending.keep();
++    Ok(preview)
+ }
+ 
+ fn render_pdf_preview(path: &Path, page: u32, cache_dir: &Path, stem: &str) -> Result<PathBuf> {
+-    let prefix = cache_dir.join(stem);
++    let out = cache_dir.join(format!("{stem}.png"));
++    let output = crate::backend::resource_cache::create_resource(&out)?;
+     let status = Command::new("pdftoppm")
+         .args(["-f", &page.to_string(), "-singlefile", "-png", "-r", "144"])
+         .arg(path)
+-        .arg(&prefix)
++        .stdout(output)
+         .status()
+         .context("ejecutando pdftoppm")?;
+     if !status.success() {
+         bail!("pdftoppm no pudo renderizar {}", path.display());
+     }
+-    let out = prefix.with_extension("png");
+     if !out.exists() {
+         bail!("pdftoppm no generó la imagen esperada");
+     }
+@@ -1837,7 +1865,7 @@ fn render_text_preview(path: &Path, cache_dir: &Path, stem: &str) -> Result<Path
+         title = xml_escape(title)
+     );
+     let out = cache_dir.join(format!("{stem}.svg"));
+-    std::fs::write(&out, svg)?;
++    crate::backend::resource_cache::write_resource(&out, svg.as_bytes())?;
+     Ok(out)
+ }
+ 
+@@ -1930,7 +1958,7 @@ fn render_office_placeholder_preview(path: &Path, cache_dir: &Path, stem: &str)
+         body = body
+     );
+     let out = cache_dir.join(format!("{stem}.svg"));
+-    std::fs::write(&out, svg)?;
++    crate::backend::resource_cache::write_resource(&out, svg.as_bytes())?;
+     Ok(out)
+ }
+ 
+@@ -2664,7 +2692,8 @@ mod tests {
+         std::fs::create_dir_all(&base).unwrap();
+         let doc = base.join("nota.md");
+         std::fs::write(&doc, "# Hola\nLinea <segura> & limpia").unwrap();
+-        let out = render_text_preview(&doc, &base, "nota").unwrap();
++        let (cache, _) = crate::backend::resource_cache::allocate_at(&base).unwrap();
++        let out = render_text_preview(&doc, &cache, "nota").unwrap();
+         let svg = std::fs::read_to_string(&out).unwrap();
+         assert!(svg.contains("<svg"));
+         assert!(svg.contains("&lt;segura&gt; &amp; limpia"));
+@@ -2678,7 +2707,8 @@ mod tests {
+         std::fs::create_dir_all(&base).unwrap();
+         let doc = base.join("contrato.docx");
+         std::fs::write(&doc, "placeholder").unwrap();
+-        let out = render_office_placeholder_preview(&doc, &base, "contrato").unwrap();
++        let (cache, _) = crate::backend::resource_cache::allocate_at(&base).unwrap();
++        let out = render_office_placeholder_preview(&doc, &cache, "contrato").unwrap();
+         let svg = std::fs::read_to_string(&out).unwrap();
+         assert!(svg.contains("<svg"));
+         assert!(svg.contains("contrato.docx"));
+diff --git a/src/backend/voice_pipeline.rs b/src/backend/voice_pipeline.rs
+index d12571cd7b483b4b2dc5f1ab120dc8645b758ec8..254d0fcdc0eb6f219cfb3a76250ac7770e574f95 100644
+--- a/src/backend/voice_pipeline.rs
++++ b/src/backend/voice_pipeline.rs
+@@ -140,27 +140,41 @@ fn now_ms() -> u64 {
+         .unwrap_or(0)
+ }
+ 
+-/// Ventana de historial para voz (turnos que van al LLM). Más chica que la
+-/// del chat de texto: la voz es ráfaga, y cada turno refactura el historial
+-/// completo (con 40 mensajes se agotaba el TPM de Groq → 429).
+-const MAX_VOICE_HISTORY: usize = 12;
+-
+-/// Recorta el historial a los últimos `max` mensajes, sin dejar pares
+-/// tool rotos: nada de `tool` huérfano al inicio ni `assistant` con
+-/// tool_calls sin sus respuestas al final (Groq los rechaza con 400).
+-fn trim_voice_history(history: Vec<Message>, max: usize) -> Vec<Message> {
+-    let start = history.len().saturating_sub(max);
+-    let mut slice: Vec<Message> = history.into_iter().skip(start).collect();
+-    while matches!(slice.first(), Some(Message::Tool { .. })) {
+-        slice.remove(0);
+-    }
+-    while matches!(
+-        slice.last(),
+-        Some(Message::Assistant { tool_calls, .. }) if !tool_calls.is_empty()
+-    ) {
+-        slice.pop();
++/// Shares storage selection with text; no changes to audio or turn supervision.
++fn voice_context(
++    sessions: &crate::backend::session_manager::SessionManager,
++    cfg: &Config,
++    mut system: String,
++    text: String,
++    selected: Option<String>,
++) -> Result<(String, Vec<Message>)> {
++    let session = selected
++        .map(|id| sessions.get_session(&id))
++        .transpose()?
++        .flatten();
++    let session = match session {
++        Some(session) => session,
++        None => sessions.get_or_create_voice_session()?,
++    };
++    if cfg.memory.enabled {
++        let facts = sessions.context_facts(cfg.ai.max_context_bytes)?;
++        if !facts.is_empty() {
++            system.push_str(
++                "\n\nDatos del usuario (recordados localmente, pueden estar desactualizados):",
++            );
++            for fact in facts {
++                system.push_str(&format!("\n- {}: {}", fact.key, fact.value));
++            }
++        }
+     }
+-    slice
++    let messages = sessions.select_context(
++        Some(&session.id),
++        vec![Message::system(system)],
++        Some(Message::user(text)),
++        &cfg.ai,
++        &tool_registry::filtered_tools(cfg),
++    )?;
++    Ok((session.id, messages))
+ }
+ 
+ fn is_wake_only_transcript(text: &str) -> bool {
+@@ -973,46 +987,26 @@ impl VoicePipeline {
+                  - No describas la puntuación ni el formato de tu respuesta.",
+             );
+         }
+-        if cfg.memory.enabled {
+-            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+-            if let Ok(facts) = sessions.list_facts() {
+-                if !facts.is_empty() {
+-                    system_prompt.push_str(
+-                        "\n\nDatos del usuario (recordados localmente, pueden estar desactualizados):",
+-                    );
+-                    for f in &facts {
+-                        system_prompt.push_str(&format!("\n- {}: {}", f.key, f.value));
+-                    }
+-                }
+-            }
+-        }
+-        let mut messages = vec![Message::system(system_prompt)];
+-        // Contexto de voz: mismo hilo canonico "Conversacion por voz".
+-        // Ventana de 12 (era 40): cada turno de voz pega el historial entero
+-        // en el prompt, y con 40 mensajes reventaba el TPM de Groq (429s).
+-        let mut voice_session_id: Option<String> = None;
+-        {
+-            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+-            let selected = self
+-                .active_session
+-                .lock()
+-                .unwrap_or_else(|e| e.into_inner())
+-                .clone();
+-            let session = selected
+-                .filter(|id| sessions.get_session(id).ok().flatten().is_some())
+-                .and_then(|id| sessions.get_session(&id).ok().flatten())
+-                .or_else(|| sessions.get_or_create_voice_session().ok());
+-            if let Some(vs) = session {
+-                if let Ok(history) = sessions.get_messages(&vs.id) {
+-                    messages.extend(trim_voice_history(history, MAX_VOICE_HISTORY));
+-                }
+-                voice_session_id = Some(vs.id);
+-            }
+-        }
+-        messages.push(Message::user(text.to_string()));
+-        // NOTA F0-1: la voz ahora inyecta historial (hecho).
+-        // Respetar los flags de tools para no llamar tools deshabilitadas.
+         let tools = tool_registry::filtered_tools(&cfg);
++        let sessions = self.sessions.clone();
++        let selected = self
++            .active_session
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .clone();
++        let context_cfg = cfg.clone();
++        let text = text.to_owned();
++        let (voice_session_id, messages) = tokio::task::spawn_blocking(move || {
++            voice_context(
++                &sessions.lock().unwrap_or_else(|e| e.into_inner()),
++                &context_cfg,
++                system_prompt,
++                text,
++                selected,
++            )
++        })
++        .await??;
++        let voice_session_id = Some(voice_session_id);
+ 
+         let (stream_tx, mut stream_rx) = tokio::sync::mpsc::channel::<StreamEvent>(256);
+ 
+@@ -1221,57 +1215,75 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn trim_voice_history_limita_y_no_rompe_tools() {
+-        use crate::models::ToolCall;
+-        let mk_tool_pair = |i: usize| {
+-            let tc = ToolCall {
+-                id: format!("call_{i}"),
+-                name: "t".to_string(),
+-                arguments: Default::default(),
+-            };
+-            vec![
+-                Message::assistant_with_tools("déjame ver", vec![tc]),
+-                Message::tool(format!("call_{i}"), "ok"),
+-            ]
+-        };
+-        let mut hist = vec![Message::user("h0")];
+-        for i in 1..=20 {
+-            hist.extend(mk_tool_pair(i));
+-            hist.push(Message::user(format!("h{i}")));
+-            hist.push(Message::assistant(format!("r{i}")));
++    fn voice_context_preserves_complete_tool_units() {
++        let sessions =
++            crate::backend::session_manager::SessionManager::in_memory_for_tests().unwrap();
++        let sid = sessions.create_session("fixture").unwrap().id;
++        for i in 0..50 {
++            for message in [
++                Message::user(format!("input {i}")),
++                Message::assistant_with_tools(
++                    "",
++                    vec![crate::models::ToolCall {
++                        id: format!("tool{i}"),
++                        name: "system_info".into(),
++                        arguments: Default::default(),
++                    }],
++                ),
++                Message::tool(format!("tool{i}"), "result"),
++                Message::assistant("final"),
++            ] {
++                sessions.add_message(&sid, &message).unwrap();
++            }
+         }
+-        let out = trim_voice_history(hist, MAX_VOICE_HISTORY);
+-        assert!(out.len() <= MAX_VOICE_HISTORY);
+-        // Sin tool huérfano al inicio.
+-        assert!(!matches!(out.first(), Some(Message::Tool { .. })));
+-        // Sin assistant con tool_calls colgando al final.
+-        assert!(!matches!(
+-            out.last(),
+-            Some(Message::Assistant { tool_calls, .. }) if !tool_calls.is_empty()
+-        ));
++        let mut cfg = Config::first_run();
++        cfg.ai.context_window_tokens = 4000;
++        cfg.ai.max_tokens = 1000;
++        let (selected, messages) = voice_context(
++            &sessions,
++            &cfg,
++            "voice instructions".into(),
++            "new input".into(),
++            Some(sid.clone()),
++        )
++        .unwrap();
++        assert_eq!(selected, sid);
++        crate::backend::history_context::validate_groups(&messages).unwrap();
++        let wire = serde_json::to_string(&messages).unwrap();
++        assert!(wire.contains("input 49"));
++        assert!(!wire.contains("input 0\""));
+     }
+-
+     #[test]
+-    fn trim_voice_history_corta_el_par_cuando_cae_al_borde() {
+-        use crate::models::ToolCall;
+-        // [user, assistant+tool, tool, user] con max=2 → quedaria [tool, user]:
+-        // el tool huérfano debe desaparecer.
+-        let hist = vec![
+-            Message::user("a"),
+-            Message::assistant_with_tools(
+-                "",
+-                vec![ToolCall {
+-                    id: "c1".to_string(),
+-                    name: "t".to_string(),
+-                    arguments: Default::default(),
+-                }],
+-            ),
+-            Message::tool("c1", "ok"),
+-            Message::user("b"),
+-        ];
+-        let out = trim_voice_history(hist, 2);
+-        assert_eq!(out.len(), 1);
+-        assert!(matches!(out.first(), Some(Message::User { .. })));
++    fn voice_context_rejects_incomplete_legacy_group() {
++        let sessions =
++            crate::backend::session_manager::SessionManager::in_memory_for_tests().unwrap();
++        let sid = sessions.create_session("fixture").unwrap().id;
++        sessions
++            .add_message(&sid, &Message::user("legacy"))
++            .unwrap();
++        sessions
++            .add_message(
++                &sid,
++                &Message::assistant_with_tools(
++                    "",
++                    vec![crate::models::ToolCall {
++                        id: "missing".into(),
++                        name: "system_info".into(),
++                        arguments: Default::default(),
++                    }],
++                ),
++            )
++            .unwrap();
++        assert!(voice_context(
++            &sessions,
++            &Config::first_run(),
++            "essential".into(),
++            "new".into(),
++            Some(sid)
++        )
++        .unwrap_err()
++        .to_string()
++        .contains("incomplete"));
+     }
+ 
+     #[test]
+diff --git a/src/models/config.rs b/src/models/config.rs
+index b191e8320c1cfec3b74ed19aae50811ec5c16117..6e63c4154ca9388dfbb13f4fcad76058548999fb 100644
+--- a/src/models/config.rs
++++ b/src/models/config.rs
+@@ -51,6 +51,10 @@ pub struct AiConfig {
+     pub temperature: f32,
+     #[serde(default = "default_max_tokens")]
+     pub max_tokens: u32,
++    #[serde(default = "default_context_tokens")]
++    pub context_window_tokens: u32,
++    #[serde(default = "default_context_bytes")]
++    pub max_context_bytes: usize,
+     #[serde(default = "default_system_prompt")]
+     pub system_prompt: String,
+     #[serde(default)]
+@@ -66,6 +70,12 @@ fn default_provider() -> String {
+ fn default_temperature() -> f32 {
+     0.7
+ }
++fn default_context_tokens() -> u32 {
++    32768
++}
++fn default_context_bytes() -> usize {
++    1024 * 1024
++}
+ fn default_max_tokens() -> u32 {
+     2048
+ }
+@@ -724,6 +734,8 @@ impl Config {
+                 model: "openrouter/z-ai/glm-5.2:free".to_string(),
+                 temperature: default_temperature(),
+                 max_tokens: default_max_tokens(),
++                context_window_tokens: default_context_tokens(),
++                max_context_bytes: default_context_bytes(),
+                 system_prompt: default_system_prompt(),
+                 enable_tool_calling: true,
+                 max_tool_iterations: default_max_iterations(),
+@@ -899,6 +911,8 @@ mod tests {
+             model: "openrouter/test".to_string(),
+             temperature: default_temperature(),
+             max_tokens: default_max_tokens(),
++            context_window_tokens: default_context_tokens(),
++            max_context_bytes: default_context_bytes(),
+             system_prompt: default_system_prompt(),
+             enable_tool_calling: true,
+             max_tool_iterations: default_max_iterations(),
+diff --git a/tests/f1b1_text_startup.rs b/tests/f1b1_text_startup.rs
+index e058848ebe913d053eb67723cd38b4010e819c3d..8af24b90b50c5676cccffbdb72f45c81d71be6f7 100644
+--- a/tests/f1b1_text_startup.rs
++++ b/tests/f1b1_text_startup.rs
+@@ -692,8 +692,16 @@ fn two_turns_with_mock_and_persistence_after_backend_restart() {
+             persisted(&c, &base, &token, sid, (i + 1) * 2).await;
+         }
+         let before = persisted(&c, &base, &token, sid, 4).await;
++        let previous_db = Arc::downgrade(&b.sessions);
+         stop(task).await;
+         drop(b);
++        tokio::time::timeout(Duration::from_secs(3), async {
++            while previous_db.upgrade().is_some() {
++                tokio::time::sleep(Duration::from_millis(10)).await;
++            }
++        })
++        .await
++        .unwrap();
+         let restarted = Backend::new().await.unwrap();
+         let state = restarted.http_state().unwrap();
+         assert_eq!(state.local_token, token);
+diff --git a/tests/f1b3a_persistence.rs b/tests/f1b3a_persistence.rs
+index 5db05a780bc25e19c9392ed5ec41b1efa0f15c96..e28edc2557cad6ba8f92636ac7c0534079baefa3 100644
+--- a/tests/f1b3a_persistence.rs
++++ b/tests/f1b3a_persistence.rs
+@@ -602,9 +602,12 @@ fn legacy_migration_preserves_messages_and_explicit_storage_settings() {
+             "wal"
+         );
+         assert_eq!(
+-            sql.query_row("SELECT COUNT(*) FROM recovery_migrations", [], |r| r
+-                .get::<_, i64>(0))
+-                .unwrap(),
++            sql.query_row(
++                "SELECT COUNT(*) FROM recovery_migrations WHERE version=3",
++                [],
++                |r| r.get::<_, i64>(0)
++            )
++            .unwrap(),
+             1
+         );
+     }
+diff --git a/tests/f1b3b_storage.rs b/tests/f1b3b_storage.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..077a85599615c94d63e0743bf12a072cf3465fef
+--- /dev/null
++++ b/tests/f1b3b_storage.rs
+@@ -0,0 +1,1142 @@
++//! Synthetic private SQLite and resources. Never touches user conversations.
++use kde_assistant_lib::{
++    backend::{
++        conversation_turn::TurnRegistry,
++        history_context::{validate_groups, validate_request},
++        operation_journal::OperationState as State,
++        resource_cache,
++        session_manager::SessionManager,
++    },
++    models::{Config, Message, ToolCall},
++};
++use rusqlite::{Connection, OptionalExtension};
++use std::{
++    fs,
++    os::unix::fs::{symlink, DirBuilderExt},
++    path::PathBuf,
++    process::Command,
++    time::Duration,
++};
++struct Private(PathBuf);
++impl Private {
++    fn new() -> Self {
++        let path = std::env::temp_dir().join(format!("kda-f1b3b-{}", uuid::Uuid::new_v4()));
++        fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
++        Self(path)
++    }
++    fn db(&self) -> PathBuf {
++        self.0.join("sessions.db")
++    }
++    fn manager(&self) -> SessionManager {
++        SessionManager::open_at(self.db()).unwrap()
++    }
++    fn sql(&self) -> Connection {
++        Connection::open(self.db()).unwrap()
++    }
++}
++impl Drop for Private {
++    fn drop(&mut self) {
++        fs::remove_dir_all(&self.0).unwrap();
++    }
++}
++fn fixture() -> (Private, SessionManager, String) {
++    let p = Private::new();
++    let db = p.manager();
++    let id = db.create_session("private").unwrap().id;
++    (p, db, id)
++}
++fn call(id: &str) -> ToolCall {
++    ToolCall {
++        id: id.into(),
++        name: "system_info".into(),
++        arguments: Default::default(),
++    }
++}
++fn unit(db: &SessionManager, sid: &str, label: &str, tool: bool) {
++    let id = uuid::Uuid::new_v4().to_string();
++    db.begin_turn(&id, Some(sid), Some(&Message::user(label)))
++        .unwrap();
++    let mut output = vec![];
++    if tool {
++        output.extend([
++            Message::assistant_with_tools("", vec![call("a"), call("b")]),
++            Message::tool("b", "FAILURE: no effect confirmed"),
++            Message::tool("a", "result"),
++        ]);
++    }
++    output.push(Message::assistant(format!("answer {label}")));
++    db.publish_turn(Some(sid), &id, &output).unwrap();
++}
++fn select(db: &SessionManager, sid: &str, cfg: &Config) -> anyhow::Result<Vec<Message>> {
++    db.select_context(
++        Some(sid),
++        vec![Message::system("essential")],
++        Some(Message::user("new explicit input")),
++        &cfg.ai,
++        &[],
++    )
++}
++fn integrity(p: &Private) {
++    let sql = p.sql();
++    assert_eq!(
++        sql.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))
++            .unwrap(),
++        "ok"
++    );
++    assert!(sql
++        .query_row("PRAGMA foreign_key_check", [], |_| Ok(()))
++        .optional()
++        .unwrap()
++        .is_none());
++}
++fn unknown(db: &SessionManager, sid: &str, turn: &str) -> String {
++    db.begin_turn(turn, Some(sid), Some(&Message::user("private request")))
++        .unwrap();
++    let op = db.prepare_operation(turn, "create_file").unwrap();
++    db.authorize_operation(&op, turn, "create_file", "auto")
++        .unwrap();
++    db.transition_operation(&op, State::Dispatched, "auto", None)
++        .unwrap();
++    db.settle_turn(turn, "failed").unwrap();
++    op
++}
++#[test]
++fn short_history_preserves_multi_call_causality_and_failures() {
++    let (_p, db, sid) = fixture();
++    unit(&db, &sid, "one", true);
++    let msgs = select(&db, &sid, &Config::default()).unwrap();
++    validate_groups(&msgs).unwrap();
++    assert_eq!(msgs.len(), 7);
++    assert!(serde_json::to_string(&msgs).unwrap().contains("FAILURE"));
++}
++#[test]
++fn long_history_selects_complete_suffix_without_summary() {
++    let (_p, db, sid) = fixture();
++    for i in 0..100 {
++        unit(&db, &sid, &format!("turn-{i}"), true);
++    }
++    db.set_summary(&sid, "SILENT_SUMMARY_SECRET", 500).unwrap();
++    let mut cfg = Config::default();
++    cfg.ai.context_window_tokens = 5000;
++    cfg.ai.max_tokens = 1000;
++    let msgs = select(&db, &sid, &cfg).unwrap();
++    validate_groups(&msgs).unwrap();
++    let text = serde_json::to_string(&msgs).unwrap();
++    assert!(text.contains("turn-99"));
++    assert!(!text.contains("turn-0\""));
++    assert!(!text.contains("SILENT_SUMMARY_SECRET"));
++    assert_eq!(db.count_messages(&sid).unwrap(), 500);
++}
++#[test]
++fn cutoff_never_splits_assistant_and_results() {
++    let (_p, db, sid) = fixture();
++    unit(&db, &sid, &"old".repeat(1000), true);
++    unit(&db, &sid, "recent", true);
++    let mut cfg = Config::default();
++    cfg.ai.context_window_tokens = 3000;
++    cfg.ai.max_tokens = 500;
++    let msgs = select(&db, &sid, &cfg).unwrap();
++    assert_eq!(
++        msgs.iter()
++            .filter(|m| matches!(m, Message::Tool { .. }))
++            .count(),
++        2
++    );
++    validate_groups(&msgs).unwrap();
++}
++#[test]
++fn oversized_latest_input_and_response_fail_explicitly() {
++    let (p, db, sid) = fixture();
++    unit(&db, &sid, &"x".repeat(10000), false);
++    let mut cfg = Config::default();
++    cfg.ai.context_window_tokens = 2000;
++    cfg.ai.max_tokens = 500;
++    assert!(select(&db, &sid, &cfg)
++        .unwrap_err()
++        .to_string()
++        .contains("budget"));
++    cfg.ai.max_tokens = cfg.ai.context_window_tokens;
++    assert!(select(&db, &sid, &cfg).is_err());
++    let legacy = db.create_session("oversized legacy output").unwrap().id;
++    db.add_message(&legacy, &Message::user("legacy")).unwrap();
++    db.add_message(&legacy, &Message::assistant("")).unwrap();
++    // The large invalid tool-call payload must be rejected by size before JSON parsing.
++    p.sql().execute("UPDATE messages SET tool_result=CAST(zeroblob(4*1024*1024) AS TEXT) WHERE session_id=?1 AND role='assistant'",[&legacy]).unwrap();
++    let error = select(&db, &legacy, &Config::default())
++        .unwrap_err()
++        .to_string();
++    assert!(error.contains("context_budget_exceeded"), "{error}");
++    integrity(&p);
++}
++#[test]
++fn essential_instructions_cannot_be_cropped() {
++    let (_p, db, sid) = fixture();
++    db.add_message(&sid, &Message::system("security".repeat(2000)))
++        .unwrap();
++    unit(&db, &sid, "recent", false);
++    let mut cfg = Config::default();
++    cfg.ai.max_context_bytes = 1000;
++    assert!(select(&db, &sid, &cfg).is_err());
++}
++#[test]
++fn legacy_null_turn_ids_remain_causal() {
++    let (_p, db, sid) = fixture();
++    for m in [
++        Message::user("legacy"),
++        Message::assistant_with_tools("", vec![call("old-id")]),
++        Message::tool("old-id", "old result"),
++        Message::assistant("old final"),
++    ] {
++        db.add_message(&sid, &m).unwrap();
++    }
++    let msgs = select(&db, &sid, &Config::default()).unwrap();
++    assert_eq!(msgs.len(), 6);
++    validate_groups(&msgs).unwrap();
++}
++#[test]
++fn incomplete_legacy_groups_are_errors_never_fabricated() {
++    let (p, db, sid) = fixture();
++    db.add_message(&sid, &Message::user("old")).unwrap();
++    db.add_message(
++        &sid,
++        &Message::assistant_with_tools("", vec![call("missing")]),
++    )
++    .unwrap();
++    assert!(select(&db, &sid, &Config::default())
++        .unwrap_err()
++        .to_string()
++        .contains("incomplete"));
++    assert_eq!(db.count_messages(&sid).unwrap(), 2);
++    p.sql()
++        .execute(
++            "UPDATE messages SET tool_result='invalid' WHERE role='assistant'",
++            [],
++        )
++        .unwrap();
++    assert!(select(&db, &sid, &Config::default())
++        .unwrap_err()
++        .to_string()
++        .contains("malformed"));
++}
++#[test]
++fn orphan_duplicate_and_missing_results_fail() {
++    for msgs in [
++        vec![Message::tool("a", "orphan")],
++        vec![
++            Message::assistant_with_tools("", vec![call("a")]),
++            Message::tool("a", "one"),
++            Message::tool("a", "duplicate"),
++        ],
++        vec![
++            Message::assistant_with_tools("", vec![call("a"), call("b")]),
++            Message::tool("a", "one"),
++        ],
++    ] {
++        assert!(validate_groups(&msgs).is_err());
++    }
++}
++#[test]
++fn cancelled_failed_and_previous_retry_unknown_are_visible_in_context() {
++    let (_p, db, sid) = fixture();
++    db.begin_turn("original", Some(&sid), Some(&Message::user("unanswered")))
++        .unwrap();
++    db.settle_turn("original", "cancelled").unwrap();
++    db.begin_retry_turn("retry", &sid).unwrap();
++    let op = db.prepare_operation("retry", "create_file").unwrap();
++    db.authorize_operation(&op, "retry", "create_file", "auto")
++        .unwrap();
++    db.transition_operation(&op, State::Dispatched, "auto", None)
++        .unwrap();
++    db.settle_turn("retry", "failed").unwrap();
++    let text = serde_json::to_string(&select(&db, &sid, &Config::default()).unwrap()).unwrap();
++    assert!(text.contains("inciertas"));
++    assert!(!db.regeneration_is_safe(&sid).unwrap());
++    assert_eq!(db.count_messages(&sid).unwrap(), 1);
++}
++#[test]
++fn regeneration_input_is_bounded() {
++    let (_p, db, sid) = fixture();
++    db.add_message(&sid, &Message::user("x".repeat(5000)))
++        .unwrap();
++    assert!(db.retry_input(&sid, 1000).is_err());
++    assert_eq!(db.retry_input(&sid, 6000).unwrap().len(), 5000);
++}
++#[test]
++fn live_request_growth_is_checked_each_iteration() {
++    let cfg = Config::default();
++    let msgs = vec![
++        Message::system("essential"),
++        Message::user("x".repeat(40000)),
++    ];
++    assert!(validate_request(&cfg.ai, &msgs, &[], cfg.ai.max_tokens).is_err());
++}
++#[test]
++fn uncertain_deletion_requires_confirmation_and_leaves_no_orphans() {
++    let (p, db, sid) = fixture();
++    unknown(&db, &sid, "one");
++    unknown(&db, &sid, "two");
++    p.sql()
++        .execute(
++            "INSERT INTO turn_recovery VALUES('one','running','fixture')",
++            [],
++        )
++        .unwrap();
++    let other = db.create_session("independent").unwrap().id;
++    unit(&db, &other, "keep", true);
++    assert!(db
++        .delete_session(&sid)
++        .unwrap_err()
++        .to_string()
++        .contains("confirmation"));
++    assert_eq!(db.list_operations(Some(&sid), 50).unwrap().len(), 2);
++    db.delete_session_confirmed(&sid, true).unwrap();
++    for table in [
++        "messages",
++        "conversation_turns",
++        "tool_audit",
++        "operation_journal",
++    ] {
++        assert_eq!(
++            p.sql()
++                .query_row(
++                    &format!("SELECT COUNT(*) FROM {table} WHERE session_id=?1"),
++                    [&sid],
++                    |r| r.get::<_, i64>(0)
++                )
++                .unwrap(),
++            0
++        );
++    }
++    assert_eq!(
++        p.sql()
++            .query_row("SELECT COUNT(*) FROM operation_events", [], |r| r
++                .get::<_, i64>(0))
++            .unwrap(),
++        0
++    );
++    assert_eq!(
++        p.sql()
++            .query_row("SELECT COUNT(*) FROM turn_recovery", [], |r| r
++                .get::<_, i64>(0))
++            .unwrap(),
++        0
++    );
++    assert_eq!(
++        p.sql()
++            .query_row("SELECT COUNT(*) FROM turn_inputs", [], |r| r
++                .get::<_, i64>(0))
++            .unwrap(),
++        1
++    );
++    assert_eq!(db.count_messages(&other).unwrap(), 5);
++    integrity(&p);
++}
++#[test]
++fn deletion_failure_mid_transaction_rolls_back_every_table() {
++    let (p, db, sid) = fixture();
++    unknown(&db, &sid, "one");
++    p.sql().execute_batch("CREATE TRIGGER fail_delete BEFORE DELETE ON messages BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
++    assert!(db.delete_session_confirmed(&sid, true).is_err());
++    assert_eq!(db.list_operations(Some(&sid), 50).unwrap().len(), 1);
++    assert_eq!(db.count_messages(&sid).unwrap(), 1);
++    assert_eq!(
++        p.sql()
++            .query_row("SELECT COUNT(*) FROM operation_events", [], |r| r
++                .get::<_, i64>(0))
++            .unwrap(),
++        4
++    );
++    integrity(&p);
++    p.sql().execute_batch("DROP TRIGGER fail_delete").unwrap();
++    db.delete_session_confirmed(&sid, true).unwrap();
++    integrity(&p);
++}
++#[test]
++fn deletion_rejects_persisted_and_reserved_active_turns() {
++    let (p, db, sid) = fixture();
++    db.begin_turn("active", Some(&sid), Some(&Message::user("live")))
++        .unwrap();
++    assert!(db
++        .delete_session_confirmed(&sid, true)
++        .unwrap_err()
++        .to_string()
++        .contains("busy"));
++    let registry = TurnRegistry::default();
++    registry.reserve(Some(sid.clone())).unwrap();
++    assert!(registry
++        .while_session_idle(&sid, || db.delete_session_confirmed(&sid, true))
++        .is_err());
++    integrity(&p);
++}
++#[test]
++fn exact_session_matching_preserves_independent_metadata() {
++    let (p, db, sid) = fixture();
++    let other = db.create_session("independent").unwrap().id;
++    unknown(&db, &sid, "one");
++    unknown(&db, &other, "other");
++    db.delete_session_confirmed(&format!("{sid}%"), true)
++        .unwrap_err();
++    db.delete_session_confirmed("' OR 1=1 --", true)
++        .unwrap_err();
++    db.delete_session_confirmed(&sid, true).unwrap();
++    assert_eq!(db.list_operations(Some(&other), 50).unwrap().len(), 1);
++    integrity(&p);
++}
++#[test]
++fn parent_constraints_remain_enabled_and_deletion_handles_legacy_audit() {
++    let (p, db, sid) = fixture();
++    db.add_message(&sid, &Message::user("legacy")).unwrap();
++    db.record_tool_audit(
++        Some(&sid),
++        "read_file",
++        "OLD_PRIVATE_ARGS",
++        true,
++        1,
++        "green",
++        "auto",
++    )
++    .unwrap();
++    assert!(p
++        .sql()
++        .execute("DELETE FROM sessions WHERE id=?1", [&sid])
++        .is_err());
++    db.delete_session(&sid).unwrap();
++    assert_eq!(
++        p.sql()
++            .query_row("SELECT COUNT(*) FROM tool_audit", [], |r| r
++                .get::<_, i64>(0))
++            .unwrap(),
++        0
++    );
++    integrity(&p);
++}
++#[test]
++fn migrations_repeat_and_preserve_pre_f1b2_uuid_history() {
++    let p = Private::new();
++    p.sql().execute_batch("CREATE TABLE sessions(id TEXT PRIMARY KEY,title TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);CREATE TABLE messages(id INTEGER PRIMARY KEY,session_id TEXT NOT NULL,role TEXT NOT NULL,content TEXT NOT NULL,tool_name TEXT,tool_call_id TEXT,tool_result TEXT,image_url TEXT,timestamp TEXT NOT NULL);INSERT INTO sessions VALUES('original-uuid','legacy','date','date');INSERT INTO messages VALUES(1,'original-uuid','user','unchanged',NULL,NULL,NULL,NULL,'date');").unwrap();
++    for _ in 0..3 {
++        let db = p.manager();
++        assert_eq!(db.get_messages("original-uuid").unwrap().len(), 1);
++        assert_eq!(
++            p.sql()
++                .query_row(
++                    "SELECT COUNT(*) FROM recovery_migrations WHERE version=4",
++                    [],
++                    |r| r.get::<_, i64>(0)
++                )
++                .unwrap(),
++            1
++        );
++        integrity(&p);
++    }
++}
++#[test]
++fn diagnostics_and_paged_recovery_are_private_and_non_destructive() {
++    let (_p, db, sid) = fixture();
++    for i in 0..3 {
++        unknown(&db, &sid, &format!("turn{i}"));
++    }
++    let page = db.operation_page(Some(&sid), 2, true, None).unwrap();
++    let older = db
++        .operation_page(Some(&sid), 2, true, Some(page[1].audit_id))
++        .unwrap();
++    assert_eq!(older.len(), 1);
++    let text = serde_json::to_string(&page).unwrap();
++    assert!(!text.contains("private request"));
++    assert!(!text.contains("arguments"));
++    let diag = db.storage_diagnostics().unwrap();
++    assert_eq!(diag["unknown_outcome"], 3);
++    assert_eq!(diag["automatic_destructive_retention"], false);
++    assert_eq!(db.list_operations(Some(&sid), 50).unwrap().len(), 3);
++}
++#[test]
++fn cache_symlinks_are_not_followed_and_cleanup_can_recover() {
++    let p = Private::new();
++    let (path, dir) = resource_cache::allocate_at(&p.0).unwrap();
++    fs::write(path.join("image.svg"), "fixture").unwrap();
++    let outside = p.0.join("outside");
++    fs::write(&outside, "KEEP").unwrap();
++    symlink(&outside, path.join("evil")).unwrap();
++    let stats = resource_cache::sweep_at(&p.0, |_| Ok(false), Duration::ZERO).unwrap();
++    assert_eq!(stats["removed"], 0);
++    assert_eq!(fs::read_to_string(&outside).unwrap(), "KEEP");
++    drop(dir);
++}
++#[test]
++fn active_open_and_persistent_resources_are_retained() {
++    let p = Private::new();
++    let (path, _dir) = resource_cache::allocate_at(&p.0).unwrap();
++    fs::write(path.join("image.svg"), "fixture").unwrap();
++    let open = fs::File::open(path.join("image.svg")).unwrap();
++    let stats = resource_cache::sweep_at(&p.0, |_| Ok(false), Duration::ZERO).unwrap();
++    assert_eq!(stats["skipped"], 1);
++    assert!(path.join("image.svg").exists());
++    drop(open);
++}
++// Every process touching Backend/Qt gets its own XDG roots and no provider credentials.
++fn isolated(name: &str) -> bool {
++    if std::env::var("KDA_F1B3B_CHILD").as_deref() == Ok(name) {
++        return false;
++    }
++    let p = Private::new();
++    let mut cmd = Command::new(std::env::current_exe().unwrap());
++    cmd.args(["--exact", name, "--nocapture", "--include-ignored"])
++        .env("KDA_F1B3B_CHILD", name);
++    for (k, _) in std::env::vars() {
++        if k.ends_with("_API_KEY") || k.to_uppercase().ends_with("_PROXY") {
++            cmd.env_remove(k);
++        }
++    }
++    for (k, d) in [
++        ("XDG_CONFIG_HOME", "config"),
++        ("XDG_CACHE_HOME", "cache"),
++        ("XDG_DATA_HOME", "data"),
++    ] {
++        let path = p.0.join(d);
++        fs::create_dir(&path).unwrap();
++        cmd.env(k, path);
++    }
++    assert!(cmd.status().unwrap().success());
++    true
++}
++#[test]
++#[ignore = "owned cache child; executed only by parent tests"]
++fn cache_worker() {
++    let cache = PathBuf::from(std::env::var_os("KDA_F1B3B_CACHE").unwrap());
++    let (path, _) = resource_cache::allocate_at(&cache).unwrap();
++    fs::write(path.join("image.svg"), "PRIVATE_CACHE_CONTENT").unwrap();
++    fs::write(cache.join("workspace"), path.to_string_lossy().as_bytes()).unwrap();
++}
++fn inactive_cache(p: &Private) -> PathBuf {
++    assert!(Command::new(std::env::current_exe().unwrap())
++        .args(["--exact", "cache_worker", "--ignored"])
++        .env("KDA_F1B3B_CACHE", &p.0)
++        .status()
++        .unwrap()
++        .success());
++    PathBuf::from(fs::read_to_string(p.0.join("workspace")).unwrap())
++}
++#[test]
++fn inactive_symlink_cleanup_failure_retries_without_touching_target() {
++    let p = Private::new();
++    let path = inactive_cache(&p);
++    let target = p.0.join("KEEP");
++    fs::write(&target, "outside").unwrap();
++    symlink(&target, path.join("evil")).unwrap();
++    let stats = resource_cache::sweep_at(&p.0, |_| Ok(false), Duration::ZERO).unwrap();
++    assert_eq!(stats["failures"], 1);
++    assert_eq!(stats["removed"], 0);
++    assert!(path.join(".lease").exists());
++    assert_eq!(fs::read_to_string(&target).unwrap(), "outside");
++    fs::remove_file(path.join("evil")).unwrap();
++    let stats = resource_cache::sweep_at(&p.0, |_| Ok(false), Duration::ZERO).unwrap();
++    assert_eq!(stats["removed"], 1);
++    assert!(!path.exists());
++    assert_eq!(fs::read_to_string(&target).unwrap(), "outside");
++}
++#[test]
++fn referenced_and_young_cache_survive_repeated_sweeps() {
++    let p = Private::new();
++    let path = inactive_cache(&p);
++    for _ in 0..3 {
++        assert_eq!(
++            resource_cache::sweep_at(&p.0, |_| Ok(true), Duration::ZERO).unwrap()["skipped"],
++            1
++        );
++    }
++    assert!(path.exists());
++    assert_eq!(
++        resource_cache::sweep_at(&p.0, |_| Ok(false), Duration::from_secs(86400)).unwrap()
++            ["skipped"],
++        1
++    );
++    assert_eq!(
++        resource_cache::sweep_at(&p.0, |_| Ok(false), Duration::ZERO).unwrap()["removed"],
++        1
++    );
++}
++#[test]
++fn cache_ownerless_and_symlink_roots_are_never_removed() {
++    let p = Private::new();
++    let (path, _) = resource_cache::allocate_at(&p.0).unwrap();
++    let unknown = path.parent().unwrap().join("unknown");
++    fs::create_dir(&unknown).unwrap();
++    fs::write(unknown.join("KEEP"), "keep").unwrap();
++    assert_eq!(
++        resource_cache::sweep_at(&p.0, |_| Ok(false), Duration::ZERO).unwrap()["failures"],
++        1
++    );
++    assert!(unknown.join("KEEP").exists());
++    let outside = Private::new();
++    let linked = p.0.join("linked-cache");
++    symlink(&outside.0, &linked).unwrap();
++    assert!(resource_cache::allocate_at(&linked).is_err());
++    assert!(fs::read_dir(&outside.0).unwrap().next().is_none());
++}
++#[test]
++fn cache_quota_prevents_unbounded_accumulation() {
++    let p = Private::new();
++    let (path, _) = resource_cache::allocate_at(&p.0).unwrap();
++    let file = fs::File::create(path.join("huge")).unwrap();
++    file.set_len(257 * 1024 * 1024).unwrap();
++    assert!(resource_cache::allocate_at(&p.0)
++        .unwrap_err()
++        .to_string()
++        .contains("quota"));
++    assert!(resource_cache::check_resource(&path.join("huge")).is_err());
++}
++#[test]
++fn selected_system_messages_keep_causal_positions() {
++    let (_p, db, sid) = fixture();
++    db.add_message(&sid, &Message::user("old")).unwrap();
++    db.add_message(&sid, &Message::system("instruction mid-turn"))
++        .unwrap();
++    db.add_message(&sid, &Message::assistant("answer")).unwrap();
++    let messages = select(&db, &sid, &Config::default()).unwrap();
++    assert!(matches!(&messages[1],Message::User{content} if content=="old"));
++    assert!(matches!(&messages[2],Message::System{content} if content=="instruction mid-turn"));
++}
++#[test]
++fn interrupted_outputs_and_post_deletion_writes_are_rejected() {
++    let (p, db, sid) = fixture();
++    db.begin_turn("failed", Some(&sid), Some(&Message::user("input")))
++        .unwrap();
++    db.settle_turn("failed", "failed").unwrap();
++    db.add_turn_message(&sid, "failed", &Message::assistant("fake success"))
++        .unwrap();
++    assert!(select(&db, &sid, &Config::default()).is_err());
++    db.delete_session(&sid).unwrap();
++    assert!(db.add_message(&sid, &Message::user("late")).is_err());
++    integrity(&p);
++}
++#[test]
++fn http_recovery_deletion_auth_errors_and_context_use_real_router() {
++    if isolated("http_recovery_deletion_auth_errors_and_context_use_real_router") {
++        return;
++    }
++    tokio::runtime::Runtime::new().unwrap().block_on(async {
++        use kde_assistant_lib::backend::{http_server, Backend};
++        let cfg = Config::first_run();
++        cfg.save().await.unwrap();
++        let backend = Backend::new().await.unwrap();
++        let state = backend.http_state().unwrap();
++        let sid = backend
++            .sessions
++            .lock()
++            .unwrap()
++            .create_session("private")
++            .unwrap()
++            .id;
++        {
++            let db = backend.sessions.lock().unwrap();
++            unknown(&db, &sid, "previous");
++        }
++        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
++        let base = format!("http://{}", listener.local_addr().unwrap());
++        let app = http_server::router(state.clone());
++        let server = tokio::spawn(async move {
++            axum::serve(listener, app).await.unwrap();
++        });
++        let client = reqwest::Client::builder()
++            .no_proxy()
++            .timeout(Duration::from_secs(10))
++            .build()
++            .unwrap();
++        let auth = |request: reqwest::RequestBuilder| {
++            request
++                .header("Host", "127.0.0.1:8765")
++                .bearer_auth(&state.local_token)
++        };
++        assert_eq!(
++            client
++                .get(format!("{base}/api/storage"))
++                .header("Host", "127.0.0.1:8765")
++                .send()
++                .await
++                .unwrap()
++                .status(),
++            401
++        );
++        let diagnostics: serde_json::Value = auth(client.get(format!("{base}/api/storage")))
++            .send()
++            .await
++            .unwrap()
++            .json()
++            .await
++            .unwrap();
++        assert_eq!(diagnostics["unknown_outcome"], 1);
++        let records: serde_json::Value = auth(client.get(format!(
++            "{base}/api/tools/operations?recovery_only=true&session_id={sid}"
++        )))
++        .send()
++        .await
++        .unwrap()
++        .json()
++        .await
++        .unwrap();
++        assert_eq!(records[0]["state"], "unknown_outcome");
++        assert!(!records.to_string().contains("private request"));
++        backend
++            .sessions
++            .lock()
++            .unwrap()
++            .record_tool_audit(
++                Some(&sid),
++                "read_file",
++                "HISTORICAL_PRIVATE_ARGS",
++                true,
++                1,
++                "green",
++                "auto",
++            )
++            .unwrap();
++        let audit: serde_json::Value = auth(client.get(format!("{base}/api/tools/audit")))
++            .send()
++            .await
++            .unwrap()
++            .json()
++            .await
++            .unwrap();
++        assert!(!audit.to_string().contains("HISTORICAL_PRIVATE_ARGS"));
++        assert!(backend
++            .sessions
++            .lock()
++            .unwrap()
++            .list_tool_audit(50)
++            .unwrap()
++            .iter()
++            .any(|row| row.args == "HISTORICAL_PRIVATE_ARGS"));
++        let url = format!("{base}/api/session?session_id={sid}");
++        assert_eq!(
++            auth(client.delete(&url)).send().await.unwrap().status(),
++            409
++        );
++        assert!(backend
++            .sessions
++            .lock()
++            .unwrap()
++            .get_session(&sid)
++            .unwrap()
++            .is_some());
++        assert_eq!(
++            auth(client.delete(format!("{url}&erase_uncertain_evidence=true")))
++                .send()
++                .await
++                .unwrap()
++                .status(),
++            200
++        );
++        assert_eq!(
++            auth(client.delete(&url)).send().await.unwrap().status(),
++            404
++        );
++        let records: serde_json::Value =
++            auth(client.get(format!("{base}/api/tools/operations?session_id={sid}")))
++                .send()
++                .await
++                .unwrap()
++                .json()
++                .await
++                .unwrap();
++        assert_eq!(records, serde_json::json!([]));
++        let active = backend
++            .sessions
++            .lock()
++            .unwrap()
++            .create_session("active")
++            .unwrap()
++            .id;
++        state.chat_tasks.reserve(Some(active.clone())).unwrap();
++        assert_eq!(
++            auth(client.delete(format!("{base}/api/session?session_id={active}")))
++                .send()
++                .await
++                .unwrap()
++                .status(),
++            409
++        );
++        let bounded = backend
++            .sessions
++            .lock()
++            .unwrap()
++            .create_session("bounded")
++            .unwrap()
++            .id;
++        {
++            let mut cfg = state.config.write().await;
++            cfg.ai.context_window_tokens = 100;
++            cfg.ai.max_tokens = 50;
++        }
++        let response = auth(client.post(format!("{base}/api/chat/complete")))
++            .json(&serde_json::json!({"session_id":bounded,"message":"too large"}))
++            .send()
++            .await
++            .unwrap();
++        assert_eq!(response.status(), 502);
++        let error: serde_json::Value = response.json().await.unwrap();
++        assert_eq!(error["code"], "context_budget_exceeded");
++        let sql = Connection::open(
++            PathBuf::from(std::env::var_os("XDG_DATA_HOME").unwrap())
++                .join("kde-assistant/sessions.db"),
++        )
++        .unwrap();
++        sql.execute_batch("ALTER TABLE operation_journal RENAME TO journal_fault")
++            .unwrap();
++        assert_eq!(
++            auth(client.get(format!("{base}/api/tools/operations")))
++                .send()
++                .await
++                .unwrap()
++                .status(),
++            500
++        );
++        sql.execute_batch("ALTER TABLE journal_fault RENAME TO operation_journal")
++            .unwrap();
++        server.abort();
++        let _ = server.await;
++    });
++}
++async fn qml_fixture(main: bool) {
++    use axum::{
++        extract::Query,
++        http::StatusCode,
++        routing::{delete, get},
++        Json, Router,
++    };
++    use std::{
++        collections::HashMap,
++        sync::{
++            atomic::{AtomicUsize, Ordering},
++            Arc,
++        },
++    };
++    let deletion = Arc::new(AtomicUsize::new(0));
++    let observed = deletion.clone();
++    let app=Router::new().route("/api/tools/operations",get(|Query(q):Query<HashMap<String,String>>|async move {
++        let session=q.get("session_id").map(String::as_str).unwrap_or("");
++        if session=="slow"{tokio::time::sleep(Duration::from_secs(1)).await;}
++        if session=="error"{return (StatusCode::INTERNAL_SERVER_ERROR,Json(serde_json::json!({"error":"synthetic"})));}
++        let rows=match session{"empty"|"deleted"=>serde_json::json!([]),"legacy"=>serde_json::json!([{"tool":"old tool"}]),_=>serde_json::json!([{"tool":"create_file","state":"unknown_outcome","id":"fixture-op","session_id":"unknown","prepared_at":"2026-10-12T00:00:00Z"}])};
++        (StatusCode::OK,Json(rows))
++    })).route("/api/session",delete(move |Query(q):Query<HashMap<String,String>>|{let observed=observed.clone();async move {
++        if q.get("erase_uncertain_evidence").map(String::as_str)!=Some("true") {return (StatusCode::CONFLICT,Json(serde_json::json!({"error":"uncertain_evidence_confirmation_required"})));}
++        observed.fetch_add(1,Ordering::SeqCst);(StatusCode::OK,Json(serde_json::json!({"status":"ok"})))
++    }})).route("/api/sessions",get(||async{Json(serde_json::json!([]))}));
++    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
++    let base = format!("http://{}", listener.local_addr().unwrap());
++    let server = tokio::spawn(async move {
++        axum::serve(listener, app).await.unwrap();
++    });
++    let p = Private::new();
++    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
++    let module =
++        kde_assistant_lib::backend::auth::write_qml_auth_module(&"a".repeat(64), false).unwrap();
++    let source = if main {
++        include_str!("qml/F1B3BMain.qml")
++    } else {
++        include_str!("qml/F1B3BRecovery.qml")
++    }
++    .replace("F1B3B_BACKEND", &base)
++    .replace(
++        "F1B3B_QML_DIR",
++        &format!("file://{}", repo.join("qml").display()),
++    );
++    let path = p.0.join("Recovery.qml");
++    fs::write(&path, source).unwrap();
++    let logpath = p.0.join("qml.log");
++    let log = fs::File::create(&logpath).unwrap();
++    let child = Command::new("qml6")
++        .args(["--verbose", "-apptype", "widget", "-I"])
++        .arg(&repo)
++        .arg("-I")
++        .arg(module)
++        .arg(path)
++        .env("QT_QPA_PLATFORM", "offscreen")
++        .env("QT_ASSUME_STDERR_HAS_CONSOLE", "1")
++        .env("QML_DISABLE_DISK_CACHE", "1")
++        .env("QML_XHR_ALLOW_FILE_READ", "1")
++        .stdout(log.try_clone().unwrap())
++        .stderr(log)
++        .spawn()
++        .unwrap();
++    let mut child = kde_assistant_lib::owned_process::OwnedChild::new(child);
++    let status = tokio::time::timeout(Duration::from_secs(16), async {
++        loop {
++            if let Some(status) = child.try_wait().unwrap() {
++                break status;
++            }
++            tokio::time::sleep(Duration::from_millis(50)).await;
++        }
++    })
++    .await
++    .expect("QML timeout");
++    let output = fs::read_to_string(logpath).unwrap();
++    server.abort();
++    let _ = server.await;
++    assert!(
++        status.success() && output.contains("F1B3B_UI_PASS"),
++        "{status}\n{output}"
++    );
++    assert_eq!(deletion.load(Ordering::SeqCst), usize::from(main));
++}
++#[test]
++#[ignore = "Qt/QML offscreen with private XDG and mock API"]
++fn qml_recovery_states_and_stale_responses() {
++    if isolated("qml_recovery_states_and_stale_responses") {
++        return;
++    }
++    tokio::runtime::Runtime::new()
++        .unwrap()
++        .block_on(qml_fixture(false));
++}
++#[test]
++#[ignore = "Qt/QML offscreen with private XDG and mock API"]
++fn qml_session_banner_and_explicit_evidence_confirmation() {
++    if isolated("qml_session_banner_and_explicit_evidence_confirmation") {
++        return;
++    }
++    tokio::runtime::Runtime::new()
++        .unwrap()
++        .block_on(qml_fixture(true));
++}
++
++#[test]
++fn legacy_deleted_session_evidence_is_preserved_until_explicit_scoped_erase() {
++    let p = Private::new();
++    let db = p.manager();
++    let sid = db.create_session("legacy deletion").unwrap().id;
++    unknown(&db, &sid, "retained");
++    drop(db);
++    // Model the old deletion, before migration 004 guarded parent removal.
++    let sql = p.sql();
++    // Only this synthetic seed models an old connection with enforcement off.
++    // Re-enable it and assert the real orphan before exercising production deletion.
++    sql.pragma_update(None, "foreign_keys", false).unwrap();
++    sql.execute_batch("DROP TRIGGER storage_session_delete;DROP TRIGGER storage_message_delete;")
++        .unwrap();
++    sql.execute("DELETE FROM messages WHERE session_id=?1", [&sid])
++        .unwrap();
++    sql.execute("DELETE FROM sessions WHERE id=?1", [&sid])
++        .unwrap();
++    sql.pragma_update(None, "foreign_keys", true).unwrap();
++    assert!(sql
++        .query_row("PRAGMA foreign_key_check", [], |_| Ok(()))
++        .optional()
++        .unwrap()
++        .is_some());
++    drop(sql);
++    let db = p.manager();
++    assert!(
++        db.storage_diagnostics().unwrap()["orphan_links"]
++            .as_i64()
++            .unwrap()
++            > 0
++    );
++    assert_eq!(
++        db.list_operations(Some(&sid), 50).unwrap()[0].state,
++        "unknown_outcome"
++    );
++    assert!(db
++        .delete_session(&sid)
++        .unwrap_err()
++        .to_string()
++        .contains("confirmation"));
++    db.delete_session_confirmed(&sid, true).unwrap();
++    assert_eq!(db.storage_diagnostics().unwrap()["orphan_links"], 0);
++    integrity(&p);
++}
++#[test]
++fn image_preview_retains_snapshot_and_failed_render_cleans_pending_resources() {
++    if isolated("image_preview_retains_snapshot_and_failed_render_cleans_pending_resources") {
++        return;
++    }
++    use kde_assistant_lib::backend::tool_executor::{ToolCtx, ToolExecutor};
++    tokio::runtime::Runtime::new().unwrap().block_on(async {
++        let p = Private::new();
++        let source = p.0.join("image.svg");
++        fs::write(
++            &source,
++            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"/>",
++        )
++        .unwrap();
++        let mut cfg = Config::first_run();
++        cfg.tools.preview_document = true;
++        cfg.tools.allowed_paths = vec![p.0.display().to_string()];
++        let tools = ToolExecutor::new(std::sync::Arc::new(tokio::sync::RwLock::new(cfg)));
++        let preview = |path: PathBuf| ToolCall {
++            id: uuid::Uuid::new_v4().to_string(),
++            name: "preview_document".into(),
++            arguments: serde_json::from_value(serde_json::json!({"path":path})).unwrap(),
++        };
++        let result = tools
++            .execute(&preview(source), &ToolCtx::auto(None))
++            .await
++            .unwrap();
++        assert!(result.success);
++        let image = PathBuf::from(result.image_url.unwrap());
++        assert!(image.exists());
++        let objects = [
++            "<< /Type /Catalog /Pages 2 0 R >>",
++            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
++            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 32 32] /Resources << >> /Contents 4 0 R >>",
++            "<< /Length 0 >>\nstream\n\nendstream",
++        ];
++        let mut pdf = String::from("%PDF-1.4\n");
++        let mut offsets = Vec::new();
++        for (i, object) in objects.iter().enumerate() {
++            offsets.push(pdf.len());
++            pdf.push_str(&format!("{} 0 obj\n{object}\nendobj\n", i + 1));
++        }
++        let xref = pdf.len();
++        pdf.push_str("xref\n0 5\n0000000000 65535 f \n");
++        for offset in offsets {
++            pdf.push_str(&format!("{offset:010} 00000 n \n"));
++        }
++        pdf.push_str(&format!("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n"));
++        let pdf_path = p.0.join("synthetic.pdf");
++        fs::write(&pdf_path, pdf).unwrap();
++        let rendered = tools.execute(&preview(pdf_path), &ToolCtx::auto(None)).await.unwrap();
++        assert!(rendered.success, "{}", rendered.content);
++        assert!(fs::read(rendered.image_url.unwrap()).unwrap().starts_with(b"\x89PNG\r\n\x1a\n"));
++        let root = PathBuf::from(std::env::var_os("XDG_CACHE_HOME").unwrap())
++            .join("kde-assistant/resources-v1");
++        let before = fs::read_dir(&root).unwrap().count();
++        let unsupported = p.0.join("bad.unknown");
++        fs::write(&unsupported, "private source").unwrap();
++        let failed = tools
++            .execute(&preview(unsupported), &ToolCtx::auto(None))
++            .await
++            .unwrap();
++        assert!(!failed.success);
++        assert_eq!(fs::read_dir(&root).unwrap().count(), before);
++        assert!(image.exists());
++    });
++}
++#[test]
++fn unpublished_guard_cleans_on_error_and_quota_reserves_concurrent_writers() {
++    let p = Private::new();
++    let (path, _) = resource_cache::allocate_at(&p.0).unwrap();
++    {
++        let _pending = resource_cache::PendingResource::new(&path);
++        fs::write(path.join("partial"), "private partial").unwrap();
++    }
++    assert!(!path.exists());
++    let mut allocated = 0;
++    loop {
++        match resource_cache::allocate_at(&p.0) {
++            Ok(_) => allocated += 1,
++            Err(e) => {
++                assert!(e.to_string().contains("quota"));
++                break;
++            }
++        }
++    }
++    assert!(allocated > 0 && allocated < 9);
++}
++
++#[test]
++fn dispatched_operation_blocks_deletion_even_with_terminal_turn() {
++    let (p, db, sid) = fixture();
++    db.begin_turn("terminal-owner", Some(&sid), None).unwrap();
++    let op = db
++        .prepare_operation("terminal-owner", "create_file")
++        .unwrap();
++    db.authorize_operation(&op, "terminal-owner", "create_file", "auto")
++        .unwrap();
++    db.transition_operation(&op, State::Dispatched, "auto", None)
++        .unwrap();
++    db.finish_turn("terminal-owner", "failed").unwrap();
++    assert!(db
++        .delete_session_confirmed(&sid, true)
++        .unwrap_err()
++        .to_string()
++        .contains("busy"));
++    integrity(&p);
++}
++
++#[test]
++fn replaced_workspace_cannot_publish_or_delete_another_live_resource() {
++    let p = Private::new();
++    let (first, _) = resource_cache::allocate_at(&p.0).unwrap();
++    let (second, _) = resource_cache::allocate_at(&p.0).unwrap();
++    fs::write(second.join("KEEP"), "published other resource").unwrap();
++    resource_cache::publish_resource(&second.join("KEEP")).unwrap();
++    let displaced = first.with_file_name("displaced");
++    fs::rename(&first, &displaced).unwrap();
++    fs::rename(&second, &first).unwrap();
++    let publish = resource_cache::publish_resource(&first.join("KEEP"));
++    let cleanup = resource_cache::release_private_snapshot(&first.join("unused"));
++    assert!(
++        publish.is_err() && cleanup.is_err(),
++        "publish={publish:?}; cleanup={cleanup:?}"
++    );
++    assert_eq!(
++        fs::read_to_string(first.join("KEEP")).unwrap(),
++        "published other resource"
++    );
++    assert!(displaced.join(".lease").exists());
++    fs::rename(&first, &second).unwrap();
++    fs::rename(&displaced, &first).unwrap();
++    resource_cache::release_private_snapshot(&first.join("unused")).unwrap();
++    assert!(second.join("KEEP").exists());
++}
++
++#[test]
++fn image_download_does_not_follow_planted_output_symlinks() {
++    if isolated("image_download_does_not_follow_planted_output_symlinks") {
++        return;
++    }
++    tokio::runtime::Runtime::new().unwrap().block_on(async {
++        use kde_assistant_lib::backend::tool_executor::{ToolCtx, ToolExecutor};
++        use std::sync::Arc;
++        let p = Private::new();
++        let target = p.0.join("KEEP");
++        fs::write(&target, "untouched private fixture").unwrap();
++        let cache = PathBuf::from(std::env::var_os("XDG_CACHE_HOME").unwrap())
++            .join("kde-assistant/resources-v1");
++        let start = chrono::Utc::now().timestamp_millis();
++        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
++        let url = format!("http://{}/image.png", listener.local_addr().unwrap());
++        let planted_target = target.clone();
++        let app = axum::Router::new().route(
++            "/image.png",
++            axum::routing::get(move || {
++                let cache = cache.clone();
++                let target = planted_target.clone();
++                async move {
++                    let workspace = fs::read_dir(cache).unwrap().next().unwrap().unwrap().path();
++                    let end = chrono::Utc::now().timestamp_millis();
++                    assert!(end - start < 10000, "fixture clock or scheduling failure");
++                    for timestamp in start - 2..=end + 2 {
++                        symlink(&target, workspace.join(format!("{timestamp}.png"))).unwrap();
++                    }
++                    (
++                        [("content-type", "image/png")],
++                        b"\x89PNG\r\n\x1a\nsynthetic image".as_slice(),
++                    )
++                }
++            }),
++        );
++        let server = tokio::spawn(async move {
++            axum::serve(listener, app).await.unwrap();
++        });
++        let mut cfg = Config::first_run();
++        cfg.tools.show_image = true;
++        let tools = ToolExecutor::new(Arc::new(tokio::sync::RwLock::new(cfg)));
++        let result = tools
++            .execute(
++                &ToolCall {
++                    id: uuid::Uuid::new_v4().to_string(),
++                    name: "show_image".into(),
++                    arguments: serde_json::from_value(serde_json::json!({"source":url})).unwrap(),
++                },
++                &ToolCtx::auto(None),
++            )
++            .await
++            .unwrap();
++        assert!(!result.success);
++        assert_eq!(fs::read(&target).unwrap(), b"untouched private fixture");
++        server.abort();
++        let _ = server.await;
++    });
++}
+diff --git a/tests/qml/F1B3BMain.qml b/tests/qml/F1B3BMain.qml
+new file mode 100644
+index 0000000000000000000000000000000000000000..afd7be62da66018a703699a4d6fa8560f2e595e0
+--- /dev/null
++++ b/tests/qml/F1B3BMain.qml
+@@ -0,0 +1,45 @@
++import QtQuick
++import "F1B3B_QML_DIR" as App
++App.Main {
++    id: chat
++    backendUrl: "F1B3B_BACKEND"
++    property int phase: 0
++    property int waitingTicks: 0
++    function checkBackend() {}
++    function find(item, name) {
++        if (item.objectName === name) return item
++        if (item.children) for (var i = 0; i < item.children.length; ++i) { var found = find(item.children[i], name); if (found) return found }
++        return null
++    }
++    function fail(message) { console.error("F1B3B_UI_FAIL: " + message); Qt.exit(1) }
++    Timer {
++        interval: 100
++        repeat: true
++        running: true
++        property int ticks: 0
++        onTriggered: {
++            ticks++
++            if (ticks > 100) { chat.fail("timeout phase " + phase); return }
++            if (phase === 0 && ticks >= 3) { chat.currentSessionId = "unknown"; phase = 1 }
++            else if (phase === 1 && chat.recoveryCount > 0) { chat.deleteSession("unknown"); phase = 2 }
++            else if (phase === 2) {
++                var recovery = chat.find(chat.contentItem, "recoveryHistory")
++                if (!recovery || !recovery.confirmingDeletion) return
++                if (chat.currentSessionId !== "unknown") { chat.fail("deleted before consent"); return }
++                waitingTicks = ticks
++                phase = 3
++            } else if (phase === 3 && ticks - waitingTicks > 5) {
++                var button = chat.find(chat.contentItem, "eraseEvidenceButton")
++                if (!button) { chat.fail("confirmation action missing"); return }
++                button.clicked()
++                phase = 4
++            } else if (phase === 4 && chat.currentSessionId === "") {
++                chat.currentSessionId = "deleted"
++                phase = 5
++            } else if (phase === 5 && chat.recoveryStatus === "empty") {
++                console.log("F1B3B_UI_PASS: session banner, 409 confirmation, explicit deletion and deleted session")
++                Qt.quit()
++            }
++        }
++    }
++}
+diff --git a/tests/qml/F1B3BRecovery.qml b/tests/qml/F1B3BRecovery.qml
+new file mode 100644
+index 0000000000000000000000000000000000000000..80b448663143cdde3896b1a31ed4fd71743c9985
+--- /dev/null
++++ b/tests/qml/F1B3BRecovery.qml
+@@ -0,0 +1,51 @@
++import QtQuick
++import QtQuick.Window
++import qml 1.0 as App
++Window {
++    id: harness
++    width: 760
++    height: 680
++    visible: true
++    property int phase: 0
++    property int confirmed: 0
++    function fail(message) { console.error("F1B3B_UI_FAIL: " + message); Qt.exit(1) }
++    App.RecoveryHistory {
++        id: recovery
++        anchors.fill: parent
++        backendUrl: "F1B3B_BACKEND"
++        authToken: "synthetic-fixture"
++        onEraseConfirmed: function(session) { if (session !== "unknown") harness.fail("wrong delete identity"); harness.confirmed++ }
++    }
++    Timer {
++        interval: 100
++        repeat: true
++        running: true
++        property int ticks: 0
++        onTriggered: {
++            ticks++
++            if (ticks > 120) { harness.fail("timeout phase " + phase); return }
++            if (phase === 0) { recovery.show("unknown"); phase = 1 }
++            else if (phase === 1 && recovery.status === "ready") {
++                if (recovery.entries[0].state !== "unknown_outcome" || recovery.uncertainExplanation !== "La operación pudo haberse realizado, pero no se pudo confirmar su resultado.") { harness.fail("uncertainty missing"); return }
++                if (recovery.explanation("failed").indexOf("parciales") < 0 || recovery.explanation("abandoned").indexOf("antes") < 0) { harness.fail("status semantics missing"); return }
++                recovery.show("legacy"); phase = 2
++            } else if (phase === 2 && recovery.status === "ready") {
++                if (recovery.entries[0].id !== undefined) { harness.fail("legacy fixture unexpectedly complete"); return }
++                recovery.show("empty"); phase = 3
++            } else if (phase === 3 && recovery.status === "empty") { recovery.show("error"); phase = 4 }
++            else if (phase === 4 && recovery.status === "unavailable") {
++                recovery.confirmDeletion("unknown")
++                if (!recovery.confirmingDeletion || recovery.deletionExplanation.indexOf("investigar") < 0 || confirmed !== 0) { harness.fail("deletion consent missing"); return }
++                recovery.hide()
++                if (confirmed !== 0) { harness.fail("dismissal deleted evidence"); return }
++                recovery.show("slow")
++                recovery.show("empty")
++                phase = 5
++            } else if (phase === 5 && ticks > 30) {
++                if (recovery.status !== "empty" || recovery.entries.length !== 0) { harness.fail("stale response replaced session"); return }
++                console.log("F1B3B_UI_PASS: uncertainty, failed, abandoned, legacy, empty, unavailable, consent and stale response")
++                Qt.quit()
++            }
++        }
++    }
++}

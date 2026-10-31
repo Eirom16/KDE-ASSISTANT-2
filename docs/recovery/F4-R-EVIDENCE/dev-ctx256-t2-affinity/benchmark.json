@@ -1,0 +1,70 @@
+{
+  "audio_seconds": 3.0,
+  "cold_model_load_ms": 110.89519200000001,
+  "conversion_ms": 29.604288999999998,
+  "decode_options": {
+    "audio_ctx": 256,
+    "temperature_inc": 0.20000000298023224,
+    "threads": 2
+  },
+  "evidence": "AUTOMATED_AUDIO_FIXTURE",
+  "n": 3,
+  "proc_status": [
+    "VmHWM:\t  148800 kB",
+    "VmRSS:\t  113360 kB"
+  ],
+  "pss": [
+    "Pss:              109192 kB"
+  ],
+  "rust_debug_assertions": true,
+  "source_wav": "/tmp/kda-f4-bench-vf51ix_g/corpus/tone.wav",
+  "warm_max_ms": 6029.665776,
+  "warm_min_ms": 5844.793457,
+  "warm_p50_ms": 5878.1474960000005,
+  "warm_p95_ms": 6029.665776,
+  "warm_runs": [
+    {
+      "cpu_ticks": 1145,
+      "inference_ms": 6029.665776,
+      "measurement": {
+        "inference_ms": 6029.665776,
+        "segments": 1,
+        "state_ms": 19.035944999999998,
+        "text": "[MÚSICA]",
+        "text_ms": 0.009604,
+        "tokens": 8
+      },
+      "run": 0,
+      "text_available_ms": 6051.420183
+    },
+    {
+      "cpu_ticks": 1130,
+      "inference_ms": 5844.793457,
+      "measurement": {
+        "inference_ms": 5844.793457,
+        "segments": 1,
+        "state_ms": 18.625694000000003,
+        "text": "[MÚSICA]",
+        "text_ms": 0.010033,
+        "tokens": 8
+      },
+      "run": 1,
+      "text_available_ms": 5865.598064000001
+    },
+    {
+      "cpu_ticks": 1133,
+      "inference_ms": 5878.1474960000005,
+      "measurement": {
+        "inference_ms": 5878.1474960000005,
+        "segments": 1,
+        "state_ms": 13.347029,
+        "text": "[MÚSICA]",
+        "text_ms": 0.009048,
+        "tokens": 8
+      },
+      "run": 2,
+      "text_available_ms": 5893.618528
+    }
+  ],
+  "whisper_cpp_version": "1.8.3"
+}

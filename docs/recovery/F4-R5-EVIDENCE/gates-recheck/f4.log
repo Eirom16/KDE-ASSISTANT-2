@@ -1,0 +1,29 @@
+isolation 0
+spanish-evaluator 0
+build 0
+internal-cli 0
+coordinator 0
+warm-piper 0
+piper-ipc 0
+piper-watch 0
+fast-migration 0
+process 0
+tts-stream 0
+tts-selection 0
+stt-selection 0
+vosk-guards 0
+native-http 0
+audio 0
+qml 0
+Traceback (most recent call last):
+  File "/home/eirom/KDE-ASSISTANT-2/scripts/validate_f4.py", line 72, in <module>
+    if __name__=='__main__':raise SystemExit(main())
+                                             ~~~~^^
+  File "/home/eirom/KDE-ASSISTANT-2/scripts/validate_f4.py", line 62, in main
+    pipewire=fixture(repo,profile,out)
+  File "/home/eirom/KDE-ASSISTANT-2/scripts/f4_pipewire.py", line 18, in fixture
+    wait_for(lambda:(runtime/'f4-synthetic').exists())
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/eirom/KDE-ASSISTANT-2/scripts/f3_runtime.py", line 33, in wait_for
+    raise AssertionError(f"timeout: {last}")
+AssertionError: timeout: None

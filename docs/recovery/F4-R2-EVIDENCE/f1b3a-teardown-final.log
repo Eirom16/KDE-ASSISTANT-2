@@ -1,0 +1,29 @@
+   Compiling kde-assistant v0.1.0 (/home/eirom/KDE-ASSISTANT-2)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.94s
+     Running tests/f1b3a_persistence.rs (target/debug/deps/f1b3a_persistence-47fb19770a5e27b9)
+
+running 3 tests
+test http_manual_denial_is_persisted_and_write_failure_is_closed ... 
+running 1 test
+test http_manual_denial_is_persisted_and_write_failure_is_closed ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 26 filtered out; finished in 0.15s
+
+ok
+test http_result_write_failure_has_no_tool_success_or_done ... 
+running 1 test
+test http_result_write_failure_has_no_tool_success_or_done ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 26 filtered out; finished in 0.18s
+
+ok
+test http_success_and_authenticated_journal_match_turn ... 
+running 1 test
+test http_success_and_authenticated_journal_match_turn ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 26 filtered out; finished in 0.16s
+
+ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 24 filtered out; finished in 0.52s
+

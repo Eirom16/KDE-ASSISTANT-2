@@ -1,0 +1,23 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.00s
+     Running unittests src/lib.rs (target/debug/deps/kde_assistant_lib-c3aadd785874d5a6)
+
+running 3 tests
+test backend::voice_process::tests::cancellation_waits_for_child_reaping ... FAILED
+test backend::voice_process::tests::stdout_is_drained_while_writing_and_secrets_are_not_inherited ... ok
+test backend::voice_process::tests::timeout_and_output_limit_kill_and_reap_the_exact_child ... ok
+
+failures:
+
+---- backend::voice_process::tests::cancellation_waits_for_child_reaping stdout ----
+
+thread 'backend::voice_process::tests::cancellation_waits_for_child_reaping' (13852) panicked at src/backend/voice_process.rs:179:9:
+assertion failed: !std::path::Path::new(&format!("/proc/{pid}")).exists()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    backend::voice_process::tests::cancellation_waits_for_child_reaping
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 171 filtered out; finished in 0.31s
+
+error: test failed, to rerun pass `--lib`

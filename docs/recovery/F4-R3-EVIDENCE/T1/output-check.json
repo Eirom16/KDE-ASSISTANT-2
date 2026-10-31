@@ -1,0 +1,32 @@
+{
+  "playback_authorized": true,
+  "readiness": "PENDING_COMFORTABLE_VOLUME",
+  "read_only_output_queries": [
+    {
+      "command": [
+        "/usr/bin/wpctl",
+        "inspect",
+        "@DEFAULT_AUDIO_SINK@"
+      ],
+      "exit": 0,
+      "selected_output": {
+        "media.class": "Audio/Sink",
+        "node.description": "Audio Interno Est\u00e9reo anal\u00f3gico",
+        "node.name": "alsa_output.pci-0000_00_0e.0.analog-stereo",
+        "node.nick": "ALC257 Analog"
+      }
+    },
+    {
+      "command": [
+        "/usr/bin/wpctl",
+        "get-volume",
+        "@DEFAULT_AUDIO_SINK@"
+      ],
+      "exit": 0,
+      "volume": "Volume: 1.15"
+    }
+  ],
+  "configuration_changed": false,
+  "microphone": false,
+  "playback_started": false
+}

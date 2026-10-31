@@ -1,0 +1,10 @@
+{
+  "purpose": "live_f4r3_tts_t1",
+  "phrase": "Hola. Soy KDE Assistant y esta es una prueba de voz en espa\u00f1ol.",
+  "session": "272572da-01f3-4442-b93b-7ff7a78419d5",
+  "engine_profile": "/var/tmp/kda-f4r3-piper-aqrh6h0h",
+  "microphone": false,
+  "raw_audio_saved": false,
+  "provider_requests": 0,
+  "launch_authorized": false
+}

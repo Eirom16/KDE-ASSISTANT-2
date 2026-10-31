@@ -1,0 +1,74 @@
+{
+  "authorized_scope": "download-private-install-offline-pcm",
+  "files": [
+    {
+      "name": "piper_tts-1.8.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux_2_28_x86_64.whl",
+      "bytes": 34131442,
+      "sha256": "25b4d3f31ff70c8fa7151908e00aaa5650cbdf16bca8fcf21299f3941b89a7d3"
+    },
+    {
+      "name": "onnxruntime-1.31.0-cp314-cp314-manylinux_2_28_x86_64.whl",
+      "bytes": 23762993,
+      "sha256": "e4efa4a1a0bb0b5173c6a3292c181d518b8323f9d56e978635d0c09d38c94d1a"
+    },
+    {
+      "name": "pathvalidate-3.3.1-py3-none-any.whl",
+      "bytes": 24305,
+      "sha256": "5263baab691f8e1af96092fa5137ee17df5bdfbd6cff1fcac4d6ef4bc2e1735f"
+    },
+    {
+      "name": "flatbuffers-25.12.19-py2.py3-none-any.whl",
+      "bytes": 26661,
+      "sha256": "7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4"
+    },
+    {
+      "name": "numpy-2.5.4-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "bytes": 16721710,
+      "sha256": "d549420b8858885cea8838a727842249218b9c1da24dd517e25c9c7a948310a3"
+    },
+    {
+      "name": "packaging-26.3-py3-none-any.whl",
+      "bytes": 129956,
+      "sha256": "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c"
+    },
+    {
+      "name": "protobuf-7.36.2-cp310-abi3-manylinux2014_x86_64.whl",
+      "bytes": 343223,
+      "sha256": "89f23aa53c24553a2416fd4fd1ec06f74fa42b14b546d8883128813f775bbfd2"
+    },
+    {
+      "name": "MODEL_CARD",
+      "bytes": 392,
+      "sha256": "37655314d08fe8a0900abc628d3bcbee48ffbdd8fad9306b89525a0ada20fefc"
+    },
+    {
+      "name": "es_ES-sharvard-medium.onnx",
+      "bytes": 76733615,
+      "sha256": "40febfb1679c69a4505ff311dc136e121e3419a13a290ef264fdf43ddedd0fb1"
+    },
+    {
+      "name": "es_ES-sharvard-medium.onnx.json",
+      "bytes": 4903,
+      "sha256": "7438c9b699c72b0c3388dae1b68d3f364dc66a2150fe554a1c11f03372957b2c"
+    }
+  ],
+  "install_command": [
+    "/var/tmp/kda-f4r3-piper-aqrh6h0h/venv/bin/python",
+    "-I",
+    "-B",
+    "-m",
+    "pip",
+    "install",
+    "--no-index",
+    "--require-hashes",
+    "--no-compile",
+    "--disable-pip-version-check",
+    "--find-links",
+    "/var/tmp/kda-f4r3-piper-aqrh6h0h/wheels",
+    "-r",
+    "/var/tmp/kda-f4r3-piper-aqrh6h0h/requirements.txt"
+  ],
+  "timestamp": 1792417659.3395061,
+  "microphone": false,
+  "playback": false
+}

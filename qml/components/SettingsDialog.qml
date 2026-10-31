@@ -8,6 +8,10 @@ import "."
 
 Rectangle {
     id: root
+    property bool backgroundEnabled: false
+    property bool backgroundPaused: false
+    property bool microphoneActive: false
+    signal backgroundControlRequested(string action)
     property bool open_: false
     property string backendUrl: AuthToken.backendUrl
     property string authToken: AuthToken.token
@@ -206,14 +210,22 @@ Rectangle {
         themeChoice.currentIndex = Math.max(0, ["system", "dark", "light"].indexOf(cfg.ui.theme))
         toolCalling.active = cfg.ai.enable_tool_calling
         autoSpeak.active = cfg.speech.auto_speak
+        fastPiper.active = cfg.speech.piper_fast === true
         autoListen.active = cfg.speech.auto_listen
         chimes.active = cfg.speech.chimes_enabled
+        piperRuntimeField.value = cfg.speech.piper_runtime || ""
+        piperSpeakerChoice.currentIndex = cfg.speech.piper_speaker === 1 ? 1 : 0
         piperField.value = cfg.speech.piper_model
         speedSlider.value = cfg.speech.piper_length_scale
         languageField.value = cfg.speech.stt_language
         micField.value = cfg.speech.mic_device
         sttField.value = cfg.speech.stt_model
+        voskLibraryField.value = cfg.speech.vosk_library || ""
+        voskModelField.value = cfg.speech.vosk_model || ""
+        maxRecordingField.value = String(cfg.speech.max_recording_secs || 30)
+        sttTimeoutField.value = String(cfg.speech.stt_timeout_secs || 90)
         wakeField.value = cfg.speech.wake_word
+        wakeModelsField.value = cfg.speech.wake_word_model_path || ""
         greetingField.value = cfg.speech.wake_greeting
         thresholdSlider.value = cfg.speech.wake_word_threshold
         temperatureField.value = String(cfg.ai.temperature)
@@ -224,7 +236,7 @@ Rectangle {
         pttField.value = cfg.shortcuts.push_to_talk
         newSessionField.value = cfg.shortcuts.new_session
         menuField.value = cfg.shortcuts.menu
-        sttBackendChoice.currentIndex = Math.max(0, ["local", "auto", "api"].indexOf(cfg.speech.stt_backend))
+        sttBackendChoice.currentIndex = cfg.speech.stt_engine === "vosk" ? 1 : 0
         sttApiField.value = cfg.speech.stt_api_model || "whisper-large-v3-turbo"
         var character = cfg.character || ({})
         characterEnabled.active = character.enabled === true
@@ -292,14 +304,23 @@ Rectangle {
         cfg.ui.close_to_tray = closeToTray.active
         cfg.ui.theme = ["system", "dark", "light"][themeChoice.currentIndex]
         cfg.speech.auto_speak = autoSpeak.active
+        cfg.speech.piper_fast = fastPiper.active
         cfg.speech.auto_listen = autoListen.active
         cfg.speech.chimes_enabled = chimes.active
+        cfg.speech.piper_runtime = piperRuntimeField.value.trim()
+        cfg.speech.piper_speaker = piperSpeakerChoice.currentIndex
         cfg.speech.piper_model = piperField.value.trim()
         cfg.speech.piper_length_scale = speedSlider.value
         cfg.speech.stt_language = languageField.value.trim()
         cfg.speech.mic_device = micField.value.trim()
         cfg.speech.stt_model = sttField.value.trim()
+        cfg.speech.stt_engine = sttBackendChoice.currentIndex === 1 ? "vosk" : "whisper"
+        cfg.speech.vosk_library = voskLibraryField.value.trim()
+        cfg.speech.vosk_model = voskModelField.value.trim()
+        cfg.speech.max_recording_secs = Number(maxRecordingField.value)
+        cfg.speech.stt_timeout_secs = Number(sttTimeoutField.value)
         cfg.speech.wake_word = wakeField.value.trim()
+        cfg.speech.wake_word_model_path = wakeModelsField.value.trim()
         cfg.speech.wake_word_threshold = thresholdSlider.value
         cfg.speech.wake_greeting = greetingField.value
         cfg.memory.enabled = memoryEnabled.active
@@ -308,7 +329,7 @@ Rectangle {
         cfg.shortcuts.push_to_talk = pttField.value.trim()
         cfg.shortcuts.new_session = newSessionField.value.trim()
         cfg.shortcuts.menu = menuField.value.trim()
-        cfg.speech.stt_backend = ["local", "auto", "api"][sttBackendChoice.currentIndex]
+        cfg.speech.stt_backend = "local"
         cfg.speech.stt_api_model = sttApiField.value.trim()
         if (!characterSizeField.inputItem.acceptableInput || !characterSleepField.inputItem.acceptableInput || !characterColorField.inputItem.acceptableInput) {
             message(qsTr("Revisa los ajustes del personaje en Apariencia."), "error"); return
@@ -529,13 +550,25 @@ Rectangle {
                                 spacing: Theme.spacingMd
                                 Help { text: (root.rawConfig.capabilities && root.rawConfig.capabilities.detail) || qsTr("Voz opcional diferida") }
                                 SettingsToggle { id: autoSpeak; label: qsTr("Leer respuestas en voz alta"); onToggled: { active = !active; root.markDirty() } }
-                                SettingsToggle { id: autoListen; label: qsTr("Continuar escuchando tras responder"); onToggled: { active = !active; root.markDirty() } }
-                                SettingsToggle { id: chimes; label: qsTr("Sonidos de activación"); onToggled: { active = !active; root.markDirty() } }
-                                DraftField { id: piperField; label: qsTr("Voz Piper local"); placeholder: "es_ES-sharvard-medium" }
+                                SettingsToggle {
+                                    id: fastPiper; objectName: "settingsPiperFast"
+                                    label: qsTr("Voz rápida (experimental)")
+                                    description: qsTr("Mantiene temporalmente preparada la voz para responder más rápido. Puede usar aproximadamente 310 MB adicionales de memoria. No activa la lectura automática.")
+                                    enabled: active || !!(root.rawConfig.capabilities && root.rawConfig.capabilities.piper_fast_supported && root.rawConfig.capabilities.piper_binary_present)
+                                    onToggled: { active = !active; root.markDirty() }
+                                }
+                                Help { visible: !(root.rawConfig.capabilities && root.rawConfig.capabilities.piper_fast_supported && root.rawConfig.capabilities.piper_binary_present); text: qsTr("Voz rápida requiere el entorno y la voz Piper locales compatibles. Configúralos y guarda antes de activarla.") }
+                                SettingsToggle { id: autoListen; enabled: false; label: qsTr("Escucha continua pendiente de validación F4"); onToggled: { active = !active; root.markDirty() } }
+                                SettingsToggle { id: chimes; enabled: false; label: qsTr("Sonidos de activación (no disponibles en dictado)"); onToggled: { active = !active; root.markDirty() } }
+                                DraftField { id: piperRuntimeField; objectName: "settingsPiperRuntime"; label: qsTr("Entorno Piper local"); placeholder: qsTr("Ruta absoluta del entorno privado evaluado") }
+                                DraftField { id: piperField; objectName: "settingsPiperModel"; label: qsTr("Voz Piper local"); placeholder: "es_ES-sharvard-medium" }
+                                LabelText { text: qsTr("Hablante de la voz española") }
+                                SettingsChoice { id: piperSpeakerChoice; objectName: "settingsPiperSpeaker"; model: [qsTr("Hablante 0"), qsTr("Hablante 1")]; onActivated: root.markDirty() }
+                                Help { text: qsTr("Piper 1.8.0 y voz española verificados. No se descargan recursos automáticamente. Sin entorno y voz instalados, la lectura no estará disponible.") }
                                 LabelText { text: qsTr("Duración de voz · %1×").arg(speedSlider.value.toFixed(2)) }
                                 Slider { id: speedSlider; onMoved: root.markDirty(); Layout.fillWidth: true; from: 0.5; to: 2; stepSize: 0.05; Accessible.name: qsTr("Duración de voz") }
                                 DraftField { id: languageField; label: qsTr("Idioma de transcripción"); placeholder: "auto / es / en" }
-                                DraftField { id: micField; label: qsTr("Micrófono preferido"); placeholder: qsTr("Vacío: dispositivo predeterminado") }
+                                DraftField { id: micField; label: qsTr("Micrófono preferido"); placeholder: qsTr("Vacío: predeterminado de PipeWire; vuelve a consultar nombres antiguos") }
                                 SettingsButton { text: qsTr("Consultar micrófonos"); onClicked: root.fetchAudioDevices() }
                                 SettingsChoice { visible: root.audioDevices.length > 0; objectName: "settingsMicrophone"; model: root.audioDevices; onActivated: micField.value = root.audioDevices[currentIndex] }
                             }
@@ -594,15 +627,26 @@ Rectangle {
                                 DraftField { id: temperatureField; label: qsTr("Temperatura (0–2)"); validator: DoubleValidator { bottom: 0; top: 2; locale: "C"; notation: DoubleValidator.StandardNotation } }
                                 DraftField { id: tokensField; label: qsTr("Máximo de tokens de salida"); validator: IntValidator { bottom: 1; top: 131072 } }
                                 Help { text: qsTr("El modelo puede imponer límites adicionales. Groq usa max_completion_tokens. La prueba de conexión limita su salida a 64 tokens.") }
-                                DraftField { id: sttField; label: qsTr("Modelo Whisper local"); placeholder: "base" }
-                                DraftField { id: wakeField; label: qsTr("Palabra de activación") }
-                                DraftField { id: greetingField; label: qsTr("Saludo de activación") }
+                                DraftField { id: maxRecordingField; label: qsTr("Duración máxima de dictado (1–120 s)"); validator: IntValidator { bottom: 1; top: 120 } }
+                                DraftField { id: sttTimeoutField; label: qsTr("Tiempo máximo de STT (1–300 s)"); validator: IntValidator { bottom: 1; top: 300 } }
+                                Help { text: qsTr("Dictado local: pulsa para iniciar y otra vez para transcribir. El texto se añade al borrador sin enviarlo. Hey Jarvis se activa una vez desde el robot o la bandeja. Mantiene el micrófono abierto en segundo plano al ocultar/minimizar. Di Hey Jarvis seguido de la orden; el texto queda en el borrador. Cancelar permite rearmar. Pausar y Desactivar cierran el micrófono. No se descargan modelos ni voces.") }
+                                DraftField { id: sttField; visible: sttBackendChoice.currentIndex === 0; label: qsTr("Modelo Whisper local"); placeholder: "tiny / base / ruta absoluta GGML" }
+                                DraftField { id: wakeField; enabled: false; label: qsTr("Palabra de activación (Hey Jarvis)") }
+                                Help { text: root.microphoneActive ? qsTr("Micrófono abierto en segundo plano. Pausar o Desactivar cierran la captura.") : root.backgroundEnabled ? qsTr("Hey Jarvis pausado. Micrófono cerrado.") : qsTr("Hey Jarvis está desactivado. No escucha al arrancar.") }
+                                SettingsButton { objectName: "settingsBackgroundWake"; text: !root.backgroundEnabled ? qsTr("Activar escucha en segundo plano") : root.backgroundPaused ? qsTr("Reanudar Hey Jarvis") : qsTr("Pausar Hey Jarvis"); onClicked: root.backgroundControlRequested(!root.backgroundEnabled ? "enable" : root.backgroundPaused ? "resume" : "pause") }
+                                SettingsButton { visible: root.backgroundEnabled; text: qsTr("Desactivar Hey Jarvis"); onClicked: root.backgroundControlRequested("disable") }
+                                DraftField { id: wakeModelsField; objectName: "settingsWakeModels"; label: qsTr("Directorio local de modelos Hey Jarvis"); placeholder: "/ruta/wakeword (vacío: directorio de datos)" }
+                                Help { text: qsTr("Modelo de frase inglesa Hey Jarvis: di la frase con pronunciación inglesa y espera a Grabando. openWakeWord: código Apache-2.0; modelos CC BY-NC-SA 4.0 (uso no comercial). OFF al arrancar; no se descargan recursos.") }
+                                DraftField { id: greetingField; enabled: false; label: qsTr("Saludo de activación (pendiente)") }
                                 LabelText { text: qsTr("Umbral de activación · %1").arg(thresholdSlider.value.toFixed(2)) }
-                                Slider { id: thresholdSlider; onMoved: root.markDirty(); Layout.fillWidth: true; from: 0.1; to: 1; stepSize: 0.05; Accessible.name: qsTr("Umbral de activación") }
+                                Slider { id: thresholdSlider; objectName: "settingsWakeThreshold"; enabled: true; onMoved: root.markDirty(); Layout.fillWidth: true; from: 0.1; to: 1; stepSize: 0.05; Accessible.name: qsTr("Umbral de confianza de Hey Jarvis") }
                                 LabelText { text: qsTr("Motor de transcripción") }
-                                SettingsChoice { id: sttBackendChoice; onActivated: root.markDirty(); objectName: "settingsSttBackend"; model: [qsTr("Whisper local"), qsTr("Automático (puede usar Groq)"), qsTr("API de Groq con fallback local")] }
-                                Help { text: qsTr("Automático y API pueden enviar audio a Groq y consumir cuota. Local mantiene la transcripción en el equipo.") }
-                                DraftField { id: sttApiField; label: qsTr("Modelo de transcripción API") }
+                                SettingsChoice { id: sttBackendChoice; onActivated: root.markDirty(); objectName: "settingsSttBackend"; model: [qsTr("Whisper local"), qsTr("Vosk español · experimental")] }
+                                DraftField { id: voskLibraryField; objectName: "settingsVoskLibrary"; visible: sttBackendChoice.currentIndex === 1; label: qsTr("Biblioteca Vosk local"); placeholder: "/ruta/libvosk.so" }
+                                DraftField { id: voskModelField; objectName: "settingsVoskModel"; visible: sttBackendChoice.currentIndex === 1; label: qsTr("Directorio del modelo Vosk español"); placeholder: "/ruta/vosk-model-small-es-0.42" }
+                                Help { visible: sttBackendChoice.currentIndex === 1; text: qsTr("Evaluación inicial: Vosk 0.3.45 y small español 0.42. Requiere idioma es; puede confundir nombres de aplicaciones. Revisa el dictado antes de enviarlo. Sin instalación ni descarga automática.") }
+                                Help { text: qsTr("Audio remoto deshabilitado en F4. Los valores API heredados se conservan sin enviar grabaciones. Una clave de chat no autoriza subir audio.") }
+                                DraftField { id: sttApiField; enabled: false; label: qsTr("Modelo de transcripción API") }
                                 LabelText { text: qsTr("Atajos guardados") }
                                 Help { text: qsTr("El portal sólo registra Mostrar/Ocultar cuando se inicia con --enable-shortcuts. Editar no concede acceso al teclado; requiere reiniciar y autorización del sistema. Los demás valores heredados se conservan sin prometer registro global.") }
                                 DraftField { id: toggleField; label: qsTr("Mostrar / ocultar"); placeholder: "Super+Shift+A" }

@@ -1,0 +1,151 @@
+   Compiling kde-assistant v0.1.0 (/home/eirom/KDE-ASSISTANT-2)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.10s
+     Running tests/f1b2_conversation.rs (target/debug/deps/f1b2_conversation-5deff8da692fad51)
+
+running 23 tests
+test approval_cancel_releases_waiter_and_late_decision ... 
+running 1 test
+test approval_cancel_releases_waiter_and_late_decision ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.16s
+
+ok
+test cancel_before_first_token_closes_connection ... 
+running 1 test
+test cancel_before_first_token_closes_connection ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.11s
+
+ok
+test cancel_before_headers_and_during_incomplete_utf8_or_event ... 
+running 1 test
+test cancel_before_headers_and_during_incomplete_utf8_or_event ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.21s
+
+ok
+test cancel_tokens_then_b_isolated_from_late_a ... 
+running 1 test
+test cancel_tokens_then_b_isolated_from_late_a ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.17s
+
+ok
+test cancellation_during_supervised_summary_closes_its_http_request ... 
+running 1 test
+test cancellation_during_supervised_summary_closes_its_http_request ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.81s
+
+ok
+test cancellation_is_scoped_to_session_and_turn ... 
+running 1 test
+test cancellation_is_scoped_to_session_and_turn ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.15s
+
+ok
+test cancelled_turn_survives_backend_restart_without_false_reply ... 
+running 1 test
+test cancelled_turn_survives_backend_restart_without_false_reply ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.13s
+
+ok
+test client_disconnect_cancels_idle_provider ... 
+running 1 test
+test client_disconnect_cancels_idle_provider ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.12s
+
+ok
+test complete_endpoint_returns_error_status_and_never_fake_success ... 
+running 1 test
+test complete_endpoint_returns_error_status_and_never_fake_success ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.11s
+
+ok
+test complete_request_identity_query_and_cancellation ... 
+running 1 test
+test complete_request_identity_query_and_cancellation ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.12s
+
+ok
+test fragmented_success_persists_turn_identity ... 
+running 1 test
+test fragmented_success_persists_turn_identity ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.12s
+
+ok
+test interleaved_tools_execute_once_with_matching_local_ids ... 
+running 1 test
+test interleaved_tools_execute_once_with_matching_local_ids ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.26s
+
+ok
+test malformed_tool_schema_never_reaches_approval_or_executor ... 
+running 1 test
+test malformed_tool_schema_never_reaches_approval_or_executor ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.14s
+
+ok
+test malformed_truncated_error_and_abrupt_streams_never_succeed ... 
+running 1 test
+test malformed_truncated_error_and_abrupt_streams_never_succeed ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.29s
+
+ok
+test old_database_migration_preserves_rows_and_marks_abandoned_turns ... 
+running 1 test
+test old_database_migration_preserves_rows_and_marks_abandoned_turns ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.17s
+
+ok
+test provider_timeout_releases_connection ... 
+running 1 test
+test provider_timeout_releases_connection ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.26s
+
+ok
+test publication_failure_is_terminal_without_done_and_other_session_succeeds ... 
+running 1 test
+test publication_failure_is_terminal_without_done_and_other_session_succeeds ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.19s
+
+ok
+test qml_cancel_202_remains_cancelling_until_terminal ... ignored, requiere Qt/QML offscreen; fixture loopback
+test qml_obsolete_session_list_cannot_replace_new_selection ... ignored, requiere Qt/QML offscreen; fixture loopback
+test qml_regenerate_preserves_history_and_explains_restriction ... ignored, requiere Qt/QML offscreen; fixture loopback
+test rate_limit_has_no_implicit_retry ... 
+running 1 test
+test rate_limit_has_no_implicit_retry ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.23s
+
+ok
+test regeneration_rejects_completed_history_without_replaying_tools ... 
+running 1 test
+test regeneration_rejects_completed_history_without_replaying_tools ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.28s
+
+ok
+test simultaneous_same_session_rejected_before_provider ... 
+running 1 test
+test simultaneous_same_session_rejected_before_provider ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.22s
+
+ok
+
+test result: ok. 20 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 4.43s
+

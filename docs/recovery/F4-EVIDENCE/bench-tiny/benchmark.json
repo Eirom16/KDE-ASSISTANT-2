@@ -1,0 +1,44 @@
+{
+  "audio_seconds": 3.0,
+  "cold_model_load_ms": 368.806258,
+  "conversion_ms": 1020.744702,
+  "evidence": "AUTOMATED_AUDIO_FIXTURE",
+  "n": 5,
+  "proc_status": [
+    "VmHWM:\t  228376 kB",
+    "VmRSS:\t  104480 kB"
+  ],
+  "pss": [
+    "Pss:              100494 kB"
+  ],
+  "source_wav": "/tmp/kda-f4-bench-6h__v03s/corpus/tone.wav",
+  "warm_p50_ms": 39890.549923,
+  "warm_p95_ms": 45098.031524,
+  "warm_runs": [
+    {
+      "inference_ms": 39890.549923,
+      "run": 0,
+      "transcript": "[MÚSICA]"
+    },
+    {
+      "inference_ms": 36346.883693,
+      "run": 1,
+      "transcript": "[MÚSICA]"
+    },
+    {
+      "inference_ms": 44877.464521999995,
+      "run": 2,
+      "transcript": "[MÚSICA]"
+    },
+    {
+      "inference_ms": 45098.031524,
+      "run": 3,
+      "transcript": "[MÚSICA]"
+    },
+    {
+      "inference_ms": 34015.221172,
+      "run": 4,
+      "transcript": "[MÚSICA]"
+    }
+  ]
+}

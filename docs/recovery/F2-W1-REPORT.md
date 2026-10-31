@@ -1,0 +1,58 @@
+# GATE-F2-W1 — Aceptación de permisos en Plasma Wayland
+
+**Dictamen: PARTIAL.** El backend F2 conservó la separación Green/Yellow/Red y el despacho exacto en una sesión Plasma Wayland auténtica con archivos sintéticos. `Main.qml` abrió solicitudes Yellow y Red bajo el tema KDE y KWin registró una ventana propia activa. Hay capturas auténticas del popup renderizado, pero no se probaron clics o teclado físicos de una persona, el fallo del backend mientras el diálogo está abierto ni una sesión visual prolongada. Esta evidencia no justifica `HUMAN_VERIFIED` ni aceptación visual completa.
+
+## 1. Baseline y alcance
+
+- 14 de octubre de 2026, `America/Santo_Domingo`. Rama `recovery/f2-permission-engine`; HEAD inicial y final `8b21c7fd505c8c6b5d0e9bcb5c7ecbd7455c9835`. `git status` inicial: sin cambios rastreados; documentos históricos sin seguimiento de F1, F2, W1 y W1R. Se preservaron todos. No hubo commit, push, merge, reset ni clean.
+- Se leyeron `AGENTS.md`, los tres documentos de arquitectura/función/diseño, los cinco informes F2, `F2-CLOSURE.md`, `F2-COMMIT-VALIDATION.md`, el contrato `F1B3A-JOURNAL-CONTRACT.md` y GATE-W1/W1R. Se respetó el catálogo de cuatro herramientas; ninguna de las otras 19 se activó. No se inició F3/F4/F5.
+- Perfil aislado `/tmp/kda-f2-w1-arv7tefj` modo 0700, con `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME` y `TMPDIR` privados. SQLite, clave local ficticia, proveedor simulado `127.0.0.1:8877` y archivos bajo `synthetic/`. Sin credenciales comerciales, documentos personales, micrófono, modelos descargados, servicios externos, atajos globales ni cambios al tema o configuración del usuario. Sólo se cerraron PID propios.
+
+## 2. Entorno y fallo del tema KDE
+
+`XDG_SESSION_TYPE=wayland`, `WAYLAND_DISPLAY=wayland-0`, socket válido, `kwin_wayland` en el bus de sesión y `plasmashell` activos. Plasma/KWin **6.7.5**, Qt/QML **6.12.0**, pantalla **1366×768** escala 1, Pentium Silver N5000, UHD Graphics 605 y ~8 GB RAM. DBus de sesión y `libqwayland.so` disponibles. `127.0.0.1:8765` estaba libre antes de iniciar; el backend escuchó sólo en loopback.
+
+El aborto con tema KDE se reprodujo en `qmltestrunner` sobre Wayland (`SIGABRT`, exit -6). La traza termina en `QMessageLogger::fatal → QMenu::QMenu → KStatusNotifierItem → KDEPlasmaPlatformTheme6.so → Qt.labs.platform`, durante la creación del `SystemTrayIcon` de `Main.qml`. GDB recuperó el mensaje fatal exacto: **`QWidget: Cannot create a QWidget without QApplication`**. Un caso mínimo sin bandeja pasó 3/3; el mismo caso con `SystemTrayIcon visible: true` y `Menu visible: false` abortó en `QMenu`; con `visible: false` pasó. El runner con `QT_QPA_PLATFORMTHEME=generic` pasó los cuatro casos F2. Esto delimita un conflicto **del runner Qt Quick, sin `QApplication`, con el proveedor de bandeja del tema KDE**. No hay evidencia de un fallo de estilo de Qt Quick Controls ni de configuración XDG.
+
+El binario auténtico inició `qml6 -apptype widget ... qml/Main.qml` con tema KDE/Wayland, mantuvo el hijo vivo y sirvió `/api/health=200`; salió limpiamente con SIGINT al padre propio. El mismo `Main.qml`, montado en un harness `qml6 -apptype widget` contra backend real, recibió y aprobó consentimientos. Por tanto el aborto del runner se clasifica **A/C: específico de su tipo de aplicación y de la integración KDE `Qt.labs.platform`**, no como defecto demostrado del proceso QML productivo. No se cambiaron paquetes ni código de producción. El runner KDE sigue sin pasar y queda como incidencia de infraestructura de pruebas.
+
+## 3. Herramientas y autoridad
+
+| Riesgo/herramienta | Resultado con backend real y mock | Journal/efecto |
+| --- | --- | --- |
+| Green `system_info` | Sin diálogo; resultado de 177 caracteres limitado a sistema, kernel, uptime, CPU, RAM y batería. Sin home, token ni credencial ficticia. Un argumento inesperado produjo error explícito. Con flag individual apagado, `/api/tools/execute` devolvió HTTP 403 `tool_disabled: system_info flag`. | `Succeeded` sólo con plan válido; ningún proceso de shell externo en el adaptador revisado. |
+| Yellow `read_file` | Denegación HTTP 200 de la decisión, resultado de herramienta `success=false`; aprobación exacta leyó el texto sintético. Antes de aprobar, el contenido no apareció en resultado/journal. El diálogo identifica archivo y avisa que el texto irá al proveedor. | `Denied` sin despacho, `Succeeded` tras consumir. Cambio de recurso/argumentos cubierto en suite F2; no se atribuye al ensayo visual. |
+| Yellow `create_file` | El destino no existía durante la espera; denegar no lo creó. Aprobar produjo el contenido previsto. Segundo intento sobre destino existente fue bloqueado antes de otro consentimiento y conservó el archivo. El popup muestra destino, 18 bytes y SHA-256. | `Denied`/`Succeeded`; publicación `NOREPLACE` cubierta también por suite F2. |
+| Red `edit_file` | Antes de aprobar quedó `antes`; denegar no lo alteró. Aprobar produjo `después` y respaldo `.bak` con `antes`. Captura Red muestra destino, efecto, bytes y digest. | `Denied`/`Succeeded`. Reuso, edición de otro inode y resultado incierto cubiertos por tests F2. |
+
+Seis solicitudes forzadas del proveedor simulado (`open_app`, `close_app`, `web_search`, `open_url`, `kdeconnect`, `remind_in`) terminaron en `error` con `malformed_tool: herramienta no ofrecida en este turno`: ninguna abrió consentimiento genérico ni produjo una operación despachada. La suite `all_nineteen_legacy_tools_remain_denied_with_flags_enabled` probó el conjunto de 19 aun con flags heredados activos. No se observó conexión al destino URL sintético ni hijo de proceso originado por estas llamadas. No se ejercieron adaptadores deshabilitados.
+
+## 4. Autorizaciones adversariales y persistencia
+
+En el backend real, IDs de Consent, Tool Call, Turn y Session falsos devolvieron HTTP 404; la aprobación exacta devolvió 200; su replay devolvió 409. Cancelar el turno en espera devolvió 200 y un intento de aprobación posterior 409. `SIGKILL` se envió **sólo al QML propio** mientras una lectura esperaba: el backend permaneció vivo, la solicitud pasó `pending→revoked`, la aprobación tardía devolvió 409, y un QML nuevo inició sin reusar el permiso. No hubo lectura autorizada por ese consentimiento. El cierre normal del popup y cambio de sesión pasaron en `AUTOMATED_QML` genérico; no se simularon como clics físicos.
+
+La SQLite privada final pasó `PRAGMA integrity_check=ok` y `foreign_key_check` vacío; `journal_mode=wal`, `synchronous=FULL`. Tras ensayos secuenciales: `permission_requests`: 30 `consumed`, 15 `denied`, 5 `revoked`, **0 pending/approved**; `operation_journal`: 30 `succeeded`, 21 `denied`, 5 `abandoned`, 0 `failed` y 0 `UnknownOutcome`. Los conteos incluyen repetición de fixtures en el mismo perfil, no 66 escenarios independientes. Fallo SQLite previo al despacho, expiración, reinicio con pendiente, cambio de argumentos y recuperación de `UnknownOutcome` sintético pasaron en los tests Rust F2/F1B-3A, pero no se inyectaron en la SQLite del proceso visual; no se afirma prueba física de fallo de disco.
+
+## 5. Interfaz y KWin
+
+**AUTOMATED_QML:** `tst_f2_consent.qml` pasó 4/4 con tema genérico. En `qml6 -apptype widget` real, `Main.qml` recibió `approval_needed` de `read_file`, `create_file` y `edit_file`; el harness invocó la función QML `approveTool` y el backend consumió cada permiso. Se capturó el `QQuickPopupItem` renderizado para [lectura](F2-W1-EVIDENCE/consent-read.png), [creación](F2-W1-EVIDENCE/consent-create.png) y [edición](F2-W1-EVIDENCE/consent-edit.png). Las capturas contienen **sólo el popup propio y rutas sintéticas**; no son capturas de todo el escritorio ni sustituyen una observación humana.
+
+**AUTOMATED_KWIN:** un script temporal de lectura filtrado por PID y título registró una sola ventana propia `KDE Assistant v2`, geometría `(395,10) 575×708`, `active=true`, `minimized=false`. Se descargó al terminar. QML comunicó `visible=true` y popup durante la solicitud. La combinación de KWin y captura comprueba que la ventana no quedó detrás de otra en estas corridas; no prueba todas las reglas de activación/foco de KWin.
+
+**SCREENSHOT_REVIEW:** los tres popups caben en 1366×768 y muestran título, herramienta, acción, recurso, riesgo, alcance y botones `Denegar`/`Aprobar`; la lectura avisa del envío al proveedor. Texto oscuro sobre popup blanco es legible aun con ventana principal en modo oscuro. `yellow`/`red` se muestran en inglés minúsculo y sin diferenciación cromática; el Red no destaca visualmente el mayor riesgo. No hubo recorte visible. El popup aislado no demuestra por sí solo su posición respecto de la ventana principal; KWin sólo midió el marco de la ventana.
+
+**HUMAN_VERIFIED: ninguno.** No se pidió al usuario un clic físico ni se calificó la navegación de teclado humana. Foco inicial, Tab/Escape físicos, cierre desde botón `X` bajo el tema KDE, cambio de sesión y cancelación desde la UI real, diálogo durante streaming de tokens, duplicados tras varios turnos y respuesta a backend congelado quedan `NOT_TESTED` en la sesión auténtica. Cierre y separación de sesión sí tienen cobertura automática QML; eso no se convierte en observación humana.
+
+## 6. Regresiones y rendimiento
+
+Se ejecutaron **secuencialmente** `python3 scripts/validate_f2.py`, `python3 scripts/validate_f1b3b.py --qml` y `python3 scripts/validate_gate_w1r.py`; los tres salieron 0. F2 registró fmt, check, Clippy normal/fixtures, F1A 19/0 (1 ignored), F1B-1 13/0 (1 ignored), F1B-2 20/0 (3 ignored), F1B-3A 26/0 (1 ignored), F1B-3B 33/0 (3 ignored), F2 17/0, HTTP F2 1/0 (160 filtered), QML F2 4/0 y W1R 11/0. Detalle en [F2-W1-RESULTS.md](F2-W1-RESULTS.md).
+
+En dos turnos visuales aislados, envío QML→`approval_needed` tardó **42 ms Red** y **40 ms Create** según reloj de QML; no es latencia de píxel. En Red, el evento persistido `Dispatched` quedó ~**4 ms** después de invocar `approveTool` según reloj de pared QML/SQLite. Durante una muestra de ~0,8 s con consentimiento pendiente: backend **0,0 %** de un núcleo; QML **~25,0 %**; RSS/PSS backend ~28/24 MiB y QML ~196/138 MiB. Hay sólo dos muestras cortas, con popup renderizado; no se concluye regresión ni fuga. El reposo visible sin popup pendiente sigue siendo trabajo F5. No se desactivaron timers ni controles de seguridad.
+
+## 7. Incidencias, límites y recomendación
+
+El runner KDE requiere un harness con `QApplication` o una separación de la bandeja para su prueba; el proceso productivo funciona con el tema KDE. La etiqueta de riesgo y el error de herramienta no ofrecida requieren revisión de lenguaje/jerarquía visual. No se aplicó corrección productiva porque no se demostró defecto de autorización ni regresión del proceso real. [F2-W1-ISSUES.md](F2-W1-ISSUES.md) describe los pendientes.
+
+**Seguridad backend: PASS para las cuatro herramientas y los escenarios reales ejecutados; el resto de amenazas sólo según tests F2. Interfaz: PARTIAL por interacción humana/teclado y fallos de backend no observados. Integración KWin: PASS acotado a mapeo, geometría y foco de estas ventanas. Observación humana: NOT_TESTED. Otras 19 herramientas: restringidas.** Recomendación: conservar F2-W1 en **PARTIAL**, completar revisión humana y las comprobaciones de foco/teclado antes de declararlo ACCEPTED o usarlo como aceptación plena para iniciar F3. No se inició F3.
+
+Al cierre se recogieron todos los procesos QML/backend/mock propios, se descargó el script KWin propio y `ss` mostró libres 8765/8877. La evidencia privada permanece en `/tmp/kda-f2-w1-arv7tefj/evidence/`; las tres capturas sintéticas se copiaron a este directorio de recuperación. Ningún archivo de usuario ni documento histórico sin seguimiento fue borrado o modificado.

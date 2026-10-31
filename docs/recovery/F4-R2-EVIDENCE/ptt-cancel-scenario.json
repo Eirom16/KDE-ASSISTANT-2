@@ -1,0 +1,12 @@
+{
+  "profile": "/var/tmp/kda-f4r2-ptt-gpfkwmrz",
+  "test": "MANUAL_CAPTURE_CANCEL",
+  "prepared_private_backend": true,
+  "microphone": "USER_OPERATED; capture ended, all owned processes reaped",
+  "authorization": "User continua in response to scoped manual Cancelar question; actual capture requires physical action",
+  "receipt_created": true,
+  "raw_audio_storage": false,
+  "binary_sha256": "7516d30118cd8bafb93719eff1b75f988f7046c3584edeffe30fef4693ab7b03",
+  "result": "LIVE_PTT_PASS for tested cancellation paths",
+  "human_verified": true
+}

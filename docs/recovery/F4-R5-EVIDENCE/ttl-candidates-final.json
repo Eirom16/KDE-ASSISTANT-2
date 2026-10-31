@@ -1,0 +1,236 @@
+[
+  {
+    "ttl_secs": 15,
+    "remaining_after_playback_s": 11.159877791000326,
+    "ready_rss_kib": 245348,
+    "ready_pss_kib": 234261,
+    "idle_cpu_ticks": 0,
+    "samples": 43,
+    "all_reaped": true,
+    "warm_backend_fds": 19,
+    "cold_backend_fds": 15,
+    "backend": {
+      "cpu_ticks": 53,
+      "rss_kib": 30572,
+      "pss_kib": 26308
+    },
+    "meminfo": "MemTotal:        7942728 kB\nMemFree:          679480 kB\nMemAvailable:    4982724 kB\nBuffers:             160 kB\nCached:          5015352 kB\nSwapCached:         3088 kB\nActive:          1811236 kB\nInactive:        4370656 kB\nActive(anon):    1446760 kB\nInactive(anon):   265428 kB\nActive(file):     364476 kB\nInactive(file):  4105228 kB\nUnevictable:      419028 kB\nMlocked:             284 kB\nSwapTotal:       7942140 kB\nSwapFree:        7131276 kB\nZswap:                 0 kB\nZswapped:              0 kB\nDirty:              1656 kB\nWriteback:             0 kB\nAnonPages:       1505596 kB\nMapped:           664032 kB\nShmem:            476984 kB\nKReclaimable:     116920 kB\nSlab:             235888 kB\nSReclaimable:     116920 kB\nSUnreclaim:       118968 kB\nKernelStack:       12032 kB\nPageTables:        53300 kB\nSecPageTables:         0 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    11913504 kB\nCommitted_AS:   16537816 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:       79212 kB\nVmallocChunk:          0 kB\nPercpu:             3104 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:    227328 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:         0 kB\nFilePmdMapped:         0 kB\nCmaTotal:              0 kB\nCmaFree:               0 kB\nUnaccepted:            0 kB\nBalloon:               0 kB\nGPUActive:             0 kB\nGPUReclaim:            0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:      153728 kB\nDirectMap2M:     4909056 kB\nDirectMap1G:     5242880 kB\n",
+    "psi": "some avg10=0.00 avg60=0.00 avg300=0.00 total=6555743\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=4911155\n",
+    "after_expiry": {
+      "persisted_text_unchanged": null,
+      "label": "after_expiry_15",
+      "run": 0,
+      "speaking_ms": 9171.522636999725,
+      "null_link_ms": 9252.703613000449,
+      "complete_ms": 12952.008231000036,
+      "cpu_seconds": 10.97,
+      "peak_children_rss_kib": 246420,
+      "peak_children_pss_kib": 230192,
+      "backend_peak_rss_kib": 31540,
+      "backend_peak_pss_kib": 27236,
+      "worker_peak_rss_kib": 238928,
+      "worker_peak_pss_kib": 227814,
+      "loadavg": [
+        1.4150390625,
+        1.7392578125,
+        1.73779296875
+      ],
+      "memavailable_kib": 4765596,
+      "psi": "some avg10=0.00 avg60=0.00 avg300=0.00 total=6555836\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=4911223\n",
+      "timeline": [
+        {
+          "state": [
+            "preparing",
+            "preparing",
+            "load"
+          ],
+          "ms": 1.51759399977891
+        },
+        {
+          "state": [
+            "preparing",
+            "synthesizing",
+            "validation"
+          ],
+          "ms": 7051.401796999926
+        },
+        {
+          "state": [
+            "preparing",
+            "synthesizing",
+            "inference"
+          ],
+          "ms": 7666.55018199981
+        },
+        {
+          "state": [
+            "speaking",
+            "ready",
+            null
+          ],
+          "ms": 9119.761420000032
+        },
+        {
+          "state": [
+            "idle",
+            "ready",
+            null
+          ],
+          "ms": 12936.638571000003
+        }
+      ],
+      "fast": {
+        "completed": 2,
+        "enabled": true,
+        "generation": "475cc3b0-f0b4-4eca-97d4-666959d89d95",
+        "last_engine_ms": 1419.648903000052,
+        "last_stop_ms": 26.245635,
+        "last_synthesis_ms": 1421.210077,
+        "phase": null,
+        "prepares": 2,
+        "ready_ms": 6860.201888,
+        "reason": null,
+        "reuses": 0,
+        "revocations": 4,
+        "state": "ready",
+        "ttl_secs": 15,
+        "worker_pid": 11844
+      },
+      "trace": {
+        "pcm_bytes": 156160,
+        "pcm_complete_received_ms": 9021.036970000001,
+        "playback_complete_ms": 12871.558923,
+        "playback_process": {
+          "first_output_ms": null,
+          "output_complete_ms": 3850.0617730000004,
+          "process_complete_ms": 3850.345085,
+          "spawn_ms": 5.818296
+        },
+        "player_spawn_ms": 9026.855266,
+        "route": "managed-buffered",
+        "worker_process": null
+      },
+      "final_response_available_ms": null,
+      "response_to_speaking_ms": null,
+      "final_text_ms": null,
+      "final_to_speaking_ms": null
+    }
+  },
+  {
+    "ttl_secs": 60,
+    "remaining_after_playback_s": 56.31636887200057,
+    "ready_rss_kib": 243528,
+    "ready_pss_kib": 232418,
+    "idle_cpu_ticks": 0,
+    "samples": 217,
+    "all_reaped": true,
+    "warm_backend_fds": 19,
+    "cold_backend_fds": 15,
+    "backend": {
+      "cpu_ticks": 89,
+      "rss_kib": 30364,
+      "pss_kib": 26115
+    },
+    "meminfo": "MemTotal:        7942728 kB\nMemFree:          643060 kB\nMemAvailable:    4955512 kB\nBuffers:             160 kB\nCached:          5012468 kB\nSwapCached:         3088 kB\nActive:          1849576 kB\nInactive:        4380112 kB\nActive(anon):    1485100 kB\nInactive(anon):   265676 kB\nActive(file):     364476 kB\nInactive(file):  4114436 kB\nUnevictable:      404876 kB\nMlocked:             284 kB\nSwapTotal:       7942140 kB\nSwapFree:        7131668 kB\nZswap:                 0 kB\nZswapped:              0 kB\nDirty:              1236 kB\nWriteback:             0 kB\nAnonPages:       1541824 kB\nMapped:           666240 kB\nShmem:            464896 kB\nKReclaimable:     116920 kB\nSlab:             235952 kB\nSReclaimable:     116920 kB\nSUnreclaim:       119032 kB\nKernelStack:       12032 kB\nPageTables:        53364 kB\nSecPageTables:         0 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    11913504 kB\nCommitted_AS:   16545416 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:       79244 kB\nVmallocChunk:          0 kB\nPercpu:             3104 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:    227328 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:         0 kB\nFilePmdMapped:         0 kB\nCmaTotal:              0 kB\nCmaFree:               0 kB\nUnaccepted:            0 kB\nBalloon:               0 kB\nGPUActive:             0 kB\nGPUReclaim:            0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:      153728 kB\nDirectMap2M:     4909056 kB\nDirectMap1G:     5242880 kB\n",
+    "psi": "some avg10=0.00 avg60=0.00 avg300=0.00 total=6555956\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=4911343\n",
+    "after_expiry": {
+      "persisted_text_unchanged": null,
+      "label": "after_expiry_60",
+      "run": 0,
+      "speaking_ms": 9019.325033000314,
+      "null_link_ms": 9064.244819999658,
+      "complete_ms": 12771.712138000112,
+      "cpu_seconds": 11.060000000000002,
+      "peak_children_rss_kib": 247132,
+      "peak_children_pss_kib": 230967,
+      "backend_peak_rss_kib": 31940,
+      "backend_peak_pss_kib": 27651,
+      "worker_peak_rss_kib": 239716,
+      "worker_peak_pss_kib": 228587,
+      "loadavg": [
+        2.19677734375,
+        1.810546875,
+        1.75634765625
+      ],
+      "memavailable_kib": 4743084,
+      "psi": "some avg10=0.00 avg60=0.00 avg300=0.00 total=6556013\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=4911400\n",
+      "timeline": [
+        {
+          "state": [
+            "preparing",
+            "preparing",
+            "load"
+          ],
+          "ms": 1.5101760000106879
+        },
+        {
+          "state": [
+            "preparing",
+            "synthesizing",
+            "validation"
+          ],
+          "ms": 6875.448095999673
+        },
+        {
+          "state": [
+            "preparing",
+            "synthesizing",
+            "inference"
+          ],
+          "ms": 7517.712357000164
+        },
+        {
+          "state": [
+            "speaking",
+            "ready",
+            null
+          ],
+          "ms": 9002.93355299982
+        },
+        {
+          "state": [
+            "idle",
+            "ready",
+            null
+          ],
+          "ms": 12755.2324520002
+        }
+      ],
+      "fast": {
+        "completed": 2,
+        "enabled": true,
+        "generation": "cbb515fc-3287-415d-8a27-0758fee8fbb6",
+        "last_engine_ms": 1426.6181510001843,
+        "last_stop_ms": 22.384238,
+        "last_synthesis_ms": 1427.523184,
+        "phase": null,
+        "prepares": 2,
+        "ready_ms": 6726.253825,
+        "reason": null,
+        "reuses": 0,
+        "revocations": 4,
+        "state": "ready",
+        "ttl_secs": 60,
+        "worker_pid": 12024
+      },
+      "trace": {
+        "pcm_bytes": 158208,
+        "pcm_complete_received_ms": 8918.693009,
+        "playback_complete_ms": 12683.646935,
+        "playback_process": {
+          "first_output_ms": null,
+          "output_complete_ms": 3764.496623,
+          "process_complete_ms": 3764.813763,
+          "spawn_ms": 1.753365
+        },
+        "player_spawn_ms": 8920.446374000001,
+        "route": "managed-buffered",
+        "worker_process": null
+      },
+      "final_response_available_ms": null,
+      "response_to_speaking_ms": null,
+      "final_text_ms": null,
+      "final_to_speaking_ms": null
+    }
+  }
+]

@@ -1,0 +1,35 @@
+{
+  "command": [
+    "/usr/bin/python3",
+    "/home/eirom/KDE-ASSISTANT-2/scripts/benchmark_vosk_f4.py",
+    "--worker",
+    "--lib",
+    "/var/tmp/kda-f4r-vosk-f97mnvsm/vosk/libvosk.so",
+    "--model",
+    "/var/tmp/kda-f4r-vosk-f97mnvsm/vosk-model-small-es-0.42",
+    "--runs",
+    "10",
+    "--corpus",
+    "/tmp/kda-f4r-vosk-bench-yy6ocj6p/corpus",
+    "--output",
+    "/home/eirom/KDE-ASSISTANT-2/docs/recovery/F4-R-EVIDENCE/vosk-final/benchmark.json"
+  ],
+  "exit": 0,
+  "elapsed_seconds": 17.88062947399885,
+  "monitor_cpu_seconds": 1.9868788360000003,
+  "peak_rss_kib": 160596,
+  "peak_pss_kib": 150042,
+  "cpu_ticks": 1551,
+  "loadavg_min": [
+    0.869140625,
+    0.70263671875,
+    0.53369140625
+  ],
+  "loadavg_max": [
+    1.1259765625,
+    0.76708984375,
+    0.55810546875
+  ],
+  "compiler_overlap": false,
+  "reaped": true
+}

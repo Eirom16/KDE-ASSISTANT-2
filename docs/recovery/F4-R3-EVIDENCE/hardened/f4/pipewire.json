@@ -1,0 +1,15 @@
+{
+  "name": "pipewire-synthetic-capture",
+  "category": "AUTOMATED_AUDIO_FIXTURE",
+  "status": "PASS",
+  "source_rate": 48000,
+  "destination_rate": 16000,
+  "channels": 1,
+  "format": "PCM16LE",
+  "bytes": 66164,
+  "rms": 0.7071658302199426,
+  "frequency_hz": 439.5957432568101,
+  "physical_microphone": "NOT_TESTED",
+  "record_pid": 22747,
+  "daemon_pid": 22745
+}

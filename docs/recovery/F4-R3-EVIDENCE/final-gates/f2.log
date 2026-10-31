@@ -1,0 +1,169 @@
+fmt: PASS (0.94s)
+check: PASS (7.42s)
+clippy: PASS (8.66s)
+clippy-fixtures: PASS (9.39s)
+f1a: PASS (26.82s)
+f1b1: PASS (6.74s)
+f1b2: PASS (5.17s)
+f1b3a: PASS (10.59s)
+f1b3b: PASS (4.05s)
+f2: PASS (3.2s)
+f2-http: PASS (0.52s)
+f2-qml: PASS (1.1s)
+gate-w1r: PASS (10.06s)
+{
+  "results": [
+    {
+      "name": "fmt",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 0.94,
+      "counts": null,
+      "log": "/tmp/kda-f4r3-gates-wljd82mo/tmp/kda-f2-validation-lcn8onff/fmt.log"
+    },
+    {
+      "name": "check",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 7.42,
+      "counts": null,
+      "log": "/tmp/kda-f4r3-gates-wljd82mo/tmp/kda-f2-validation-lcn8onff/check.log"
+    },
+    {
+      "name": "clippy",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 8.66,
+      "counts": null,
+      "log": "/tmp/kda-f4r3-gates-wljd82mo/tmp/kda-f2-validation-lcn8onff/clippy.log"
+    },
+    {
+      "name": "clippy-fixtures",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 9.39,
+      "counts": null,
+      "log": "/tmp/kda-f4r3-gates-wljd82mo/tmp/kda-f2-validation-lcn8onff/clippy-fixtures.log"
+    },
+    {
+      "name": "f1a",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 26.82,
+      "counts": {
+        "pass": 19,
+        "fail": 0,
+        "ignored": 1,
+        "filtered": 0
+      },
+      "log": "/tmp/kda-f4r3-gates-wljd82mo/tmp/kda-f2-validation-lcn8onff/f1a.log"
+    },
+    {
+      "name": "f1b1",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 6.74,
+      "counts": {
+        "pass": 16,
+        "fail": 0,
+        "ignored": 1,
+        "filtered": 0
+      },
+      "log": "/tmp/kda-f4r3-gates-wljd82mo/tmp/kda-f2-validation-lcn8onff/f1b1.log"
+    },
+    {
+      "name": "f1b2",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 5.17,
+      "counts": {
+        "pass": 20,
+        "fail": 0,
+        "ignored": 3,
+        "filtered": 0
+      },
+      "log": "/tmp/kda-f4r3-gates-wljd82mo/tmp/kda-f2-validation-lcn8onff/f1b2.log"
+    },
+    {
+      "name": "f1b3a",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 10.59,
+      "counts": {
+        "pass": 26,
+        "fail": 0,
+        "ignored": 1,
+        "filtered": 0
+      },
+      "log": "/tmp/kda-f4r3-gates-wljd82mo/tmp/kda-f2-validation-lcn8onff/f1b3a.log"
+    },
+    {
+      "name": "f1b3b",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 4.05,
+      "counts": {
+        "pass": 33,
+        "fail": 0,
+        "ignored": 3,
+        "filtered": 0
+      },
+      "log": "/tmp/kda-f4r3-gates-wljd82mo/tmp/kda-f2-validation-lcn8onff/f1b3b.log"
+    },
+    {
+      "name": "f2",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 3.2,
+      "counts": {
+        "pass": 17,
+        "fail": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      "log": "/tmp/kda-f4r3-gates-wljd82mo/tmp/kda-f2-validation-lcn8onff/f2.log"
+    },
+    {
+      "name": "f2-http",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 0.52,
+      "counts": {
+        "pass": 1,
+        "fail": 0,
+        "ignored": 0,
+        "filtered": 181
+      },
+      "log": "/tmp/kda-f4r3-gates-wljd82mo/tmp/kda-f2-validation-lcn8onff/f2-http.log"
+    },
+    {
+      "name": "f2-qml",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 1.1,
+      "counts": {
+        "pass": 4,
+        "fail": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      "log": "/tmp/kda-f4r3-gates-wljd82mo/tmp/kda-f2-validation-lcn8onff/f2-qml.log"
+    },
+    {
+      "name": "gate-w1r",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 10.06,
+      "counts": {
+        "pass": 12,
+        "fail": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      "log": "/tmp/kda-f4r3-gates-wljd82mo/tmp/kda-f2-validation-lcn8onff/gate-w1r.log"
+    }
+  ],
+  "external_services": "NOT_TESTED",
+  "models_microphone": "NOT_TESTED",
+  "plasma_wayland": "NOT_TESTED"
+}

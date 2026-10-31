@@ -1,0 +1,69 @@
+[
+  {
+    "name": "fmt-check",
+    "command": [
+      "cargo",
+      "fmt",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 1.069
+  },
+  {
+    "name": "f4",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f4.py",
+      "--output",
+      "/home/eirom/KDE-ASSISTANT-2/docs/recovery/F4-R4-EVIDENCE/gates/f4"
+    ],
+    "exit": 0,
+    "seconds": 61.913
+  },
+  {
+    "name": "f35",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f35.py",
+      "--plasma"
+    ],
+    "exit": 0,
+    "seconds": 26.925
+  },
+  {
+    "name": "f2",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f2.py"
+    ],
+    "exit": 0,
+    "seconds": 146.157
+  },
+  {
+    "name": "default-before-f3",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant"
+    ],
+    "exit": 0,
+    "seconds": 0.468
+  },
+  {
+    "name": "f3",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/validate_f3.py",
+      "--runtime-only",
+      "--plasma"
+    ],
+    "exit": 1,
+    "seconds": 3.277
+  }
+]

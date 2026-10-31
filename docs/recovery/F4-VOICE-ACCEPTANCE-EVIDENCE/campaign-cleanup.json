@@ -1,0 +1,15 @@
+{
+  "closed_utc": "2026-10-23T00:31:17.192472+00:00",
+  "all_owned_observed_processes_absent": true,
+  "observed_pid_count": 17,
+  "private_campaign_removed": true,
+  "removed_regular_file_count": 224,
+  "raw_pcm_wav_file_count": 0,
+  "piper_authorized_installation_preserved": true,
+  "accepted_binary_sha256": "b8a977a6bd86d1d1bd7e208e051c0a4ba82401f5d2929d65521d9bfd5f9778bf",
+  "microphone_used": false,
+  "real_provider_used": false,
+  "downloads": false,
+  "personal_profile_accessed": false,
+  "commits": false
+}

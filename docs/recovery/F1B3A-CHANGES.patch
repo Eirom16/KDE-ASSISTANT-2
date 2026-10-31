@@ -1,0 +1,2564 @@
+diff --git a/docs/recovery/F1B3A-JOURNAL-CONTRACT.md b/docs/recovery/F1B3A-JOURNAL-CONTRACT.md
+new file mode 100644
+index 0000000..962574c
+--- /dev/null
++++ b/docs/recovery/F1B3A-JOURNAL-CONTRACT.md
+@@ -0,0 +1,110 @@
++# F1B-3A — Contrato del journal y recuperación
++
++Fecha: 2026-10-10. Baseline obligatorio: `27f2db9430bcbc7c074472383fc8acbc142b5f89`. Rama: `recovery/f1b3a-persistence`.
++
++## Alcance y autoridad
++
++El journal cubre las invocaciones de herramientas del backend con `ToolExecutor::with_audit`: chat escrito supervisado F1B-2, complete/regenerate y las invocaciones heredadas manuales/de voz que pasan por ese executor. Estas últimas reciben un Turn ID independiente generado por el backend; no se integran sus coordinadores con TurnRegistry ni se reconstruye voz. El constructor sin almacenamiento `ToolExecutor::new` sigue sirviendo a fixtures y al smoke opt-in, no al Backend de producción.
++
++No se journalizan tokens, peticiones LLM, captura/reproducción de audio, auto-speak, acciones fuera del executor ni cada entrega del scheduler de recordatorios. No se ofrece un lifecycle nuevo para procesos externos o voz. La capacidad de recuperación especificada aquí es la de las herramientas, no una garantía global sobre todo el escritorio.
++
++`ToolCtx.decided` sigue siendo metadato declarado por el caller. **No es una capacidad ni una autorización confiable**. `Authorized` significa que se registró la decisión de consentimiento de la política existente (`auto`/`approved`); no certifica que todas las comprobaciones de configuración, SafePath o del sistema externo hayan pasado. El executor conserva el snapshot y las comprobaciones SEC-01/02 en su ruta de ejecución. Un rechazo dentro de esa ruta produce un resultado `Failed`; una denegación del consentimiento produce `Denied` sin despacho. La reconstrucción central de permisos queda en F2.
++
++Las identidades del journal se generan en Rust: Operation ID UUID v4 nuevo; Turn ID es el del supervisor escrito o el UUID independiente de la invocación heredada; Session ID se obtiene del turno persistido. Antes de crear un turno nuevo, una sesión proporcionada debe existir en SQLite; se rechaza un identificador arbitrario antes de guardar metadatos o despachar. Las filas legacy no se reescriben. El journal no acepta un ID del proveedor como Operation ID. En chat, la autorización comprueba que la operación pertenece al Turn ID y al nombre de herramienta que se van a ejecutar. Este enlace verifica identidad, no convierte ToolCtx en autoridad.
++
++## Esquema y migración
++
++`migrations/003_operation_journal.sql` es aditiva e idempotente. Se ejecuta junto con las migraciones históricas de summary/turn_id dentro de una transacción de arranque propia. `recovery_migrations(version=3)` identifica su instalación; no se reutiliza ni modifica `PRAGMA user_version`. La base previa no tenía un registro numerado de migraciones.
++
++| Tabla | Función |
++| --- | --- |
++| `operation_journal` | Estado actual; id/turn/session, kind=tool, nombre de herramienta, prepared_at/updated_at, permission/consent, audit_id y tamaño del resultado opcional. |
++| `operation_events` | Timeline de estados confirmados: id creciente SQLite, operation_id, state, timestamp, audit_id. APIs sólo añaden eventos. Sus IDs no son las secuencias SSE. |
++| `turn_recovery` | Snapshot del último estado persistido del turno abandonado y fecha de recuperación, una vez por turno. |
++| `turn_inputs` | Enlace de turno/intentos de regenerate al mismo mensaje de usuario, sin cambiar el esquema de messages. |
++| `recovery_migrations` | Instalación idempotente del esquema nuevo. |
++
++Se conservan `sessions`, `messages`, `conversation_turns` y `tool_audit`; no se añade otra columna de mensajes. Las filas antiguas mantienen su Turn ID nullable. Índices por turno, sesión/fecha, estados pendientes, eventos por operación y entrada de usuario. CHECKs restringen estados, consentimiento, permiso y tamaño; triggers comprueban identidad, pertenencia y referencias nuevas, e impiden transiciones inválidas o cambio de identidad. Las REFERENCES son declarativas y pueden comprobarse con `foreign_key_check`. No se activa globalmente foreign_keys sobre el esquema legacy para cambiar silenciosamente su comportamiento de borrado; los enlaces nuevos de operaciones/eventos se verifican mediante triggers y APIs. Borrar una sesión no purga el journal; retención y poda quedan en F1B-3B.
++
++## Máquina persistente
++
++| Estado | Lo que se sabe |
++| --- | --- |
++| Prepared | Intento/anchor de auditoría confirmados; no hay despacho registrado; consentimiento pendiente. |
++| Authorized | Decisión `auto`/`approved` confirmada; aún no hay despacho registrado. |
++| Dispatched | Marcador confirmado antes de permitir sondear el executor. El efecto puede no haber empezado, haber terminado o ser parcial. |
++| Succeeded | El executor devolvió success y su evidencia mínima/auditoría se confirmó en SQLite. |
++| Failed | El executor devolvió error y ese resultado se confirmó. No implica ausencia de efectos parciales ni rollback. |
++| Denied | Consentimiento denegado, registrado junto con su auditoría; cero despacho. |
++| UnknownOutcome | Hubo despacho registrado y falta un resultado confirmado; exige inspección externa. |
++| Abandoned | Prepared/Authorized cerrado sin despacho: no se ejecutará esa operación. Distingue abandono de denegación. |
++
++Transiciones legales:
++
++```text
++Prepared -> Authorized -> Dispatched -> Succeeded | Failed | UnknownOutcome
++Prepared -> Denied
++Prepared | Authorized -> Abandoned
++```
++
++Succeeded, Failed, Denied, UnknownOutcome y Abandoned son terminales; no se reaniman. Estado y evento se actualizan en una misma transacción. Cada timestamp de fase está en `operation_events`; `updated_at` es el último cambio. El consentimiento permanece inmutable después de Prepared. `Dispatched` es deliberadamente conservador: un crash entre su COMMIT y el primer sondeo también termina en UnknownOutcome, aunque el fixture externo no observe ningún efecto.
++
++`Succeeded` conserva la semántica real del executor existente: en open_app, por ejemplo, puede significar que se lanzó un proceso, no que éste terminó su tarea. No se inventa una verificación independiente del mundo externo.
++
++## Orden, transacciones y publicación
++
++1. El supervisor reserva el Turn UUID y conserva el contrato F1B-2 de exclusión por sesión. Antes del proveedor, turno + usuario + turn_inputs se confirman juntos. Se construye el contexto antes de ese INSERT para no duplicar el usuario en el prompt.
++2. Tras validar el batch completo de herramientas, se confirma Prepared y su anchor/evento antes de esperar aprobación. Los duplicados omitidos por F1B-2 no son nuevas ejecuciones y no crean una operación ejecutada.
++3. Denegación: actualización Denied + audit + evento juntos; el endpoint manual de herramienta roja registra un intento/Denied antes de devolver 403, o error 500 si no puede confirmarlo; un error de escritura falla el turno. Aprobación/auto: confirmar Authorized. No existe una transacción retenida durante la espera de consentimiento.
++4. Bajo el mutex del turno escrito, comprobar Running y confirmar Dispatched. Sólo después se libera el lock y se sondea el futuro. Cancelar antes de esta sección impide ejecución; cancelar después exige drenar el futuro, incluyendo su registro de resultado.
++5. El resultado del executor se registra en una transacción breve con estado final, tamaño del resultado, actualización del anchor de auditoría, duración y evento. Sólo entonces puede devolverse al agente/publicarse `tool_result` o avanzar al siguiente request LLM. No se almacena el contenido del resultado en el journal.
++6. Si falla ese registro, el executor retorna `operation_result_not_persisted`; no devuelve éxito. La finalización del supervisor intenta convertir Dispatched en UnknownOutcome y Prepared/Authorized en Abandoned junto con el terminal del turno. Si también falla, quedan pendientes para recuperación en el próximo inicio. No se reejecuta para intentar averiguar el resultado.
++7. La publicación final sigue usando Turn.complete y el SAVEPOINT F1B-2: mensajes assistant/tools + Completed atómicos, arbitraje con cancelación y manejo de RELEASE fallido. Se rechaza publicar con operaciones pendientes o UnknownOutcome. Un efecto Succeeded puede coexistir con un turno Cancelled/Failed, sin respuesta final inventada.
++
++`BEGIN IMMEDIATE`/COMMIT propios para journal, arranque y recuperación. Fallos de statement o COMMIT recogen la transacción, respetando rollback automático de SQLite; fallo de limpieza conserva las dos causas. Un guard también intenta rollback al unwinding. Si el almacenamiento impide incluso rollback, no se certifica una conexión utilizable: las operaciones posteriores rechazan una transacción ajena abierta y el error se registra. No se promete curar hardware averiado.
++
++Orden de locks: turno -> DB sólo para despacho/publicación síncronos; registry -> turno sigue F1B-2. Preparación/autorización/resultados usan DB y la liberan antes de tocar el turno. Nunca hay DB -> turno anidados, ni await/red/LLM/aprobación/executor bajo una transacción DB. SQLite sigue síncrono: una espera SQLITE_BUSY puede bloquear un worker Tokio aproximadamente 5 s y retrasar solicitudes de cancelación antes de su espera asíncrona de 2 s. busy_timeout limita contención SQLite, no espera de mutex ni latencia de fsync/hardware; no es una cota general de respuesta HTTP. La prueba busy verifica fallo cerrado sin efectos y reutilización posterior; no se introduce un actor de DB ni se toca el thread Qt.
++
++## Recuperación al iniciar
++
++La apertura obtiene un `flock` exclusivo no bloqueante sobre el inode de la base y lo conserva durante la vida de SessionManager. Un segundo backend cooperante falla antes de migrar/recuperar una ejecución viva. SIGKILL libera ese lock. No es un límite de seguridad frente a escritores del mismo UID que ignoren flock, renombren/reemplacen la base o manipulen SQLite por fuera del backend.
++
++Después de migrar, antes de servir requests, una transacción:
++
++- convierte Prepared/Authorized en Abandoned;
++- convierte Dispatched en UnknownOutcome, incluso si su turno ya era terminal;
++- conserva todos los resultados terminales y los mensajes confirmados;
++- guarda en turn_recovery el último estado SQLite de turnos created/running/waiting_for_approval/cancelling y los marca Failed;
++- no contacta proveedores, abre archivos objetivo, ejecuta herramientas ni emite una respuesta de éxito.
++
++El snapshot refleja el último estado **persistido**, no todas las transiciones RAM del supervisor. No se recuperan parciales del stream, aprobaciones activas ni leases. TurnRegistry arranca vacío y admite turnos nuevos: no hay slots perpetuos por operaciones abandonadas. Un fallo de recuperación impide abrir el backend; rollback conserva el estado anterior para otro arranque. Repetir recuperación no crea más eventos UnknownOutcome ni snapshots duplicados.
++
++Consulta autenticada: `GET /api/tools/operations?session_id=...&limit=...`, bajo el middleware existente de host/origin/bearer. Devuelve hasta 500 operaciones recientes con metadatos y errores HTTP explícitos. El bearer local autoriza la aplicación completa, no una sesión particular: omitir session_id consulta el journal global. El filtro es igualdad parametrizada; sesión inexistente o texto de inyección devuelve una lista vacía, sin ampliar la consulta. El timeline completo y snapshots están en SQLite; no hay una nueva pantalla ni replay SSE. Consulta de inspección local:
++
++```sql
++SELECT j.id, j.turn_id, j.state, e.state, e.timestamp, e.audit_id
++FROM operation_journal j JOIN operation_events e ON e.operation_id=j.id
++ORDER BY e.id;
++```
++
++## Política de reintento manual
++
++Nunca reanudar/repetir automáticamente una operación de este journal. No existe endpoint de replay de Operation ID y no se cambia un terminal para reutilizarlo.
++
++Antes de repetir una operación incierta, inspeccionar el efecto fuera del journal (archivo/destino/app/servicio). El usuario debe enviar una solicitud **nueva y explícita**, aceptar las confirmaciones existentes y asumir que puede duplicarse un efecto anterior. Se genera otro Turn ID/Operation ID; los originales conservan su incertidumbre. No hay comprobación automática de existencia que se use para afirmar éxito retrospectivo.
++
++Regenerate no puede reutilizar un usuario con alguna invocación Dispatched/Succeeded/Failed/UnknownOutcome en cualquiera de sus intentos vinculados. Se exige mensaje nuevo. Prepared/Authorized abandonados y Denied no representan despacho y permiten el retry explícito ya existente. El enlace turn_inputs evita que un regenerate fallido o un usuario legacy sin Turn ID oculte operaciones de otro intento. La transacción de begin_retry_turn vuelve a exigir que la última fila sea user y utiliza su ID exacto, además de comprobar todos sus intentos: un precheck HTTP anterior a un await no basta. Esta política no reconstruye los posibles efectos históricos anteriores a la instalación del journal ni convierte los mensajes nuevos en capacidades de F2.
++
++## Redacción, evidencia y auditoría
++
++Allowlist de metadatos: IDs backend/session, kind/tool del catálogo, estados, timestamps, permission/consent, audit_id, duración y número de bytes del resultado. **No** argumentos, paths, URLs, documentos, prompts, claves, transcripciones, errores completos ni contenido de resultados; tampoco hashes de contenido privado. El tamaño/timing y los nombres de herramientas todavía son metadatos observables, no anonimato.
++
++La auditoría nueva usa `[redacted]`. Un anchor se crea junto con Prepared con decided=prepared/success=false; la transición final actualiza ese mismo anchor y queda referenciada por el evento. La timeline diferencia intento, consentimiento, despacho y resultado; `success=false` de un anchor pendiente **no** demuestra un fallo del efecto. Las métricas heredadas de tool_usage excluyen anchors todavía prepared. Un fallo del anchor inicial impide despacho; un fallo del audit final revierte también el estado/evento final. Las filas privadas de auditoría histórica no se borran ni se redactan retrospectivamente. UnknownOutcome conserva Operation/Turn/Session ID, herramienta, timeline y auditoría. Permite localizar el intento, pero no reconstruir su destino ni sus argumentos exactos: éstos se omiten por privacidad. La inspección externa es indispensable; el tamaño del resultado no demuestra un efecto. El contenido de mensajes completados sigue bajo la política SQLite de F1B-2, fuera del journal.
++
++## Durabilidad y límites
++
++Se comprueban WAL y synchronous=FULL (valor 2); busy_timeout=5000 ms. Errores de configuración ya no se ignoran. No hay retry de efectos ni de la petición LLM; busy_timeout sólo espera una oportunidad de escritura SQLite. WAL requiere almacenamiento local compatible; no se certifican shares de red. FULL sincroniza el WAL al confirmar la transacción, sujeto al contrato del VFS/OS/dispositivo, no a una garantía universal de hardware. Referencias primarias: [WAL](https://www.sqlite.org/wal.html), [synchronous](https://www.sqlite.org/pragma.html#pragma_synchronous).
++
++No existe una transacción atómica compartida entre SQLite y filesystem/DBus/red/procesos. Después de confirmar Dispatched y antes de confirmar resultado hay una ventana inevitable: el efecto puede haber ocurrido sin evidencia persistida. Eso es UnknownOutcome, **no exactly-once**, rollback ni éxito deducido. SIGKILL prueba consistencia ante pérdida del proceso; no prueba pérdida de alimentación, controladoras que mienten sobre fsync, VFS averiado o corrupción física. Los tests simulan fallos de escritura, prueban SQLITE_FULL real mediante cuota de páginas privada y fallos de COMMIT; no simulan todos los SQLITE_IOERR de hardware.
++
++No incluye retención/poda/contexto nuevo, F1B-3B, permisos definitivos, diseño/voz nuevos, publicación, release o sincronización multiequipo.
+diff --git a/docs/recovery/F1B3A-REPORT.md b/docs/recovery/F1B3A-REPORT.md
+new file mode 100644
+index 0000000..7d548fd
+--- /dev/null
++++ b/docs/recovery/F1B3A-REPORT.md
+@@ -0,0 +1,71 @@
++# F1B-3A — Journal persistente y recuperación
++
++Fecha: 2026-10-10. Estado: **IMPLEMENTED** para el contrato de operaciones de herramientas descrito en [F1B3A-JOURNAL-CONTRACT](F1B3A-JOURNAL-CONTRACT.md). Recomendación: **READY_FOR_REVIEW**, con los límites de almacenamiento y autoridad indicados abajo. Sin F1B-3B.
++
++## Baseline y preparación
++
++Proyecto `Eirom16/KDE-ASSISTANT-2`, workspace `/home/eirom/KDE-ASSISTANT-2`. HEAD inicial de implementación y revisión: **`27f2db9430bcbc7c074472383fc8acbc142b5f89`**, baseline obligatorio. Rama anterior `recovery/f1b2-conversation-engine`; rama creada **`recovery/f1b3a-persistence`**. El árbol tracked/staged inicial estaba limpio; se conservaron los **17 documentos/parches sin versionar** preexistentes. Se leyeron AGENTS, los tres documentos de referencia y los seis documentos de F1B2/recuperación pedidos. Se inspeccionaron almacenamiento, turnos, HTTP, executor, auditoría y migraciones históricas.
++
++No se ejecutaron reset, clean ni stash. La revisión posterior autoriza sólo dos commits locales; sus SHA/árboles y validaciones se registran en F1B3A-COMMIT-VALIDATION y F1B3A-CLOSURE. No push, merge ni release. Cargo.toml/Cargo.lock permanecen idénticos al baseline. No hubo delegación a otros agentes, cambios de configuración personal ni acceso a proveedores/modelos/micrófono reales.
++
++## Archivos de la entrega
++
++| Archivo | Cambio |
++| --- | --- |
++| `src/backend/operation_journal.rs` (nuevo) | Máquina persistente, transacciones/rollback, recovery, inputs/retries, metadatos y pruebas de crash dentro de las rutas reales. |
++| `migrations/003_operation_journal.sql` (nuevo) | Cinco tablas aditivas, índices, CHECKs y triggers de identidad/transiciones/enlaces; marcador incremental idempotente. |
++| `src/backend/session_manager.rs` | Arranque transaccional, apertura privada con flock, WAL/FULL comprobados, busy_timeout, publicación rechazada si hay incertidumbre; fixtures adaptados. |
++| `src/backend/conversation_turn.rs` | Despacho registrado bajo el mutex que arbitra cancelación, con drenado y registro del resultado antes de check tardío. |
++| `src/backend/ai_service.rs` | Prepared antes de aprobación, denegación obligatoria y uso del executor con operación/turno. Conserva validación batch, parser y deduplicación existentes. |
++| `src/backend/tool_executor.rs` | Journal obligatorio en el executor del Backend; resultados/auditoría redaccionada atómicos; invocaciones heredadas reciben turnos propios. Mantiene comprobaciones de configuración/SafePath. |
++| `src/backend/http_server.rs` | Usuario/turno/input atómicos; settle de pendientes con terminal; bloqueo de regenerate con efectos en cualquier intento; consulta autenticada de operaciones; assertions del test de drenado. |
++| `src/backend/mod.rs` | Exporta el módulo nuevo; conserva wiring de Backend con almacenamiento compartido. |
++| `tests/f1b3a_persistence.rs` (nuevo) | 26 casos ordinarios y worker ignorado invocado por los padres: procesos SIGKILL, SQLite, errores, executor real privado y HTTP local. |
++| `tests/f1b1_text_startup.rs` | El fixture Qt libera su backend y espera la desaparición real del owner SQLite antes de arrancar el ejecutable. |
++| `tests/f1b2_conversation.rs` | El test de reinicio espera la liberación real de los owners HTTP anteriores antes de abrir el backend nuevo. No debilita el flock. |
++| `scripts/validate_f1b3a.py` (nuevo) | Gates exactos con XDG/TMPDIR privados, claves/proxies retirados, Cargo offline y logs persistidos; Qt opt-in. |
++| `docs/recovery/F1B3A-JOURNAL-CONTRACT.md` | Semántica normativa de persistencia, consentimiento, estados, recovery, reintentos y límites. |
++| `docs/recovery/F1B3A-RESULTS.md` | Resultados exactos, logs, matriz de crash y fallos intermedios. |
++| `docs/recovery/F1B3A-REPORT.md` | Este informe. |
++
++## Esquema y decisiones
++
++Tablas nuevas: `operation_journal`, `operation_events`, `turn_recovery`, `turn_inputs`, `recovery_migrations`. La nueva migración está dentro de la transacción de inicialización junto con los ALTER históricos; no toca el esquema de mensajes de F1B-2 ni borra sesiones. `operation_events` permite distinguir los tiempos de preparación, consentimiento, despacho y resultado. El journal enlaza cada operación a su turno/sesión y a una fila de auditoría; el resultado guarda estado y tamaño, la auditoría guarda duración. No se guardan argumentos, destinos, errores completos, documentos ni claves en los registros nuevos.
++
++Estados: **Prepared -> Authorized -> Dispatched -> Succeeded/Failed/UnknownOutcome**; Prepared -> Denied; Prepared/Authorized -> Abandoned. Terminales inmutables. Authorized registra consentimiento del caller/política existente, no un permiso definitivo de F2. Dispatched significa que el executor pudo empezar, no prueba el efecto. Failed no prueba rollback. Succeeded conserva la semántica de éxito del executor, no certifica la finalización de procesos externos.
++
++Se mantiene el punto de publicación F1B-2: sólo Turn.complete ganador publica los mensajes finales y Completed juntos. La preparación inicial ahora añade usuario/turno/input en una transacción; los resultados intermedios del journal sobreviven incluso si no se publica una respuesta completa. Los resultados tardíos se guardan en la operación original y siguen suprimidos al cancelar; no se reasignan a un turno nuevo.
++
++Al abrir: flock exclusivo de instancia, migración, recovery atómico y después servicio. Prepared/Authorized -> Abandoned; Dispatched -> UnknownOutcome; turnos pendientes -> Failed con snapshot del estado SQLite previo. Los resultados terminales y mensajes ya publicados permanecen. No hay llamadas externas en recovery ni reapertura de permisos. Registry nuevo vacío evita bloqueos perpetuos. Un recovery fallido impide servir y conserva los pendientes para otro inicio.
++
++Regenerate vincula todos sus intentos al mismo usuario: si alguno pudo ejecutar una operación, requiere solicitud nueva después de inspección manual. No se implementa replay de Operation ID. Este enlace corrige también el caso de un intento regenerado fallido cuyo usuario seguía perteneciendo al turno original.
++
++## Verificación y garantías
++
++Ejecución tras revisión: `python3 scripts/validate_f1b3a.py --qml`, exit 0, once gates; logs y resultados en `/tmp/kda-f1b3a-check-qtjt5337/`. Incluye los comandos Qt opt-in solicitados. Comandos, conteos exactos, exclusiones y matriz en [F1B3A-RESULTS](F1B3A-RESULTS.md). Los SIGKILL sólo apuntan a hijos propios, con checkpoint y wait; no a procesos del escritorio. Las operaciones externas de pruebas se limitan a archivos sintéticos privados o mocks loopback.
++
++Se verifican conservación de mensajes, integrity_check/foreign_key_check, no duplicación de efectos, ausencia de replay durante tres reinicios consecutivos, transiciones honestas, liberación de sesiones y no éxito ante fallos de escritura. Se prueban RAISE(ABORT/ROLLBACK), busy_timeout real, cuota de páginas que devuelve SQLITE_FULL, fallo diferido de COMMIT, unwind, escritura inicial/final de auditoría y recuperación fallida. Cuatro cortes cfg(test) detienen las rutas reales durante migración, commit de intención, auditoría y recuperación; diez escenarios adicionales detienen procesos hijos entre fases o dentro de transacciones físicas.
++
++El test de drenado F1B-2 conserva 202/409 mientras ejecuta, observa Dispatched sin transacción abierta y después conserva Succeeded aunque el turno sea Cancelled. No hay segunda herramienta ni respuesta final. Las regresiones originales mantienen SEC-01/02, UUID backend, secuencias, estados terminales, SSE incremental, validación de herramientas y ausencia de reintentos automáticos.
++
++## Defectos reproducidos en la revisión final
++
++1. `begin_retry_turn` aceptaba un historial que dejó de terminar en user después del precheck HTTP. Test `retry_rechecks_unanswered_input_inside_transaction`: FAIL (exit 101) antes; PASS después. Se comprueba la última fila y su role dentro de BEGIN IMMEDIATE y se usa ese ID exacto; el rechazo no inserta turno.
++2. `begin_turn` aceptaba un session_id inexistente desde ToolCtx manual y lo persistía, ejecutando un archivo privado. Test `nonexistent_session_cannot_dispatch_or_persist_untrusted_metadata`: FAIL (101) antes; PASS después. Se exige existencia de sesión dentro de la transacción inicial; cero efecto/metadatos en rechazo. No se cambia la autoridad de consentimiento.
++3. La ruta manual roja devolvía 403 sin journal. `http_manual_denial_is_persisted_and_write_failure_is_closed`: FAIL (101) antes; PASS después. Se confirma Denied/audit/evento antes de 403; fallo de persistencia devuelve 500 y cero efectos.
++4. Qt F1B1 retenía el Backend del fixture al lanzar otra instancia contra la misma DB: primer opt-in FAIL (101), UI inicial PASS, ejecutable no arrancaba por la exclusión de instancia. Se libera el backend y se espera su último owner; opt-in completo PASS. El flock no se debilita.
++
++Evidencia anterior en `/tmp/kda-f1b3a-review-rz85yxmf/` y `/tmp/kda-f1b3a-check-ni5kftf8/`. El gate final repite SEC-01/02, F1B-2 y Qt. Se añadió cobertura de usuario legacy sin Turn ID, intentos inciertos cancelados y tres reinicios; GET autenticado con sesión inexistente/inyección permanece vacío. No se halló un ciclo registry/turn/DB ni await externo bajo DB. La contención síncrona puede retrasar workers/cancelación; el contrato precisa esa limitación sin prometer latencia general de 2 s.
++
++## Riesgos y límites pendientes
++
++- **Ventana SQLite/efecto externo:** no hay exactly-once ni atomicidad compartida. UnknownOutcome puede corresponder a cero, uno o un efecto parcial. Repetir explícitamente puede duplicarlo.
++- **Almacenamiento físico:** WAL/FULL depende de VFS, OS y dispositivo. SIGKILL no certifica power loss, controladoras ni todos los SQLITE_IOERR. Un disco que impida rollback puede impedir también recuperación; el backend falla cerrado.
++- **Autoridad:** ToolCtx sigue siendo declarativo; F2 debe construir permisos centrales y consentimiento vinculado al efecto. No se amplían flags, privilegios o herramientas.
++- **Operaciones heredadas:** herramientas manuales/de voz usan turnos de invocación propios, sin cambiar la supervisión global o el pipeline de voz. Audio/auto-speak y entregas del scheduler no reciben este lifecycle. No se probaron servicios KDE/hardware reales.
++- **Visibilidad/retención:** se añade API de metadatos y timeline SQLite, no una pantalla de recuperación. API acotada a las 500 operaciones recientes; inspección más antigua requiere SQLite. No se podan operaciones ni se reconstruyen parciales. F1B-3B no comenzó.
++- **Concurrencia:** flock protege backends cooperantes, no manipulación de la base por otro proceso del mismo UID. SQLite sigue síncrono dentro de workers Tokio, con busy_timeout de 5 s por contención, que puede retrasar cancelación y no limita hardware/mutex; no existe un actor dedicado de DB nuevo.
++- **Privacidad:** nuevas auditorías redaccionadas; filas históricas y mensajes mantienen la política anterior. Metadatos de herramienta/tamaño/timing también pueden ser sensibles.
++- **Validación externa:** proveedores remotos, voz, micrófono, modelos, power loss, Plasma y montajes opt-in quedan explícitamente no ejecutados. Qt offscreen F1B1 (1) y F1B2 (3) sí pasan; no certifican Plasma.
++
++Con esos límites, **READY_FOR_REVIEW** del primer bloque F1B-3. El criterio principal se cumple: la recuperación conserva lo conocido y representa como incierto lo que no puede demostrar, sin fabricar éxito ni repetir operaciones.
+diff --git a/docs/recovery/F1B3A-RESULTS.md b/docs/recovery/F1B3A-RESULTS.md
+new file mode 100644
+index 0000000..3e89936
+--- /dev/null
++++ b/docs/recovery/F1B3A-RESULTS.md
+@@ -0,0 +1,105 @@
++# F1B-3A — Resultados verificables
++
++Fecha: 2026-10-10. Baseline `27f2db9430bcbc7c074472383fc8acbc142b5f89`; rama `recovery/f1b3a-persistence`. Estado **IMPLEMENTED / READY_FOR_REVIEW** dentro del [contrato](F1B3A-JOURNAL-CONTRACT.md). Consolidación local documentada por separado en F1B3A-CLOSURE; sin push/merge/release.
++
++## Ejecución final
++
++`python3 scripts/validate_f1b3a.py --qml`: **exit 0**, once gates aprobados tras las tres correcciones de producción y teardown Qt. Evidencia `/tmp/kda-f1b3a-check-qtjt5337/`: results.json, logs y source-manifest.json. La ejecución previa de implementación cacguus5 pasó nueve gates sin Qt (22 tests); gyo5tr0d pasó once (25 tests) antes de corregir la denegación manual. Ninguna sustituye los 26 tests finales.
++
++XDG_CONFIG_HOME/DATA_HOME/CACHE_HOME y TMPDIR privados; umask 077, claves/proxies retirados, Cargo offline. Datos temporales recogidos, logs conservados. Fixtures SQLite 0700, archivos sintéticos y mocks loopback; no sandbox general de egress ni hardware/proveedores reales.
++
++| Comando exacto | Exit | PASS / FAIL / IGNORED / FILTERED (runner padre) | Tiempo | Log |
++| --- | --- | --- | --- | --- |
++| `cargo fmt --check` | 0 | PASS | 0.7 s | `fmt.log` |
++| `cargo check --locked --all-targets` | 0 | PASS | 11.339 s | `check.log` |
++| `cargo clippy --locked --all-targets -- -D warnings` | 0 | PASS | 12.314 s | `clippy.log` |
++| `cargo test --locked --test f1a_security` | 0 | test result: ok. 19 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.11s | 41.529 s | `f1a-security.log` |
++| `cargo test --locked --test f1b1_text_startup -- --test-threads=1` | 0 | test result: ok. 13 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.84s | 7.524 s | `f1b1.log` |
++| `cargo test --locked --test f1b2_conversation -- --test-threads=1` | 0 | test result: ok. 20 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 2.01s | 9.658 s | `f1b2-conversation.log` |
++| `cargo test --locked --test f1b3a_persistence -- --test-threads=1` | 0 | test result: ok. 26 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 5.95s | 10.177 s | `f1b3a-persistence.log` |
++| `cargo test --locked --lib -- --test-threads=1 --skip backend::wakeword_ml::tests::download_and_extract_onnx_runtime --skip backend::tool_executor::tests::show_image_huge_url_is_rejected_before_download` | 0 | test result: ok. 156 passed; 0 failed; 1 ignored; 0 measured; 2 filtered out; finished in 4.01s | 33.274 s | `unit-safe.log` |
++| `cargo test --locked --test app_paths` | 0 | test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s | 2.347 s | `app-paths.log` |
++| `cargo test --locked --test f1b1_text_startup qml_offscreen -- --ignored --nocapture` | 0 | test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 2.73s | 3.127 s | `qml-offscreen.log` |
++| `cargo test --locked --test f1b2_conversation qml_ -- --ignored --nocapture --test-threads=1` | 0 | test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 6.72s | 7.119 s | `qml-f1b2-review.log` |
++
++Los runners hijos no se suman otra vez. El worker ignored del target nuevo es invocado explícitamente por los diez tests padres de SIGKILL; el worker unitario también es invocado por sus cuatro padres. No son pruebas funcionales pendientes ni PASS individuales: los padres comprueban checkpoint, señal 9, wait y recuperación. Los seis nuevos unitarios ordinarios están incluidos en los 156 unitarios seguros; no se suman por separado.
++
++## Matriz de interrupción y recuperación
++
++Todos los siguientes escenarios: **PASS**, SIGKILL exclusivamente sobre el hijo creado por el test. No se mata por nombre, PID buscado ni process group. Cada padre vuelve a abrir la misma base tres veces, comprueba integridad, conservación de mensajes, estado persistido y ausencia de replay. Los fixtures de transacción no invocan herramientas del sistema.
++
++| Corte solicitado | Test/evidencia | Resultado recuperado |
++| --- | --- | --- |
++| 1. Antes de guardar intención | `crash_before_intent` | Ninguna operación; turno Failed; mensaje anterior completo conservado; cero archivo externo. |
++| 2. Intención guardada, antes de despachar | `crash_after_intent`, `crash_after_authorization` | Prepared/Authorized -> Abandoned; cero efecto; permisos no reanudados. |
++| 3. Despacho, antes de resultado | `crash_after_dispatch` | Dispatched -> UnknownOutcome; archivo sintético mantiene exactamente una escritura; cero replay. |
++| 4. Resultado guardado, antes de finalizar turno | `crash_after_result_before_turn_finalization` | Succeeded intacto, turno Failed; no assistant final fabricado; efecto intacto. |
++| 5. Transacción SQLite | `crash_during_sqlite_transaction`, unitario `sigkill_before_journal_commit` | Marcador/mensaje sin COMMIT revertidos; el corte en atomic real revierte operación+anchor/evento juntos; el Prepared/Authorized confirmado se abandona. |
++| 6. Cancelación | `crash_during_cancellation` | Cancelling persistido -> Failed; operación despachada -> UnknownOutcome; efecto conservado una vez. |
++| 7. Auditoría | `crash_during_audit_transaction`, unitario `sigkill_during_actual_audit_write` | Success de auditoría sin COMMIT revertido, Dispatched -> UnknownOutcome; no falso resultado conocido. |
++| 8. Recuperación posterior | Unitario `sigkill_during_actual_recovery` | Corte después de cambiar operaciones, antes de finalizar turnos/COMMIT: permanece Dispatched al abrir SQLite crudo; siguiente recovery confirma UnknownOutcome una vez. |
++| Migración | Unitario `sigkill_during_actual_migration` | DDL dentro de migración real sin COMMIT desaparece; siguiente apertura instala esquema/version=3 una vez; mensaje anterior intacto. |
++| Despacho sin efecto observable | `dispatched_marker_without_an_effect_is_still_unknown` | UnknownOutcome también con cero archivo: el marcador no demuestra ejecución. |
++| Error de executor registrado | `persisted_failure_survives_without_claiming_effect_rollback` | Failed intacto tras crash; fixture conserva su efecto previo para demostrar que Failed no significa rollback. |
++
++Son diez procesos de crash de integración y cuatro de las rutas unitarias reales por ejecución de los targets finales. Hooks de migración/audit/commit/recovery se compilan sólo con cfg(test) en el ejecutable de unitarios y se arman sólo dentro del hijo. El worker de integración opera los métodos de almacenamiento reales entre fases y usa transacciones SQLite físicas para los cortes internos genéricos. El executor controlado de esos cortes escribe un archivo privado; no pretende certificar syscalls de KDE. El executor real/SafePath se ejerce separadamente en los casos de errores y HTTP.
++
++## Inyección de errores y resultados observados
++
++| Caso | Evidencia y conclusión |
++| --- | --- |
++| INSERT de operación o anchor fallido | `insert_and_dispatch_failures_never_execute`: RAISE(ABORT) devuelve error, cero archivo y conexión reutilizable. |
++| Marcador de despacho fallido | Mismo test con RAISE(ROLLBACK): nunca sondea el executor, cero efecto. |
++| Actualización de resultado o audit final fallida | `result_or_audit_failure_never_reports_success`: efecto privado ocurre, retorno Err; estado UnknownOutcome, success audit false y mensajes anteriores intactos. |
++| Error de disco simulado | `simulated_disk_full_fails_closed_and_rolls_back`: trigger de escritura fallida revierte anchor+intención; no dispatch; al retirar el fallo la misma conexión ejecuta correctamente. El texto del trigger es una simulación, no un SQLITE_IOERR físico. |
++| SQLITE_FULL real aislado | Unitario `full_and_commit_errors_rollback_and_release_connection`: max_page_count privado + zeroblob excede cuota y devuelve `ErrorCode::DiskFull`; rollback/autocommit comprobados. No se llena un disco real. |
++| COMMIT fallido | Mismo unitario: FK diferida falla en COMMIT; cero fila child, autocommit y siguiente transacción válida. Publicación F1B-2 también conserva sus pruebas de RELEASE/RAISE(ROLLBACK). |
++| Unwind | `transaction_unwind_rolls_back_before_supervisor_continues`: panic controlado recogido, cero facts y conexión fuera de transacción. |
++| SQLITE_BUSY real | `busy_database_times_out_without_effect_and_recovers`: writer externo mantiene BEGIN IMMEDIATE; timeout ~5 s, cero efecto; después de ROLLBACK la invocación funciona. |
++| Recovery fallido | `recovery_error_rolls_back_all_changes_and_next_start_can_recover`: trigger en snapshot hace fallar apertura; estado/evento Unknown sin confirmar revierten; siguiente apertura recupera. |
++| Reinicios repetidos | Todos los padres de SIGKILL reabren tres veces; no se duplica UnknownOutcome, snapshot ni marcador de migración y no se tocan targets externos. |
++| Instancia duplicada | `second_backend_cannot_recover_live_operations`: segunda apertura falla con flock; después de cerrar la primera, abre correctamente. |
++| Migración legacy | `legacy_migration_preserves_messages_and_explicit_storage_settings`: conserva mensajes/NULL turn_id y un único marcador en tres aperturas; WAL activo. Apertura productiva verifica FULL=2. |
++| Consentimiento/metadatos | `privacy_denials_transitions_and_schema_are_enforced`: Denied sin efecto, UUID backend, transiciones terminales rechazadas, enlaces inválidos rechazados; argumentos `[redacted]`, sin contenido/destino en API. |
++| Cancel antes del despacho | `cancellation_before_dispatch_is_persisted_as_abandoned`: cero archivo; Authorized -> Abandoned durante settle. |
++| Intentos regenerate | `retries_keep_the_original_user_link_and_cannot_hide_effects`: efecto incierto de retry impide otro regenerate aunque el usuario conserve Turn ID original; nuevo mensaje explícito tiene identidad independiente. |
++
++## Integración HTTP y F1B-2
++
++- `http_success_and_authenticated_journal_match_turn`: SSE real del router + proveedor local; una creación sintética, dos requests LLM, journal Succeeded en el Turn ID del stream, cuatro mensajes publicados; GET sin bearer 401 y GET autorizado devuelve sólo metadatos. Reinicio conserva el resultado y no duplica el archivo.
++- `http_result_write_failure_has_no_tool_success_or_done`: creación ya ocurrió, trigger bloquea su registro final; sólo un request LLM, SSE error sin tool_result/done, journal UnknownOutcome, sólo usuario persistido; reinicio no repite efectos.
++- Test existente `f1b2_cancel_dispatched_tool_drains_effect_and_blocks_next_tool`, reforzado: antes de liberar la barrera hay Dispatched confirmado y autocommit; 202/409 conservados; después Succeeded ligado al turno cancelado, una auditoría, cero segunda herramienta/assistant/done.
++- Los 20 tests F1B2 ordinarios pasan, incluidos UUID/SSE/terminales, cancelación antes/durante red/aprobación, sesiones paralelas, A tardío, malformed batch, timeout, 429 sin retry, complete/regenerate y migración/publicación. Los 19 SEC-01/02 y 13 arranque/texto también pasan.
++
++## Exclusiones explícitas
++
++- F1A: 1 ignored de montajes opt-in, **NOT_TESTED**.
++- F1B1: 1 ignored en selección ordinaria; opt-in Qt ejecutado aparte: **1 PASS, 0 FAIL, 0 IGNORED, 13 FILTERED**.
++- F1B2: 3 ignored en selección ordinaria; opt-in Qt ejecutado aparte: **3 PASS, 0 FAIL, 0 IGNORED, 20 FILTERED**. No se cambió QML; se verifica el harness offscreen, no Plasma.
++- Unitarios: 2 filtered, `download_and_extract_onnx_runtime` y `show_image_huge_url_is_rejected_before_download`, **NOT_TESTED** por red/descarga heredada. Los tests Piper heredados incluidos son lazy y no ejercitan voz real.
++- Proveedores reales, micrófono, audio/TTS, modelos, herramientas del escritorio, Plasma Wayland, pérdidas de alimentación y fallos físicos/VFS: **NOT_TESTED**.
++- No se ejecutó `cargo test --all-targets` indiscriminado, para no activar smokes externos. `check/clippy --all-targets` sí compilaron esos targets.
++
++## Fallos intermedios y correcciones
++
++No se presentan intentos incompletos como validación final:
++
++1. Check inicial: E0716 por temporal de Message en begin_turn, corregido con binding de usuario y ubicación posterior al build del contexto. Compilación del fixture inicial: E0283 por `.into()` redundante en create_session, corregido. Una assertion nueva usó `id` fuera de scope (E0425); se corrigió a `turn.id`.
++2. `/tmp/kda-f1b3a-check-08iemsm8`: fmt/check exit 0, clippy exit 101 por let_and_return en executor; los siguientes gates no corrieron. Se retornó directamente el match.
++3. `/tmp/kda-f1b3a-check-ofimz1xe`: fmt/check/clippy/F1A/F1B1 exit 0; F1B2 exit 101 (19 passed, 1 failed, 3 ignored). El fixture de reinicio retenía owners HTTP anteriores después de abortar serve; flock detectó backend aún vivo. Ahora espera la desaparición real del Arc anterior antes de reabrir, manteniendo el bloqueo de instancia. Gates posteriores de ese intento no ejecutados.
++4. `/tmp/kda-f1b3a-check-cdsajci7`: gates hasta F1B2 aprobados; F1B3A exit 101 (20 passed, 2 failed, 1 ignored). Los dos fixtures HTTP nuevos repetían el mismo error de teardown en su reapertura; ahora cierran el client y esperan la liberación del DB owner. Unitarios/app_paths de ese intento no ejecutados.
++5. La ejecución de implementación `/tmp/kda-f1b3a-check-cacguus5` aprueba los nueve gates sobre el código final, incluido el test de exclusión de segunda instancia y los tres fixtures de reinicio corregidos. Los resultados unitarios/intermedios focales anteriores se usaron para desarrollo, no sustituyen esta ejecución completa.
++
++
++## Revisión final: antes y después
++
++- Dos regresiones nuevas sobre el código anterior: `retry_rechecks_unanswered_input_inside_transaction` y `nonexistent_session_cannot_dispatch_or_persist_untrusted_metadata`, cada una **0 PASS, 1 FAIL, 0 IGNORED, 24 FILTERED, exit 101**. Logs `*-before.log` y regressions-before.json en `/tmp/kda-f1b3a-review-rz85yxmf/`. La primera aceptaba trailing tool; la segunda ejecutaba y persistía una sesión arbitraria. Correcciones limitadas a validar sesión y última fila/role dentro de la transacción de inicio/retry. Después: ambos **PASS** en la selección completa de 26.
++- Primera batería de revisión `/tmp/kda-f1b3a-check-ni5kftf8/`: nueve gates Rust **PASS**, 24 tests F1B3A **PASS**; Qt F1B1 **0 PASS, 1 FAIL, 0 IGNORED, 13 FILTERED, exit 101** al lanzar el ejecutable con el Backend del fixture aún vivo. Qt F1B2 **NOT_TESTED** en ese intento, porque el script paró en el fallo. Teardown corregido liberando el owner; segunda batería completa gyo5tr0d **PASS** con ambos opt-ins.
++- Nueva cobertura `legacy_user_retry_remains_blocked_after_repeated_restarts`: usuario legacy NULL turn_id vinculado a un retry despachado/cancelado sigue bloqueado tras tres aperturas; UnknownOutcome y mensajes intactos. **PASS**.
++- Los dos fixtures HTTP ahora consultan sesión inexistente e inyección SQL codificada: HTTP 200 y lista vacía, sin ampliar acceso; bearer ausente 401, contenido privado ausente. **PASS**. El límite se inspecciona en el clamp 1..500 del método SQL parametrizado; no se afirma una prueba de carga con 500 filas.
++
++- Tercera regresión de producción `http_manual_denial_is_persisted_and_write_failure_is_closed`: antes **0 PASS, 1 FAIL, 0 IGNORED, 26 FILTERED, exit 101** (journal vacío tras 403). Log `http_manual_denial_is_persisted_and_write_failure_is_closed-before.log` en la evidencia de revisión. Después **PASS**: Denied persistido antes de 403; trigger que impide Denied produce HTTP 500, no más eventos Dispatched ni efectos. La batería final qtjt5337 repite todos los gates y opt-ins.
++
++## Límites de la evidencia
++
++WAL/FULL y commit confirmado no equivalen a exactly-once externo ni durabilidad universal ante pérdida física. La ventana entre marcador y resultado se conserva como UnknownOutcome. Failed puede conservar efectos parciales; Succeeded representa la semántica del executor, no verificación independiente. ToolCtx sigue sin ser una capacidad; F2 pendiente. La consulta nueva es API/SQLite, sin pantalla de recuperación ni retención/contexto de F1B-3B. El contrato detalla estos límites y la política de solicitud manual nueva después de inspección.
+diff --git a/migrations/003_operation_journal.sql b/migrations/003_operation_journal.sql
+new file mode 100644
+index 0000000..c0f5840
+--- /dev/null
++++ b/migrations/003_operation_journal.sql
+@@ -0,0 +1,62 @@
++-- Additive migration; executed inside the startup transaction. Old messages unchanged.
++CREATE TABLE IF NOT EXISTS recovery_migrations (
++    version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL
++);
++CREATE TABLE IF NOT EXISTS operation_journal (
++    id TEXT PRIMARY KEY NOT NULL,
++    turn_id TEXT NOT NULL REFERENCES conversation_turns(id),
++    session_id TEXT,
++    kind TEXT NOT NULL CHECK(kind='tool'),
++    tool TEXT NOT NULL,
++    state TEXT NOT NULL CHECK(state IN ('prepared','authorized','dispatched','succeeded','failed','denied','unknown_outcome','abandoned')),
++    prepared_at TEXT NOT NULL,
++    updated_at TEXT NOT NULL,
++    permission TEXT NOT NULL CHECK(permission IN ('green','yellow','red')),
++    consent TEXT NOT NULL CHECK(consent IN ('pending','auto','approved','denied')),
++    audit_id INTEGER NOT NULL REFERENCES tool_audit(id),
++    result_bytes INTEGER CHECK(result_bytes IS NULL OR result_bytes>=0),
++    CHECK(state != 'prepared' OR consent='pending'),
++    CHECK(state NOT IN ('authorized','dispatched','succeeded','failed','unknown_outcome') OR consent IN ('auto','approved')),
++    CHECK(state != 'denied' OR consent='denied')
++);
++CREATE INDEX IF NOT EXISTS idx_operations_turn ON operation_journal(turn_id);
++CREATE INDEX IF NOT EXISTS idx_operations_session ON operation_journal(session_id,prepared_at);
++CREATE INDEX IF NOT EXISTS idx_operations_pending ON operation_journal(state)
++    WHERE state IN ('prepared','authorized','dispatched');
++CREATE TABLE IF NOT EXISTS operation_events (
++    id INTEGER PRIMARY KEY,
++    operation_id TEXT NOT NULL REFERENCES operation_journal(id),
++    state TEXT NOT NULL,
++    timestamp TEXT NOT NULL,
++    audit_id INTEGER NOT NULL REFERENCES tool_audit(id)
++);
++CREATE INDEX IF NOT EXISTS idx_operation_events ON operation_events(operation_id,id);
++CREATE TABLE IF NOT EXISTS turn_recovery (
++    turn_id TEXT PRIMARY KEY REFERENCES conversation_turns(id),
++    previous_state TEXT NOT NULL,
++    recovered_at TEXT NOT NULL
++);
++CREATE TABLE IF NOT EXISTS turn_inputs (
++    turn_id TEXT PRIMARY KEY REFERENCES conversation_turns(id),
++    user_message_id INTEGER NOT NULL REFERENCES messages(id)
++);
++CREATE INDEX IF NOT EXISTS idx_turn_inputs_message ON turn_inputs(user_message_id);
++-- Legacy schema does not enable FK enforcement globally. New records enforce
++-- ownership and linkage locally without changing old deletion behavior.
++CREATE TRIGGER IF NOT EXISTS operation_owner BEFORE INSERT ON operation_journal
++WHEN NOT EXISTS(SELECT 1 FROM conversation_turns WHERE id=NEW.turn_id AND session_id IS NEW.session_id)
++ OR NOT EXISTS(SELECT 1 FROM tool_audit WHERE id=NEW.audit_id)
++BEGIN SELECT RAISE(ABORT,'invalid_operation_owner'); END;
++CREATE TRIGGER IF NOT EXISTS operation_transition BEFORE UPDATE OF state ON operation_journal
++WHEN NOT ((OLD.state='prepared' AND NEW.state IN ('authorized','denied','abandoned'))
++ OR (OLD.state='authorized' AND NEW.state IN ('dispatched','abandoned'))
++ OR (OLD.state='dispatched' AND NEW.state IN ('succeeded','failed','unknown_outcome')))
++BEGIN SELECT RAISE(ABORT,'invalid_operation_transition'); END;
++CREATE TRIGGER IF NOT EXISTS operation_event_link BEFORE INSERT ON operation_events
++WHEN NOT EXISTS(SELECT 1 FROM operation_journal WHERE id=NEW.operation_id AND state=NEW.state AND audit_id=NEW.audit_id)
++ OR NOT EXISTS(SELECT 1 FROM tool_audit WHERE id=NEW.audit_id)
++BEGIN SELECT RAISE(ABORT,'invalid_operation_event'); END;
++INSERT OR IGNORE INTO recovery_migrations VALUES(3,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
++
++CREATE TRIGGER IF NOT EXISTS operation_identity BEFORE UPDATE OF id,turn_id,session_id,kind,tool,prepared_at,permission ON operation_journal
++BEGIN SELECT RAISE(ABORT,'operation_identity_immutable'); END;
+diff --git a/scripts/validate_f1b3a.py b/scripts/validate_f1b3a.py
+new file mode 100644
+index 0000000..1c20c76
+--- /dev/null
++++ b/scripts/validate_f1b3a.py
+@@ -0,0 +1,70 @@
++#!/usr/bin/env python3
++"""Validación F1B3A con XDG/SQLite privados y mocks loopback; Qt opt-in."""
++import argparse
++import json
++import os
++from pathlib import Path
++import shutil
++import subprocess
++import tempfile
++import time
++import sys
++sys.dont_write_bytecode = True
++from validate_f1a import EXTERNAL_TESTS
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--qml", action="store_true", help="Flujo QML y ejecutable offscreen (puerto 8765 libre); no Plasma.")
++    args = parser.parse_args()
++    repo = Path(__file__).resolve().parent.parent
++    os.umask(0o077)
++    evidence = Path(tempfile.mkdtemp(prefix="kda-f1b3a-check-"))
++    env = os.environ.copy()
++    for key in list(env):
++        if key.endswith("_API_KEY") or key.upper().endswith("_PROXY") or key in ["KDA_F1B1_CHILD", "KDA_F1B3A_CHILD"]:
++            env.pop(key)
++    for key, directory in [("XDG_CONFIG_HOME", "config"), ("XDG_CACHE_HOME", "cache"), ("XDG_DATA_HOME", "data"), ("TMPDIR", "tmp")]:
++        path = evidence / directory
++        path.mkdir(mode=0o700)
++        env[key] = str(path)
++    env["CARGO_NET_OFFLINE"] = "true"
++    skips = [argument for name in EXTERNAL_TESTS for argument in ["--skip", name]]
++    commands = [
++        ("fmt", ["cargo", "fmt", "--check"]),
++        ("check", ["cargo", "check", "--locked", "--all-targets"]),
++        ("clippy", ["cargo", "clippy", "--locked", "--all-targets", "--", "-D", "warnings"]),
++        ("f1a-security", ["cargo", "test", "--locked", "--test", "f1a_security"]),
++        ("f1b1", ["cargo", "test", "--locked", "--test", "f1b1_text_startup", "--", "--test-threads=1"]),
++        ("f1b2-conversation", ["cargo", "test", "--locked", "--test", "f1b2_conversation", "--", "--test-threads=1"]),
++        ("f1b3a-persistence", ["cargo", "test", "--locked", "--test", "f1b3a_persistence", "--", "--test-threads=1"]),
++        ("unit-safe", ["cargo", "test", "--locked", "--lib", "--", "--test-threads=1"] + skips),
++        ("app-paths", ["cargo", "test", "--locked", "--test", "app_paths"]),
++    ]
++    if args.qml:
++        commands.append(("qml-offscreen", ["cargo", "test", "--locked", "--test", "f1b1_text_startup", "qml_offscreen", "--", "--ignored", "--nocapture"]))
++        commands.append(("qml-f1b2-review", ["cargo", "test", "--locked", "--test", "f1b2_conversation", "qml_", "--", "--ignored", "--nocapture", "--test-threads=1"]))
++    results = {"base": "27f2db9430bcbc7c074472383fc8acbc142b5f89", "commands": [], "excluded": EXTERNAL_TESTS, "qml_offscreen": args.qml, "plasma_wayland": "NOT_TESTED"}
++    print(f"Evidencia privada: {evidence}", flush=True)
++    print("Sin modelos ni proveedores remotos. Unitarios excluyen sólo los 2 tests externos F1A. QML es opt-in.", flush=True)
++    try:
++        for name, command in commands:
++            start = time.monotonic()
++            log = evidence / f"{name}.log"
++            with log.open("w") as output:
++                result = subprocess.run(command, cwd=repo, env=env, stdout=output, stderr=subprocess.STDOUT)
++            results["commands"].append({"name": name, "command": command, "exit": result.returncode, "seconds": round(time.monotonic()-start, 3)})
++            (evidence / "results.json").write_text(json.dumps(results, indent=2) + "\n")
++            print(f"{name}: exit {result.returncode}; log {log}", flush=True)
++            if result.returncode:
++                print(log.read_text(), flush=True)
++                return 1
++        print("PASS de la selección F1B3A; Plasma Wayland y voz real NOT_TESTED.", flush=True)
++        return 0
++    finally:
++        for directory in ["tmp", "config", "cache", "data"]:
++            shutil.rmtree(evidence / directory)
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/src/backend/ai_service.rs b/src/backend/ai_service.rs
+index 3eeccec..0c58d75 100644
+--- a/src/backend/ai_service.rs
++++ b/src/backend/ai_service.rs
+@@ -389,6 +389,9 @@ impl AiService {
+                             new_messages.push(tool_msg);
+                             continue;
+                         }
++                        let operation = if let Some(turn) = &turn {
++                            Some(tools_exec.prepare_for_turn(&turn.id,tc)?)
++                        } else { None };
+                         // F4-1: puerta de confirmación para 🟡/🔴.
+                         let level = crate::backend::tool_registry::permission(&tc.name);
+                         let need_confirm = match level {
+@@ -402,7 +405,11 @@ impl AiService {
+                                 activity.tool(&tc.id, &tc.name, "denied");
+                                 // Voz manos-libres: sin UI que confirme, denegar al
+                                 // momento (las 🟡 ya van en auto por su política).
+-                                tools_exec.record_denial(tc, session_id.clone());
++                                if let Some(operation) = &operation {
++                                    tools_exec.journal_state(operation,crate::backend::operation_journal::OperationState::Denied,"denied",None)?;
++                                } else {
++                                    tools_exec.record_denial(tc, session_id.clone())?;
++                                }
+                                 let denial = crate::models::ToolResult::error(
+                                     tc.id.clone(),
+                                     "Acción sensible denegada en modo voz: requiere confirmación en el chat.",
+@@ -450,7 +457,11 @@ impl AiService {
+                                 decided = "approved";
+                             } else {
+                                 activity.tool(&tc.id, &tc.name, "denied");
+-                                tools_exec.record_denial(tc, session_id.clone());
++                                if let Some(operation) = &operation {
++                                    tools_exec.journal_state(operation,crate::backend::operation_journal::OperationState::Denied,"denied",None)?;
++                                } else {
++                                    tools_exec.record_denial(tc, session_id.clone())?;
++                                }
+                                 let denial = crate::models::ToolResult::error(
+                                     tc.id.clone(),
+                                     "El usuario denegó esta acción. Continúa sin ella o propone una alternativa.",
+@@ -480,11 +491,10 @@ impl AiService {
+                             turn.check()?;
+                         }
+                         activity.tool(&tc.id, &tc.name, "start");
+-                        let execution = tools_exec.execute(tc, &ctx);
+-                        let result = if let Some(turn) = &turn {
+-                            turn.dispatch(execution).await?
++                        let result = if let (Some(turn),Some(operation)) = (&turn,&operation) {
++                            tools_exec.execute_for_turn(tc,&ctx,turn,operation).await
+                         } else {
+-                            execution.await
++                            tools_exec.execute(tc,&ctx).await
+                         }?;
+                         activity.tool(
+                             &tc.id,
+diff --git a/src/backend/conversation_turn.rs b/src/backend/conversation_turn.rs
+index f4bc409..768d3b0 100644
+--- a/src/backend/conversation_turn.rs
++++ b/src/backend/conversation_turn.rs
+@@ -107,6 +107,26 @@ impl Turn {
+         self.check()?;
+         Ok(result)
+     }
++    /// Persist the dispatch marker under the same lock that arbitrates cancellation.
++    /// The callback is synchronous; no DB lock is acquired before the turn lock.
++    pub async fn dispatch_recorded<T>(
++        &self,
++        persist: impl FnOnce() -> Result<()>,
++        future: impl Future<Output = Result<T>>,
++    ) -> Result<T> {
++        {
++            let inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
++            anyhow::ensure!(
++                inner.state == TurnState::Running,
++                "turn_cancelled: no dispatch"
++            );
++            persist()?;
++        }
++        // This future owns result persistence and must drain after dispatch.
++        let result = future.await;
++        self.check()?;
++        result
++    }
+     pub async fn cancellation(&self) {
+         let mut changes = self.changes.subscribe();
+         loop {
+diff --git a/src/backend/http_server.rs b/src/backend/http_server.rs
+index 3d38876..5602282 100644
+--- a/src/backend/http_server.rs
++++ b/src/backend/http_server.rs
+@@ -185,6 +185,7 @@ pub fn router(state: AppState) -> Router {
+         .route("/api/tools/execute", post(execute_tool_manual))
+         .route("/api/tools/approve", post(approve_tool))
+         .route("/api/tools/audit", get(list_tool_audit))
++        .route("/api/tools/operations", get(list_operations))
+         .route(
+             "/api/memory/facts",
+             get(list_facts).post(upsert_fact).delete(delete_fact),
+@@ -933,7 +934,24 @@ async fn execute_tool_manual(
+             Json(serde_json::json!({ "error": format!("herramienta desconocida: {name}") })),
+         );
+     }
++    let session_id = body
++        .session_id
++        .as_deref()
++        .map(str::trim)
++        .filter(|s| !s.is_empty())
++        .map(str::to_string);
+     if tool_registry::permission(name) == tool_registry::Permission::Red {
++        let denied = crate::models::ToolCall {
++            id: format!("manual-{}", uuid::Uuid::new_v4()),
++            name: name.to_string(),
++            arguments: Default::default(),
++        };
++        if let Err(error) = state.tools.record_denial(&denied, session_id.clone()) {
++            return (
++                StatusCode::INTERNAL_SERVER_ERROR,
++                Json(serde_json::json!({"ok":false,"error":error.to_string()})),
++            );
++        }
+         return (
+             StatusCode::FORBIDDEN,
+             Json(serde_json::json!({
+@@ -947,12 +965,6 @@ async fn execute_tool_manual(
+         serde_json::Value::String(s) => serde_json::from_str(s).unwrap_or_default(),
+         _ => Default::default(),
+     };
+-    let session_id = body
+-        .session_id
+-        .as_deref()
+-        .map(str::trim)
+-        .filter(|s| !s.is_empty())
+-        .map(str::to_string);
+     let tool_call = crate::models::ToolCall {
+         id: format!("manual-{}", uuid::Uuid::new_v4()),
+         name: name.to_string(),
+@@ -1035,7 +1047,32 @@ fn default_audit_limit() -> i64 {
+     50
+ }
+ 
+-/// Historial de herramientas ejecutadas (F4-3).
++/// Metadata for recoverable operations; protected by the existing IPC middleware.
++#[derive(Deserialize)]
++struct OperationQuery {
++    session_id: Option<String>,
++    #[serde(default = "default_audit_limit")]
++    limit: i64,
++}
++async fn list_operations(
++    State(state): State<AppState>,
++    Query(query): Query<OperationQuery>,
++) -> Response {
++    match state
++        .sessions
++        .lock()
++        .unwrap_or_else(|e| e.into_inner())
++        .list_operations(query.session_id.as_deref(), query.limit)
++    {
++        Ok(records) => Json(records).into_response(),
++        Err(error) => (
++            StatusCode::INTERNAL_SERVER_ERROR,
++            Json(serde_json::json!({"error":error.to_string()})),
++        )
++            .into_response(),
++    }
++}
++
+ async fn list_tool_audit(
+     State(state): State<AppState>,
+     Query(q): Query<ToolAuditQuery>,
+@@ -1468,8 +1505,8 @@ fn start_turn(
+                 .map_err(|_| anyhow::anyhow!("client_disconnected"))?;
+             {
+                 let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+-                sessions.create_turn(&owned.id, owned.session_id.as_deref())?;
+                 if regenerate {
++                    anyhow::ensure!(sessions.regeneration_is_safe(req.session_id.as_deref().unwrap_or_default())?,"regeneration_requires_new_message: inspecciona efectos anteriores y envía un mensaje nuevo");
+                     let history =
+                         sessions.get_messages(req.session_id.as_deref().unwrap_or_default())?;
+                     // Regeneration never replays tools which may already have effects.
+@@ -1487,11 +1524,21 @@ fn start_turn(
+             if regenerate {
+                 messages.pop();
+             } // The existing unanswered user is already in history.
+-            if !regenerate {
+-                if let Some(sid) = &owned.session_id {
+-                    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
+-                    sessions.add_turn_message(sid, &owned.id, &Message::user(&req.message))?;
+-                    maybe_auto_title(&sessions, sid, &req.message);
++            {
++                let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
++                let user = Message::user(&req.message);
++                if regenerate {
++                    sessions.begin_retry_turn(
++                        &owned.id,
++                        owned.session_id.as_deref().unwrap_or_default(),
++                    )?;
++                } else {
++                    sessions.begin_turn(&owned.id, owned.session_id.as_deref(), Some(&user))?;
++                }
++                if !regenerate {
++                    if let Some(sid) = &owned.session_id {
++                        maybe_auto_title(&sessions, sid, &req.message);
++                    }
+                 }
+             }
+             owned.check()?;
+@@ -1626,7 +1673,7 @@ fn start_turn(
+                 .sessions
+                 .lock()
+                 .unwrap_or_else(|e| e.into_inner())
+-                .finish_turn(&owned.id, status)
++                .settle_turn(&owned.id, status)
+             {
+                 log::error!("turn persistence: {error}");
+             }
+@@ -2131,6 +2178,16 @@ mod tests {
+         let audit = state.sessions.lock().unwrap().list_tool_audit(10).unwrap();
+         assert_eq!(audit.len(), 1);
+         assert!(audit[0].success);
++        let operations = state
++            .sessions
++            .lock()
++            .unwrap()
++            .list_operations(Some(&sid), 10)
++            .unwrap();
++        assert_eq!(operations.len(), 1);
++        assert_eq!(operations[0].state, "succeeded");
++        assert_eq!(operations[0].turn_id, turn.id);
++
+         assert_eq!(
+             state
+                 .sessions
+diff --git a/src/backend/mod.rs b/src/backend/mod.rs
+index 4d9af4c..374832e 100644
+--- a/src/backend/mod.rs
++++ b/src/backend/mod.rs
+@@ -15,6 +15,7 @@ pub mod hotword;
+ pub mod http_server;
+ pub mod kde_integration;
+ pub mod model_downloader;
++pub mod operation_journal;
+ pub(crate) mod private_files;
+ mod safe_fs;
+ pub mod session_manager;
+diff --git a/src/backend/operation_journal.rs b/src/backend/operation_journal.rs
+new file mode 100644
+index 0000000..dd07e52
+--- /dev/null
++++ b/src/backend/operation_journal.rs
+@@ -0,0 +1,645 @@
++//! Write-ahead intent and conservative recovery. No arguments, paths or output text.
++use anyhow::{ensure, Context, Result};
++use chrono::Utc;
++use rusqlite::{params, Connection};
++use serde::Serialize;
++
++use super::session_manager::SessionManager;
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
++#[serde(rename_all = "snake_case")]
++pub enum OperationState {
++    Prepared,
++    Authorized,
++    Dispatched,
++    Succeeded,
++    Failed,
++    Denied,
++    UnknownOutcome,
++    Abandoned,
++}
++impl OperationState {
++    pub fn as_str(self) -> &'static str {
++        match self {
++            Self::Prepared => "prepared",
++            Self::Authorized => "authorized",
++            Self::Dispatched => "dispatched",
++            Self::Succeeded => "succeeded",
++            Self::Failed => "failed",
++            Self::Denied => "denied",
++            Self::UnknownOutcome => "unknown_outcome",
++            Self::Abandoned => "abandoned",
++        }
++    }
++}
++
++#[derive(Debug, Clone, Serialize)]
++pub struct Operation {
++    pub id: String,
++    pub turn_id: String,
++    pub session_id: Option<String>,
++    pub kind: String,
++    pub tool: String,
++    pub state: String,
++    pub prepared_at: String,
++    pub updated_at: String,
++    pub consent: String,
++    pub audit_id: i64,
++    pub result_bytes: Option<i64>,
++}
++
++/// Own the outer transaction, including COMMIT errors and automatic SQLite rollback.
++pub(crate) fn atomic<T>(conn: &Connection, work: impl FnOnce() -> Result<T>) -> Result<T> {
++    ensure!(conn.is_autocommit(), "journal_transaction_already_open");
++    conn.execute_batch("BEGIN IMMEDIATE")?;
++    struct RollbackOnUnwind<'a>(&'a Connection);
++    impl Drop for RollbackOnUnwind<'_> {
++        fn drop(&mut self) {
++            if !self.0.is_autocommit() {
++                if let Err(error) = self.0.execute_batch("ROLLBACK") {
++                    log::error!("journal unwind rollback: {error}");
++                }
++            }
++        }
++    }
++    let _rollback = RollbackOnUnwind(conn);
++    let result = work().and_then(|value| {
++        #[cfg(test)]
++        crash_checkpoint("transaction");
++        conn.execute_batch("COMMIT")?;
++        Ok(value)
++    });
++    if result.is_err() && !conn.is_autocommit() {
++        if let Err(cleanup) = conn.execute_batch("ROLLBACK") {
++            return result.context(format!("journal rollback failed: {cleanup}"));
++        }
++    }
++    result
++}
++
++pub(crate) fn migrate(conn: &Connection) -> Result<()> {
++    conn.execute_batch(include_str!("../../migrations/003_operation_journal.sql"))?;
++    #[cfg(test)]
++    crash_checkpoint("migration");
++    Ok(())
++}
++
++fn audit(conn: &Connection, id: &str, state: &str, consent: &str) -> Result<i64> {
++    let anchor: i64 = conn.query_row(
++        "SELECT audit_id FROM operation_journal WHERE id=?1",
++        [id],
++        |r| r.get(0),
++    )?;
++    let changed = conn.execute(
++        "UPDATE tool_audit SET timestamp=?2,success=?3,decided=?4 WHERE id=?1",
++        params![
++            anchor,
++            Utc::now().to_rfc3339(),
++            state == "succeeded",
++            consent
++        ],
++    )?;
++    #[cfg(test)]
++    crash_checkpoint("audit");
++    ensure!(changed == 1, "operation_audit_missing");
++    Ok(anchor)
++}
++
++fn event(conn: &Connection, id: &str, state: &str, audit_id: i64) -> Result<()> {
++    conn.execute(
++        "INSERT INTO operation_events(operation_id,state,timestamp,audit_id)
++         VALUES(?1,?2,?3,?4)",
++        params![id, state, Utc::now().to_rfc3339(), audit_id],
++    )?;
++    Ok(())
++}
++
++fn transition(
++    conn: &Connection,
++    id: &str,
++    next: OperationState,
++    consent: &str,
++    bytes: Option<i64>,
++) -> Result<()> {
++    let state = next.as_str();
++    let previous: String = conn.query_row(
++        "SELECT state FROM operation_journal WHERE id=?1",
++        [id],
++        |r| r.get(0),
++    )?;
++    let valid = matches!(
++        (previous.as_str(), next),
++        (
++            "prepared",
++            OperationState::Authorized | OperationState::Denied | OperationState::Abandoned
++        ) | (
++            "authorized",
++            OperationState::Dispatched | OperationState::Abandoned
++        ) | (
++            "dispatched",
++            OperationState::Succeeded | OperationState::Failed | OperationState::UnknownOutcome
++        )
++    );
++    ensure!(valid, "invalid_operation_transition: {previous} -> {state}");
++    ensure!(
++        next != OperationState::Authorized || matches!(consent, "auto" | "approved"),
++        "operation_consent_missing"
++    );
++    ensure!(
++        next != OperationState::Denied || consent == "denied",
++        "operation_denial_missing"
++    );
++    if previous != "prepared" {
++        let recorded: String = conn.query_row(
++            "SELECT consent FROM operation_journal WHERE id=?1",
++            [id],
++            |r| r.get(0),
++        )?;
++        ensure!(recorded == consent, "operation_consent_changed");
++    }
++    let audit_id: i64 = if matches!(
++        next,
++        OperationState::Succeeded | OperationState::Failed | OperationState::Denied
++    ) {
++        audit(conn, id, state, consent)?
++    } else {
++        conn.query_row(
++            "SELECT audit_id FROM operation_journal WHERE id=?1",
++            [id],
++            |r| r.get(0),
++        )?
++    };
++    conn.execute("UPDATE operation_journal SET state=?2,updated_at=?3,consent=?4,audit_id=?5,result_bytes=?6 WHERE id=?1",
++        params![id,state,Utc::now().to_rfc3339(),consent,audit_id,bytes])?;
++    event(conn, id, state, audit_id)
++}
++
++pub(crate) fn recover(conn: &Connection) -> Result<()> {
++    atomic(conn, || {
++        let ids = {
++            let mut stmt = conn.prepare("SELECT id,state FROM operation_journal WHERE state IN ('prepared','authorized','dispatched')")?;
++            let rows =
++                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
++            rows.collect::<rusqlite::Result<Vec<_>>>()?
++        };
++        for (id, state) in ids {
++            let consent: String = conn.query_row(
++                "SELECT consent FROM operation_journal WHERE id=?1",
++                [&id],
++                |r| r.get(0),
++            )?;
++            transition(
++                conn,
++                &id,
++                if state == "dispatched" {
++                    OperationState::UnknownOutcome
++                } else {
++                    OperationState::Abandoned
++                },
++                &consent,
++                None,
++            )?;
++        }
++        #[cfg(test)]
++        crash_checkpoint("recovery");
++        conn.execute_batch("INSERT OR IGNORE INTO turn_recovery(turn_id,previous_state,recovered_at)
++            SELECT id,state,strftime('%Y-%m-%dT%H:%M:%fZ','now') FROM conversation_turns
++            WHERE state IN ('created','running','waiting_for_approval','cancelling');
++            UPDATE conversation_turns SET state='failed' WHERE state IN ('created','running','waiting_for_approval','cancelling');")?;
++        Ok(())
++    })
++}
++
++impl SessionManager {
++    /// Operation IDs always originate here, never in ToolCtx or provider output.
++    pub fn prepare_operation(&self, turn_id: &str, tool: &str) -> Result<String> {
++        ensure!(
++            super::tool_registry::all_tools()
++                .iter()
++                .any(|t| t.function.name == tool),
++            "unknown journal tool"
++        );
++        let id = uuid::Uuid::new_v4().to_string();
++        atomic(&self.conn, || {
++            let (session, state): (Option<String>, String) = self.conn.query_row(
++                "SELECT session_id,state FROM conversation_turns WHERE id=?1",
++                [turn_id],
++                |r| Ok((r.get(0)?, r.get(1)?)),
++            )?;
++            ensure!(state == "running", "journal_turn_not_running");
++            let now = Utc::now().to_rfc3339();
++            // A single redacted audit anchor records the attempt, with decided='prepared'.
++            self.conn.execute("INSERT INTO tool_audit(timestamp,session_id,tool,args,permission,decided) VALUES(?1,?2,?3,'[redacted]',?4,'prepared')", params![now,session,tool,super::tool_registry::permission(tool).as_str()])?;
++            let anchor = self.conn.last_insert_rowid();
++            self.conn.execute("INSERT INTO operation_journal(id,turn_id,session_id,kind,tool,state,prepared_at,updated_at,permission,consent,audit_id) VALUES(?1,?2,?3,'tool',?4,'prepared',?5,?5,?6,'pending',?7)", params![id,turn_id,session,tool,now,super::tool_registry::permission(tool).as_str(),anchor])?;
++            event(&self.conn, &id, "prepared", anchor)?;
++            Ok(())
++        })?;
++        Ok(id)
++    }
++    pub fn transition_operation(
++        &self,
++        id: &str,
++        state: OperationState,
++        consent: &str,
++        result_bytes: Option<i64>,
++    ) -> Result<()> {
++        ensure!(
++            matches!(consent, "pending" | "auto" | "approved" | "denied"),
++            "invalid consent metadata"
++        );
++        atomic(&self.conn, || {
++            transition(&self.conn, id, state, consent, result_bytes)
++        })
++    }
++    /// Bounded, newest-first metadata; never returns tool arguments or output text.
++    pub fn list_operations(&self, session: Option<&str>, limit: i64) -> Result<Vec<Operation>> {
++        let mut stmt = self.conn.prepare("SELECT id,turn_id,session_id,kind,tool,state,prepared_at,updated_at,consent,audit_id,result_bytes FROM operation_journal WHERE (?1 IS NULL OR session_id=?1) ORDER BY prepared_at DESC,id DESC LIMIT ?2")?;
++        let rows = stmt.query_map(params![session, limit.clamp(1, 500)], |r| {
++            Ok(Operation {
++                id: r.get(0)?,
++                turn_id: r.get(1)?,
++                session_id: r.get(2)?,
++                kind: r.get(3)?,
++                tool: r.get(4)?,
++                state: r.get(5)?,
++                prepared_at: r.get(6)?,
++                updated_at: r.get(7)?,
++                consent: r.get(8)?,
++                audit_id: r.get(9)?,
++                result_bytes: r.get(10)?,
++            })
++        })?;
++        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
++    }
++    pub fn authorize_operation(
++        &self,
++        id: &str,
++        turn: &str,
++        tool: &str,
++        consent: &str,
++    ) -> Result<()> {
++        atomic(&self.conn, || {
++            let owner: (String, String) = self.conn.query_row(
++                "SELECT turn_id,tool FROM operation_journal WHERE id=?1",
++                [id],
++                |r| Ok((r.get(0)?, r.get(1)?)),
++            )?;
++            ensure!(
++                owner.0 == turn && owner.1 == tool,
++                "operation_identity_mismatch"
++            );
++            transition(&self.conn, id, OperationState::Authorized, consent, None)
++        })
++    }
++    pub fn record_operation_result(
++        &self,
++        id: &str,
++        consent: &str,
++        result: &crate::models::ToolResult,
++        duration_ms: u64,
++    ) -> Result<()> {
++        atomic(&self.conn, || {
++            transition(
++                &self.conn,
++                id,
++                if result.success {
++                    OperationState::Succeeded
++                } else {
++                    OperationState::Failed
++                },
++                consent,
++                Some(result.content.len().min(i64::MAX as usize) as i64),
++            )?;
++            self.conn.execute("UPDATE tool_audit SET duration_ms=?2 WHERE id=(SELECT audit_id FROM operation_journal WHERE id=?1)",params![id,duration_ms.min(i64::MAX as u64) as i64])?;
++            Ok(())
++        })
++    }
++    pub fn begin_turn(
++        &self,
++        turn_id: &str,
++        session: Option<&str>,
++        user: Option<&crate::models::Message>,
++    ) -> Result<()> {
++        atomic(&self.conn, || {
++            if let Some(sid) = session {
++                ensure!(self.get_session(sid)?.is_some(), "session_not_found");
++            }
++            self.create_turn(turn_id, session)?;
++            if let (Some(sid), Some(message)) = (session, user) {
++                let user_id = self.add_turn_message(sid, turn_id, message)?;
++                self.conn.execute(
++                    "INSERT INTO turn_inputs(turn_id,user_message_id) VALUES(?1,?2)",
++                    params![turn_id, user_id],
++                )?;
++            }
++            Ok(())
++        })
++    }
++    pub fn begin_retry_turn(&self, turn_id: &str, session: &str) -> Result<()> {
++        atomic(&self.conn, || {
++            ensure!(self.get_session(session)?.is_some(), "session_not_found");
++            let (message, role): (i64, String) = self.conn.query_row(
++                "SELECT id,role FROM messages WHERE session_id=?1 ORDER BY id DESC LIMIT 1",
++                [session],
++                |r| Ok((r.get(0)?, r.get(1)?)),
++            )?;
++            // The HTTP precheck precedes awaits; history can change before this write.
++            ensure!(role == "user", "regeneration_requires_unanswered_user");
++            ensure!(
++                self.regeneration_is_safe(session)?,
++                "regeneration_requires_new_message"
++            );
++            self.create_turn(turn_id, Some(session))?;
++            self.conn.execute(
++                "INSERT INTO turn_inputs(turn_id,user_message_id) VALUES(?1,?2)",
++                params![turn_id, message],
++            )?;
++            Ok(())
++        })
++    }
++    /// Finalization does not alter recorded outcomes, even when cancellation won.
++    pub fn settle_turn(&self, turn_id: &str, terminal: &str) -> Result<()> {
++        atomic(&self.conn, || {
++            let ids = {
++                let mut stmt = self.conn.prepare("SELECT id,state,consent FROM operation_journal WHERE turn_id=?1 AND state IN ('prepared','authorized','dispatched')")?;
++                let rows = stmt.query_map([turn_id], |r| {
++                    Ok((
++                        r.get::<_, String>(0)?,
++                        r.get::<_, String>(1)?,
++                        r.get::<_, String>(2)?,
++                    ))
++                })?;
++                rows.collect::<rusqlite::Result<Vec<_>>>()?
++            };
++            for (id, state, consent) in ids {
++                transition(
++                    &self.conn,
++                    &id,
++                    if state == "dispatched" {
++                        OperationState::UnknownOutcome
++                    } else {
++                        OperationState::Abandoned
++                    },
++                    &consent,
++                    None,
++                )?;
++            }
++            self.finish_turn(turn_id, terminal)
++        })
++    }
++    pub fn regeneration_is_safe(&self, session: &str) -> Result<bool> {
++        let count: i64 = self.conn.query_row("SELECT COUNT(*) FROM operation_journal WHERE (turn_id=(SELECT turn_id FROM messages WHERE session_id=?1 ORDER BY id DESC LIMIT 1) OR turn_id IN (SELECT turn_id FROM turn_inputs WHERE user_message_id=(SELECT id FROM messages WHERE session_id=?1 ORDER BY id DESC LIMIT 1))) AND state IN ('dispatched','succeeded','failed','unknown_outcome')",[session],|r|r.get(0))?;
++        Ok(count == 0)
++    }
++}
++
++// Compiled only in the unit-test executable, armed exclusively by our child fixture.
++#[cfg(test)]
++fn crash_checkpoint(label: &str) {
++    if std::env::var("KDA_F1B3_HOOK").as_deref() == Ok(label) {
++        let root =
++            std::path::PathBuf::from(std::env::var_os("KDA_F1B3_UNIT_ROOT").expect("child root"));
++        std::fs::write(root.join("ready"), label).expect("child checkpoint");
++        loop {
++            std::thread::sleep(std::time::Duration::from_millis(20));
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::{
++        fs,
++        os::unix::fs::DirBuilderExt,
++        path::PathBuf,
++        process::Command,
++        time::{Duration, Instant},
++    };
++
++    #[test]
++    #[ignore = "SIGKILL child fixture only"]
++    fn crash_worker() {
++        let root = PathBuf::from(std::env::var_os("KDA_F1B3_UNIT_ROOT").unwrap());
++        let stage = std::env::var("KDA_F1B3_UNIT_STAGE").unwrap();
++        if stage == "migration" || stage == "recovery" {
++            std::env::set_var("KDA_F1B3_HOOK", &stage);
++        }
++        let db = SessionManager::open_at(root.join("sessions.db")).unwrap();
++        db.begin_turn("crash", Some("fixture"), None).unwrap();
++        if stage == "transaction" {
++            std::env::set_var("KDA_F1B3_HOOK", "transaction");
++            db.prepare_operation("crash", "create_file").unwrap();
++        } else if stage == "audit" {
++            let op = db.prepare_operation("crash", "create_file").unwrap();
++            db.transition_operation(&op, OperationState::Authorized, "auto", None)
++                .unwrap();
++            db.transition_operation(&op, OperationState::Dispatched, "auto", None)
++                .unwrap();
++            std::env::set_var("KDA_F1B3_HOOK", "audit");
++            db.transition_operation(&op, OperationState::Succeeded, "auto", Some(12))
++                .unwrap();
++        }
++        panic!("checkpoint not reached");
++    }
++    fn kill_at(stage: &str) {
++        let root = std::env::temp_dir().join(format!("kda-unit-crash-{}", uuid::Uuid::new_v4()));
++        fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
++        let path = root.join("sessions.db");
++        let db = SessionManager::open_at(path.clone()).unwrap();
++        db.conn.execute("INSERT INTO sessions(id,title,created_at,updated_at) VALUES('fixture','fixture','now','now')",[]).unwrap();
++        db.add_message(
++            "fixture",
++            &crate::models::Message::assistant("already complete"),
++        )
++        .unwrap();
++        if stage == "recovery" {
++            db.begin_turn("crash", Some("fixture"), None).unwrap();
++            let op = db.prepare_operation("crash", "create_file").unwrap();
++            db.transition_operation(&op, OperationState::Authorized, "auto", None)
++                .unwrap();
++            db.transition_operation(&op, OperationState::Dispatched, "auto", None)
++                .unwrap();
++        }
++        if stage == "migration" {
++            db.conn.execute_batch("DROP TABLE operation_events; DROP TABLE operation_journal; DROP TABLE turn_recovery; DROP TABLE recovery_migrations;").unwrap();
++        }
++        drop(db);
++        let mut child = Command::new(std::env::current_exe().unwrap())
++            .args([
++                "--exact",
++                "backend::operation_journal::tests::crash_worker",
++                "--ignored",
++                "--nocapture",
++            ])
++            .env("KDA_F1B3_UNIT_ROOT", &root)
++            .env("KDA_F1B3_UNIT_STAGE", stage)
++            .env_remove("KDA_F1B3_HOOK")
++            .spawn()
++            .unwrap();
++        let deadline = Instant::now() + Duration::from_secs(15);
++        while !root.join("ready").exists() {
++            if child.try_wait().unwrap().is_some() {
++                panic!("child failed before checkpoint");
++            }
++            if Instant::now() > deadline {
++                child.kill().unwrap();
++                child.wait().unwrap();
++                panic!("checkpoint timed out");
++            }
++            std::thread::sleep(Duration::from_millis(10));
++        }
++        child.kill().unwrap();
++        use std::os::unix::process::ExitStatusExt;
++        assert_eq!(child.wait().unwrap().signal(), Some(9));
++        let sql = Connection::open(&path).unwrap();
++        if stage == "migration" {
++            assert_eq!(
++                sql.query_row(
++                    "SELECT COUNT(*) FROM sqlite_master WHERE name='operation_journal'",
++                    [],
++                    |r| r.get::<_, i64>(0)
++                )
++                .unwrap(),
++                0
++            );
++        }
++        if stage == "recovery" || stage == "audit" {
++            assert_eq!(
++                sql.query_row("SELECT state FROM operation_journal", [], |r| r
++                    .get::<_, String>(0))
++                    .unwrap(),
++                "dispatched"
++            );
++        }
++        if stage == "transaction" {
++            assert_eq!(
++                sql.query_row("SELECT COUNT(*) FROM operation_journal", [], |r| r
++                    .get::<_, i64>(0))
++                    .unwrap(),
++                0
++            );
++            assert_eq!(
++                sql.query_row("SELECT COUNT(*) FROM tool_audit", [], |r| r
++                    .get::<_, i64>(0))
++                    .unwrap(),
++                0
++            );
++        }
++        for _ in 0..3 {
++            let db = SessionManager::open_at(path.clone()).unwrap();
++            assert_eq!(db.get_messages("fixture").unwrap().len(), 1);
++            let ops = db.list_operations(None, 50).unwrap();
++            if stage == "recovery" || stage == "audit" {
++                assert_eq!(ops[0].state, "unknown_outcome");
++            }
++            assert_eq!(
++                db.conn
++                    .query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))
++                    .unwrap(),
++                "ok"
++            );
++            assert_eq!(
++                db.conn
++                    .query_row(
++                        "SELECT COUNT(*) FROM recovery_migrations WHERE version=3",
++                        [],
++                        |r| r.get::<_, i64>(0)
++                    )
++                    .unwrap(),
++                1
++            );
++            assert_eq!(
++                db.conn
++                    .query_row(
++                        "SELECT COUNT(*) FROM operation_events WHERE state='unknown_outcome'",
++                        [],
++                        |r| r.get::<_, i64>(0)
++                    )
++                    .unwrap(),
++                i64::from(stage == "recovery" || stage == "audit")
++            );
++        }
++        fs::remove_dir_all(root).unwrap();
++    }
++    #[test]
++    fn sigkill_during_actual_migration() {
++        kill_at("migration");
++    }
++    #[test]
++    fn sigkill_during_actual_recovery() {
++        kill_at("recovery");
++    }
++    #[test]
++    fn sigkill_before_journal_commit() {
++        kill_at("transaction");
++    }
++    #[test]
++    fn sigkill_during_actual_audit_write() {
++        kill_at("audit");
++    }
++
++    #[test]
++    fn full_and_commit_errors_rollback_and_release_connection() {
++        let db = SessionManager::in_memory_for_tests().unwrap();
++        let pages: i64 = db
++            .conn
++            .query_row("PRAGMA page_count", [], |r| r.get(0))
++            .unwrap();
++        db.conn
++            .pragma_update(None, "max_page_count", pages)
++            .unwrap();
++        let error=atomic(&db.conn,|| {
++            db.conn.execute("INSERT INTO user_facts(key,value,updated_at) VALUES('full',zeroblob(1000000),'now')",[])?;
++            Ok(())
++        }).unwrap_err();
++        let sqlite = error.downcast_ref::<rusqlite::Error>().unwrap();
++        assert_eq!(
++            sqlite.sqlite_error_code(),
++            Some(rusqlite::ErrorCode::DiskFull)
++        );
++        assert!(db.conn.is_autocommit());
++        db.conn.execute_batch("PRAGMA max_page_count=100000; PRAGMA foreign_keys=ON; CREATE TABLE parent(id INTEGER PRIMARY KEY); CREATE TABLE child(id INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED)").unwrap();
++        assert!(atomic(&db.conn, || {
++            db.conn.execute("INSERT INTO child VALUES(42)", [])?;
++            Ok(())
++        })
++        .is_err());
++        assert!(db.conn.is_autocommit());
++        assert_eq!(
++            db.conn
++                .query_row("SELECT COUNT(*) FROM child", [], |r| r.get::<_, i64>(0))
++                .unwrap(),
++            0
++        );
++        assert!(atomic(&db.conn, || {
++            db.conn.execute("INSERT INTO parent VALUES(42)", [])?;
++            Ok(())
++        })
++        .is_ok());
++    }
++    #[test]
++    fn transaction_unwind_rolls_back_before_supervisor_continues() {
++        let db = SessionManager::in_memory_for_tests().unwrap();
++        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
++            let _: Result<()> = atomic(&db.conn, || {
++                db.conn.execute(
++                    "INSERT INTO user_facts VALUES('panic','synthetic','now')",
++                    [],
++                )?;
++                panic!("controlled unwind");
++            });
++        }));
++        assert!(result.is_err());
++        assert!(db.conn.is_autocommit());
++        assert_eq!(
++            db.conn
++                .query_row("SELECT COUNT(*) FROM user_facts", [], |r| r
++                    .get::<_, i64>(0))
++                .unwrap(),
++            0
++        );
++        db.create_turn("after-unwind", None).unwrap();
++    }
++}
+diff --git a/src/backend/session_manager.rs b/src/backend/session_manager.rs
+index bf27393..deccb1f 100644
+--- a/src/backend/session_manager.rs
++++ b/src/backend/session_manager.rs
+@@ -64,7 +64,8 @@ pub struct Reminder {
+ }
+ 
+ pub struct SessionManager {
+-    conn: Connection,
++    pub(crate) conn: Connection,
++    _ownership: Option<std::fs::File>,
+     #[allow(dead_code)]
+     db_path: PathBuf,
+ }
+@@ -80,12 +81,38 @@ impl SessionManager {
+ 
+         log::info!("SQLite DB: {}", db_path.display());
+ 
++        Self::open_at(db_path)
++    }
++
++    /// Opens one backend database and recovers abandoned work before serving requests.
++    /// The caller must own the backend lifecycle; do not reopen a live database to recover it.
++    pub fn open_at(db_path: PathBuf) -> Result<Self> {
++        let ownership: std::fs::File = rustix::fs::open(
++            &db_path,
++            rustix::fs::OFlags::CREATE
++                | rustix::fs::OFlags::RDWR
++                | rustix::fs::OFlags::CLOEXEC
++                | rustix::fs::OFlags::NOFOLLOW,
++            rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
++        )?
++        .into();
++        rustix::fs::flock(
++            &ownership,
++            rustix::fs::FlockOperation::NonBlockingLockExclusive,
++        )
++        .context("database_backend_already_running")?;
+         let conn = Connection::open(&db_path).context("abriendo SQLite")?;
+ 
+         // F0-7: WAL para no bloquear lectores durante escrituras + busy_timeout.
+-        let _ = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
+-        conn.execute_batch(
+-            r#"
++        conn.busy_timeout(std::time::Duration::from_secs(5))?;
++        let mode: String = conn.query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))?;
++        anyhow::ensure!(mode == "wal", "journal requires WAL");
++        conn.execute_batch("PRAGMA synchronous=FULL;")?;
++        let synchronous: i64 = conn.query_row("PRAGMA synchronous", [], |r| r.get(0))?;
++        anyhow::ensure!(synchronous == 2, "journal requires synchronous FULL");
++        crate::backend::operation_journal::atomic(&conn, || {
++            conn.execute_batch(
++                r#"
+             CREATE TABLE IF NOT EXISTS sessions (
+                 id TEXT PRIMARY KEY,
+                 title TEXT NOT NULL,
+@@ -140,13 +167,20 @@ impl SessionManager {
+             );
+             CREATE INDEX IF NOT EXISTS idx_reminders_fire ON reminders(done, fire_at);
+             "#,
+-        )?;
++            )?;
+ 
+-        // F5: migración de sesiones viejas (summary para hilos largos).
+-        ensure_session_summary_columns(&conn)?;
+-        ensure_turn_schema(&conn)?;
+-
+-        Ok(Self { conn, db_path })
++            // F5: migración de sesiones viejas (summary para hilos largos).
++            ensure_session_summary_columns(&conn)?;
++            ensure_turn_schema(&conn)?;
++            crate::backend::operation_journal::migrate(&conn)?;
++            Ok(())
++        })?;
++        crate::backend::operation_journal::recover(&conn)?;
++        Ok(Self {
++            conn,
++            db_path,
++            _ownership: Some(ownership),
++        })
+     }
+ 
+     #[cfg(test)]
+@@ -199,9 +233,11 @@ impl SessionManager {
+             "#,
+         )?;
+         ensure_turn_schema(&conn)?;
++        crate::backend::operation_journal::migrate(&conn)?;
+         Ok(Self {
+             conn,
+             db_path: PathBuf::from(":memory:"),
++            _ownership: None,
+         })
+     }
+ 
+@@ -240,7 +276,7 @@ impl SessionManager {
+         let mut stmt = self.conn.prepare(
+             "SELECT tool, COUNT(*), SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END),
+              SUM(CASE WHEN decided = 'denied' THEN 1 ELSE 0 END), AVG(duration_ms)
+-             FROM tool_audit GROUP BY tool ORDER BY COUNT(*) DESC",
++             FROM tool_audit WHERE decided != 'prepared' GROUP BY tool ORDER BY COUNT(*) DESC",
+         )?;
+         let rows = stmt.query_map([], |row| {
+             Ok(serde_json::json!({
+@@ -501,6 +537,8 @@ impl SessionManager {
+             self.conn.is_autocommit(),
+             "publication_transaction_already_open"
+         );
++        let pending: i64 = self.conn.query_row("SELECT COUNT(*) FROM operation_journal WHERE turn_id=?1 AND state IN ('prepared','authorized','dispatched','unknown_outcome')", [turn_id], |r|r.get(0))?;
++        anyhow::ensure!(pending == 0, "operation_outcome_unresolved: no publication");
+         self.conn.execute_batch("SAVEPOINT publish_turn")?;
+         let result = (|| {
+             if let Some(sid) = session_id {
+@@ -729,7 +767,7 @@ fn ensure_turn_schema(conn: &Connection) -> Result<()> {
+     if !has_turn {
+         conn.execute_batch("ALTER TABLE messages ADD COLUMN turn_id TEXT")?;
+     }
+-    conn.execute_batch("CREATE TABLE IF NOT EXISTS conversation_turns (id TEXT PRIMARY KEY, session_id TEXT, state TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_messages_turn ON messages(turn_id); UPDATE conversation_turns SET state='failed' WHERE state IN ('created','running','waiting_for_approval','cancelling')")?;
++    conn.execute_batch("CREATE TABLE IF NOT EXISTS conversation_turns (id TEXT PRIMARY KEY, session_id TEXT, state TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_messages_turn ON messages(turn_id)")?;
+     Ok(())
+ }
+ 
+@@ -787,9 +825,11 @@ mod tests {
+             "#,
+         )?;
+         ensure_turn_schema(&conn)?;
++        crate::backend::operation_journal::migrate(&conn)?;
+         Ok(SessionManager {
+             conn,
+             db_path: PathBuf::from(":memory:"),
++            _ownership: None,
+         })
+     }
+ 
+diff --git a/src/backend/tool_executor.rs b/src/backend/tool_executor.rs
+index e7dd275..3041a37 100644
+--- a/src/backend/tool_executor.rs
++++ b/src/backend/tool_executor.rs
+@@ -90,28 +90,122 @@ impl ToolExecutor {
+         }
+     }
+ 
++    pub fn prepare_for_turn(&self, turn_id: &str, call: &ToolCall) -> Result<String> {
++        let sessions = self
++            .sessions
++            .as_ref()
++            .context("journal storage unavailable")?;
++        sessions
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .prepare_operation(turn_id, &call.name)
++    }
++    pub fn journal_state(
++        &self,
++        operation: &str,
++        state: super::operation_journal::OperationState,
++        consent: &str,
++        bytes: Option<i64>,
++    ) -> Result<()> {
++        let sessions = self
++            .sessions
++            .as_ref()
++            .context("journal storage unavailable")?;
++        sessions
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .transition_operation(operation, state, consent, bytes)
++    }
++    pub async fn execute_for_turn(
++        &self,
++        call: &ToolCall,
++        ctx: &ToolCtx,
++        turn: &std::sync::Arc<super::conversation_turn::Turn>,
++        operation: &str,
++    ) -> Result<ToolResult> {
++        use super::operation_journal::OperationState;
++        // ToolCtx describes caller consent only; execution still checks cfg/SafePath.
++        self.sessions
++            .as_ref()
++            .context("journal storage unavailable")?
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .authorize_operation(operation, &turn.id, &call.name, &ctx.decided)?;
++        turn.dispatch_recorded(
++            || self.journal_state(operation, OperationState::Dispatched, &ctx.decided, None),
++            self.execute_and_record(call, ctx, operation),
++        )
++        .await
++    }
++    async fn execute_and_record(
++        &self,
++        call: &ToolCall,
++        ctx: &ToolCtx,
++        operation: &str,
++    ) -> Result<ToolResult> {
++        let started = std::time::Instant::now();
++        let result = self.execute_raw(call).await?;
++        let sessions = self
++            .sessions
++            .as_ref()
++            .context("journal storage unavailable")?;
++        sessions
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .record_operation_result(
++                operation,
++                &ctx.decided,
++                &result,
++                started.elapsed().as_millis().min(u64::MAX as u128) as u64,
++            )
++            .context("operation_result_not_persisted: external outcome requires inspection")?;
++        Ok(result)
++    }
+     pub async fn execute(&self, tool_call: &ToolCall, ctx: &ToolCtx) -> Result<ToolResult> {
++        let Some(sessions) = &self.sessions else {
++            // Standalone test executor has no production backend storage.
++            return self.execute_raw(tool_call).await;
++        };
++        let turn_id = uuid::Uuid::new_v4().to_string();
++        sessions
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .begin_turn(&turn_id, ctx.session_id.as_deref(), None)?;
++        let operation = self.prepare_for_turn(&turn_id, tool_call)?;
++        use super::operation_journal::OperationState;
++        sessions
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .authorize_operation(&operation, &turn_id, &tool_call.name, &ctx.decided)?;
++        self.journal_state(&operation, OperationState::Dispatched, &ctx.decided, None)?;
++        let result = self.execute_and_record(tool_call, ctx, &operation).await;
++        sessions
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .settle_turn(
++                &turn_id,
++                if result.is_ok() {
++                    "completed"
++                } else {
++                    "failed"
++                },
++            )?;
++        result
++    }
++    async fn execute_raw(&self, tool_call: &ToolCall) -> Result<ToolResult> {
+         let id = tool_call.id.clone();
+-        let t0 = std::time::Instant::now();
+         let result = match self.get_config_snapshot() {
+             Ok(cfg) => self.execute_with_config(tool_call, &cfg).await,
+             Err(e) => Err(e),
+         };
+-        let ms = t0.elapsed().as_millis() as u64;
+ 
+-        let final_res = match result {
++        match result {
+             Ok(mut r) => {
+                 r.tool_call_id = id;
+                 Ok(r)
+             }
+             Err(e) => Ok(ToolResult::error(id, e.to_string())),
+-        };
+-
+-        // Auditoría best-effort (nunca rompe la ejecución).
+-        if let Ok(r) = &final_res {
+-            self.audit(tool_call, ctx, r.success, ms);
+         }
+-        final_res
+     }
+ 
+     // Una sola versión autoriza el flag y todas las rutas de la operación.
+@@ -145,35 +239,21 @@ impl ToolExecutor {
+     }
+ 
+     /// Registra una denegación del usuario (F4-1/F4-3): no se ejecutó nada.
+-    pub fn record_denial(&self, tool_call: &ToolCall, session_id: Option<String>) {
+-        let ctx = ToolCtx {
+-            session_id,
+-            decided: "denied".to_string(),
++    pub fn record_denial(&self, tool_call: &ToolCall, session_id: Option<String>) -> Result<()> {
++        let Some(sessions) = &self.sessions else {
++            return Ok(());
+         };
+-        self.audit(tool_call, &ctx, false, 0);
+-    }
+-
+-    fn audit(&self, tool_call: &ToolCall, ctx: &ToolCtx, success: bool, ms: u64) {
+-        let Some(sessions) = self.sessions.clone() else {
+-            return;
+-        };
+-        let args_json =
+-            serde_json::to_string(&tool_call.arguments).unwrap_or_else(|_| "{}".to_string());
+-        let permission = crate::backend::tool_registry::permission(&tool_call.name).as_str();
+-        let tool = tool_call.name.clone();
+-        let sid = ctx.session_id.clone();
+-        let decided = ctx.decided.clone();
+-        // Insert bloqueante breve (igual estilo que los handlers HTTP).
++        let turn_id = uuid::Uuid::new_v4().to_string();
+         let sessions = sessions.lock().unwrap_or_else(|e| e.into_inner());
+-        let _ = sessions.record_tool_audit(
+-            sid.as_deref(),
+-            &tool,
+-            &args_json,
+-            success,
+-            ms,
+-            permission,
+-            &decided,
+-        );
++        sessions.begin_turn(&turn_id, session_id.as_deref(), None)?;
++        let operation = sessions.prepare_operation(&turn_id, &tool_call.name)?;
++        sessions.transition_operation(
++            &operation,
++            super::operation_journal::OperationState::Denied,
++            "denied",
++            None,
++        )?;
++        sessions.settle_turn(&turn_id, "completed")
+     }
+ 
+     fn arg_string<'a>(args: &'a HashMap<String, serde_json::Value>, key: &str) -> Result<&'a str> {
+diff --git a/tests/f1b1_text_startup.rs b/tests/f1b1_text_startup.rs
+index 0cc9208..e058848 100644
+--- a/tests/f1b1_text_startup.rs
++++ b/tests/f1b1_text_startup.rs
+@@ -952,7 +952,16 @@ fn qml_offscreen_settings_and_two_visible_turns() {
+         assert_eq!(recorded.lock().unwrap().len(), 2);
+         assert!(!PathBuf::from(format!("/proc/{}", child.id())).exists());
+         println!("F1B1_UI_PASS; QML terminado y recogido; cuatro mensajes persistidos");
++        let previous_db = Arc::downgrade(&b.sessions);
+         stop(task).await;
++        drop(b);
++        tokio::time::timeout(Duration::from_secs(3), async {
++            while previous_db.upgrade().is_some() {
++                tokio::time::sleep(Duration::from_millis(10)).await;
++            }
++        })
++        .await
++        .unwrap();
+         // El ejecutable real también debe lanzar y recoger su propia UI.
+         let foreign_qml = dirs::cache_dir().unwrap().join("Main.qml");
+         fs::write(
+diff --git a/tests/f1b2_conversation.rs b/tests/f1b2_conversation.rs
+index 6ff702d..7c18703 100644
+--- a/tests/f1b2_conversation.rs
++++ b/tests/f1b2_conversation.rs
+@@ -699,7 +699,11 @@ fn cancelled_turn_survives_backend_restart_without_false_reply() {
+         eventually(|| request.closed.load(Ordering::SeqCst)).await;
+         let sid = f.sid.clone();
+         let id = a.id();
++        let previous_db = Arc::downgrade(&f.backend.sessions);
+         drop(f);
++        // Aborting serve requests teardown; spawned HTTP connections also own state.
++        // A restart begins only once every owner of the old database has gone.
++        eventually(|| previous_db.upgrade().is_none()).await;
+         let backend = Backend::new().await.unwrap();
+         assert_eq!(
+             backend
+diff --git a/tests/f1b3a_persistence.rs b/tests/f1b3a_persistence.rs
+new file mode 100644
+index 0000000..5db05a7
+--- /dev/null
++++ b/tests/f1b3a_persistence.rs
+@@ -0,0 +1,858 @@
++//! Private SQLite and controlled child processes only; no real backend capabilities.
++use kde_assistant_lib::{
++    backend::{
++        conversation_turn::{Turn, TurnState},
++        operation_journal::OperationState as State,
++        session_manager::SessionManager,
++        tool_executor::{ToolCtx, ToolExecutor},
++    },
++    models::{Config, Message, ToolCall},
++};
++use rusqlite::Connection;
++use std::{
++    fs,
++    os::unix::fs::DirBuilderExt,
++    path::PathBuf,
++    process::{Command, Stdio},
++    sync::{Arc, Mutex},
++    time::{Duration, Instant},
++};
++
++struct Private(PathBuf);
++impl Private {
++    fn new() -> Self {
++        let path = std::env::temp_dir().join(format!("kda-f1b3a-{}", uuid::Uuid::new_v4()));
++        fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
++        Self(path)
++    }
++    fn db(&self) -> PathBuf {
++        self.0.join("sessions.db")
++    }
++    fn manager(&self) -> SessionManager {
++        SessionManager::open_at(self.db()).unwrap()
++    }
++}
++impl Drop for Private {
++    fn drop(&mut self) {
++        fs::remove_dir_all(&self.0).unwrap();
++    }
++}
++fn rt() -> tokio::runtime::Runtime {
++    tokio::runtime::Runtime::new().unwrap()
++}
++fn fixture(p: &Private) -> (SessionManager, String) {
++    let db = p.manager();
++    let sid = db.create_session("fixture").unwrap().id;
++    db.add_message(&sid, &Message::assistant("completed before crash"))
++        .unwrap();
++    (db, sid)
++}
++fn call(p: &Private) -> ToolCall {
++    ToolCall {
++        id: uuid::Uuid::new_v4().to_string(),
++        name: "create_file".into(),
++        arguments: serde_json::from_value(
++            serde_json::json!({"path":p.0.join("effect.txt"),"content":"PRIVATE_FIXTURE_SECRET"}),
++        )
++        .unwrap(),
++    }
++}
++fn executor(p: &Private, db: SessionManager) -> (ToolExecutor, Arc<Mutex<SessionManager>>) {
++    let mut cfg = Config::default();
++    cfg.tools.create_file = true;
++    cfg.tools.allowed_paths = vec![p.0.display().to_string()];
++    let db = Arc::new(Mutex::new(db));
++    (
++        ToolExecutor::with_audit(Arc::new(tokio::sync::RwLock::new(cfg)), db.clone()),
++        db,
++    )
++}
++fn integrity(p: &Private) {
++    let sql = Connection::open(p.db()).unwrap();
++    assert_eq!(
++        sql.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))
++            .unwrap(),
++        "ok"
++    );
++    assert_eq!(
++        sql.query_row("PRAGMA foreign_key_check", [], |_| Ok(()))
++            .optional()
++            .unwrap(),
++        None
++    );
++}
++use rusqlite::OptionalExtension;
++
++#[test]
++#[ignore = "controlled crash worker; invoked only by this suite"]
++fn crash_worker() {
++    let root = PathBuf::from(std::env::var_os("KDA_F1B3_ROOT").unwrap());
++    let stage = std::env::var("KDA_F1B3_STAGE").unwrap();
++    let db = SessionManager::open_at(root.join("sessions.db")).unwrap();
++    let sid = std::env::var("KDA_F1B3_SESSION").unwrap();
++    db.begin_turn(
++        "interrupted",
++        Some(&sid),
++        Some(&Message::user("pending user")),
++    )
++    .unwrap();
++    let pause = || {
++        fs::write(root.join("ready"), b"ready").unwrap();
++        loop {
++            std::thread::sleep(Duration::from_millis(20));
++        }
++    };
++    if stage == "before_intent" {
++        pause();
++    }
++    let id = db.prepare_operation("interrupted", "create_file").unwrap();
++    fs::write(root.join("operation"), &id).unwrap();
++    if stage == "prepared" {
++        pause();
++    }
++    db.transition_operation(&id, State::Authorized, "auto", None)
++        .unwrap();
++    if stage == "authorized" {
++        pause();
++    }
++    if stage == "transaction" {
++        // A real, uncommitted SQLite transaction containing intermediate rows.
++        let sql = Connection::open(root.join("sessions.db")).unwrap();
++        sql.execute_batch("BEGIN IMMEDIATE").unwrap();
++        sql.execute(
++            "UPDATE operation_journal SET state='dispatched' WHERE id=?1",
++            [&id],
++        )
++        .unwrap();
++        sql.execute("INSERT INTO messages(session_id,role,content,timestamp) VALUES(?1,'assistant','uncommitted','now')",[&sid]).unwrap();
++        pause();
++    }
++    db.transition_operation(&id, State::Dispatched, "auto", None)
++        .unwrap();
++    if stage == "dispatch_without_effect" {
++        pause();
++    }
++    // Controlled executor: append exactly once; a replay would be observable.
++    use std::io::Write;
++    let mut effect = fs::OpenOptions::new()
++        .create(true)
++        .append(true)
++        .open(root.join("effect.txt"))
++        .unwrap();
++    effect.write_all(b"one effect\n").unwrap();
++    effect.sync_all().unwrap();
++    if stage == "dispatched" {
++        pause();
++    }
++    if stage == "cancellation" {
++        db.finish_turn("interrupted", "cancelling").unwrap();
++        pause();
++    }
++    if stage == "audit" {
++        let sql = Connection::open(root.join("sessions.db")).unwrap();
++        sql.execute_batch("BEGIN IMMEDIATE").unwrap();
++        sql.execute("UPDATE tool_audit SET success=1,decided='auto' WHERE id=(SELECT audit_id FROM operation_journal WHERE id=?1)",[&id]).unwrap();
++        pause();
++    }
++    db.transition_operation(
++        &id,
++        if stage == "failed_result" {
++            State::Failed
++        } else {
++            State::Succeeded
++        },
++        "auto",
++        Some(10),
++    )
++    .unwrap();
++    pause();
++}
++fn crash(stage: &str, expected: Option<&str>, effect: bool) {
++    let p = Private::new();
++    let (db, sid) = fixture(&p);
++    drop(db);
++    let mut cmd = Command::new(std::env::current_exe().unwrap());
++    cmd.args(["--exact", "crash_worker", "--ignored", "--nocapture"])
++        .env("KDA_F1B3_ROOT", &p.0)
++        .env("KDA_F1B3_STAGE", stage)
++        .env("KDA_F1B3_SESSION", &sid)
++        .stdout(Stdio::null())
++        .stderr(Stdio::inherit());
++    for (key, _) in std::env::vars() {
++        if key.ends_with("_API_KEY") || key.to_uppercase().ends_with("_PROXY") {
++            cmd.env_remove(key);
++        }
++    }
++    for (key, name) in [
++        ("XDG_CONFIG_HOME", "config"),
++        ("XDG_DATA_HOME", "data"),
++        ("XDG_CACHE_HOME", "cache"),
++    ] {
++        cmd.env(key, p.0.join(name));
++    }
++    let mut child = cmd.spawn().unwrap();
++    let deadline = Instant::now() + Duration::from_secs(15);
++    while !p.0.join("ready").exists() {
++        if child.try_wait().unwrap().is_some() {
++            panic!("worker exited before checkpoint");
++        }
++        if Instant::now() > deadline {
++            child.kill().unwrap();
++            child.wait().unwrap();
++            panic!("worker checkpoint timeout");
++        }
++        std::thread::sleep(Duration::from_millis(10));
++    }
++    // Child::kill is SIGKILL on Unix; only the exact child we created is targeted.
++    child.kill().unwrap();
++    use std::os::unix::process::ExitStatusExt;
++    assert_eq!(child.wait().unwrap().signal(), Some(9));
++    for _ in 0..3 {
++        let db = p.manager();
++        let ops = db.list_operations(Some(&sid), 50).unwrap();
++        if let Some(expected) = expected {
++            assert_eq!(ops.len(), 1);
++            assert_eq!(ops[0].state, expected);
++        } else {
++            assert!(ops.is_empty());
++        }
++        let messages = db.get_messages(&sid).unwrap();
++        assert_eq!(messages.len(), 2);
++        assert!(
++            matches!(&messages[0],Message::Assistant{content,..} if content == "completed before crash")
++        );
++        let sql = Connection::open(p.db()).unwrap();
++        assert_eq!(
++            sql.query_row(
++                "SELECT state FROM conversation_turns WHERE id='interrupted'",
++                [],
++                |r| r.get::<_, String>(0)
++            )
++            .unwrap(),
++            "failed"
++        );
++        if expected == Some("unknown_outcome") {
++            assert!(!db.regeneration_is_safe(&sid).unwrap());
++            assert!(db
++                .publish_turn(
++                    Some(&sid),
++                    "interrupted",
++                    &[Message::assistant("invented success")]
++                )
++                .is_err());
++        }
++        if effect {
++            assert_eq!(fs::read(p.0.join("effect.txt")).unwrap(), b"one effect\n");
++        } else {
++            assert!(!p.0.join("effect.txt").exists());
++        }
++        let registry = kde_assistant_lib::backend::conversation_turn::TurnRegistry::default();
++        assert!(registry.reserve(Some(sid.clone())).is_ok());
++        integrity(&p);
++    }
++}
++#[test]
++fn crash_before_intent() {
++    crash("before_intent", None, false);
++}
++#[test]
++fn crash_after_intent() {
++    crash("prepared", Some("abandoned"), false);
++}
++#[test]
++fn crash_after_authorization() {
++    crash("authorized", Some("abandoned"), false);
++}
++#[test]
++fn crash_after_dispatch() {
++    crash("dispatched", Some("unknown_outcome"), true);
++}
++#[test]
++fn crash_after_result_before_turn_finalization() {
++    crash("result", Some("succeeded"), true);
++}
++#[test]
++fn crash_during_sqlite_transaction() {
++    crash("transaction", Some("abandoned"), false);
++}
++#[test]
++fn crash_during_cancellation() {
++    crash("cancellation", Some("unknown_outcome"), true);
++}
++#[test]
++fn crash_during_audit_transaction() {
++    crash("audit", Some("unknown_outcome"), true);
++}
++
++#[test]
++fn insert_and_dispatch_failures_never_execute() {
++    for sql in [
++        "CREATE TRIGGER inject BEFORE INSERT ON operation_journal BEGIN SELECT RAISE(ABORT,'insert_failure'); END;",
++        "CREATE TRIGGER inject BEFORE INSERT ON tool_audit BEGIN SELECT RAISE(ABORT,'audit_failure'); END;",
++        "CREATE TRIGGER inject BEFORE UPDATE ON operation_journal WHEN NEW.state='dispatched' BEGIN SELECT RAISE(ROLLBACK,'dispatch_failure'); END;",
++    ] {
++        let p = Private::new();let (db,sid)=fixture(&p);let (exec,db)=executor(&p,db);
++        Connection::open(p.db()).unwrap().execute_batch(sql).unwrap();
++        assert!(rt().block_on(exec.execute(&call(&p),&ToolCtx::auto(Some(sid)))).is_err());
++        assert!(!p.0.join("effect.txt").exists());
++        Connection::open(p.db()).unwrap().execute_batch("DROP TRIGGER inject").unwrap();
++        assert!(db.lock().unwrap().create_turn("after-error",None).is_ok());
++        integrity(&p);
++    }
++}
++#[test]
++fn result_or_audit_failure_never_reports_success() {
++    for sql in [
++        "CREATE TRIGGER inject BEFORE UPDATE ON operation_journal WHEN NEW.state='succeeded' BEGIN SELECT RAISE(ABORT,'result_failure'); END;",
++        "CREATE TRIGGER inject BEFORE UPDATE ON tool_audit BEGIN SELECT RAISE(ROLLBACK,'audit_failure'); END;",
++    ] {
++        let p=Private::new();let (db,sid)=fixture(&p);let (exec,db)=executor(&p,db);
++        Connection::open(p.db()).unwrap().execute_batch(sql).unwrap();
++        let err=rt().block_on(exec.execute(&call(&p),&ToolCtx::auto(Some(sid.clone())))).unwrap_err();
++        assert!(err.to_string().contains("operation_result_not_persisted"));
++        assert!(p.0.join("effect.txt").exists());
++        let ops=db.lock().unwrap().list_operations(Some(&sid),50).unwrap();
++        assert_eq!(ops[0].state,"unknown_outcome");
++        assert!(!db.lock().unwrap().list_tool_audit(10).unwrap()[0].success);
++        assert_eq!(db.lock().unwrap().get_messages(&sid).unwrap().len(),1);
++        Connection::open(p.db()).unwrap().execute_batch("DROP TRIGGER inject").unwrap();
++        integrity(&p);
++    }
++}
++#[test]
++fn simulated_disk_full_fails_closed_and_rolls_back() {
++    let p = Private::new();
++    let (db, sid) = fixture(&p);
++    let (exec, db) = executor(&p, db);
++    let sql = Connection::open(p.db()).unwrap();
++    // Model the failed write boundary deterministically, without filling a real disk.
++    sql.execute_batch("CREATE TRIGGER disk_failure BEFORE INSERT ON operation_events BEGIN SELECT RAISE(ABORT,'simulated SQLITE_FULL'); END;").unwrap();
++    assert!(rt()
++        .block_on(exec.execute(&call(&p), &ToolCtx::auto(Some(sid.clone()))))
++        .is_err());
++    assert!(db
++        .lock()
++        .unwrap()
++        .list_operations(Some(&sid), 50)
++        .unwrap()
++        .is_empty());
++    assert!(db.lock().unwrap().list_tool_audit(10).unwrap().is_empty());
++    assert!(!p.0.join("effect.txt").exists());
++    sql.execute_batch("DROP TRIGGER disk_failure").unwrap();
++    assert!(
++        rt().block_on(exec.execute(&call(&p), &ToolCtx::auto(Some(sid))))
++            .unwrap()
++            .success
++    );
++    integrity(&p);
++}
++#[test]
++fn busy_database_times_out_without_effect_and_recovers() {
++    let p = Private::new();
++    let (db, sid) = fixture(&p);
++    let (exec, _db) = executor(&p, db);
++    let lock = Connection::open(p.db()).unwrap();
++    lock.execute_batch("BEGIN IMMEDIATE").unwrap();
++    let start = Instant::now();
++    assert!(rt()
++        .block_on(exec.execute(&call(&p), &ToolCtx::auto(Some(sid.clone()))))
++        .is_err());
++    assert!(start.elapsed() >= Duration::from_secs(4));
++    assert!(start.elapsed() < Duration::from_secs(10));
++    assert!(!p.0.join("effect.txt").exists());
++    lock.execute_batch("ROLLBACK").unwrap();
++    assert!(
++        rt().block_on(exec.execute(&call(&p), &ToolCtx::auto(Some(sid))))
++            .unwrap()
++            .success
++    );
++    integrity(&p);
++}
++#[test]
++fn cancellation_before_dispatch_is_persisted_as_abandoned() {
++    let p = Private::new();
++    let (db, sid) = fixture(&p);
++    let (exec, db) = executor(&p, db);
++    let turn = Turn::new(Some(sid.clone()));
++    turn.transition(TurnState::Running).unwrap();
++    db.lock()
++        .unwrap()
++        .begin_turn(&turn.id, Some(&sid), None)
++        .unwrap();
++    let tc = call(&p);
++    let op = exec.prepare_for_turn(&turn.id, &tc).unwrap();
++    turn.cancel();
++    assert!(rt()
++        .block_on(exec.execute_for_turn(&tc, &ToolCtx::auto(Some(sid)), &turn, &op))
++        .is_err());
++    db.lock()
++        .unwrap()
++        .settle_turn(&turn.id, "cancelled")
++        .unwrap();
++    assert_eq!(
++        db.lock().unwrap().list_operations(None, 50).unwrap()[0].state,
++        "abandoned"
++    );
++    assert!(!p.0.join("effect.txt").exists());
++    integrity(&p);
++}
++#[test]
++fn privacy_denials_transitions_and_schema_are_enforced() {
++    let p = Private::new();
++    let (db, sid) = fixture(&p);
++    let (exec, db) = executor(&p, db);
++    rt().block_on(async {
++        assert!(
++            exec.execute(&call(&p), &ToolCtx::auto(Some(sid.clone())))
++                .await
++                .unwrap()
++                .success
++        );
++    });
++    exec.record_denial(&call(&p), Some(sid.clone())).unwrap();
++    let db = db.lock().unwrap();
++    let ops = db.list_operations(Some(&sid), 50).unwrap();
++    assert_eq!(ops.len(), 2);
++    assert!(ops.iter().any(|o| o.state == "denied"));
++    for op in &ops {
++        assert!(uuid::Uuid::parse_str(&op.id).is_ok());
++        assert!(db
++            .transition_operation(&op.id, State::Dispatched, "auto", None)
++            .is_err());
++    }
++    let serialized = serde_json::to_string(&ops).unwrap();
++    assert!(!serialized.contains("PRIVATE_FIXTURE_SECRET"));
++    assert!(!serialized.contains("effect.txt"));
++    for audit in db.list_tool_audit(10).unwrap() {
++        assert_eq!(audit.args, "[redacted]");
++    }
++    let sql = Connection::open(p.db()).unwrap();
++    assert!(sql
++        .execute("UPDATE operation_journal SET state='prepared'", [])
++        .is_err());
++    assert!(sql.execute("INSERT INTO operation_events(operation_id,state,timestamp,audit_id) VALUES('missing','succeeded','now',1)",[]).is_err());
++    assert_eq!(
++        sql.query_row("SELECT COUNT(*) FROM operation_events", [], |r| r
++            .get::<_, i64>(0))
++            .unwrap(),
++        6
++    );
++    integrity(&p);
++}
++#[test]
++fn second_backend_cannot_recover_live_operations() {
++    let p = Private::new();
++    let (db, _) = fixture(&p);
++    assert!(SessionManager::open_at(p.db()).is_err());
++    drop(db);
++    assert!(SessionManager::open_at(p.db()).is_ok());
++}
++
++#[test]
++fn retries_keep_the_original_user_link_and_cannot_hide_effects() {
++    let p = Private::new();
++    let (db, sid) = fixture(&p);
++    db.begin_turn("original", Some(&sid), Some(&Message::user("request")))
++        .unwrap();
++    db.settle_turn("original", "failed").unwrap();
++    assert!(db.regeneration_is_safe(&sid).unwrap());
++    db.begin_retry_turn("retry", &sid).unwrap();
++    let op = db.prepare_operation("retry", "create_file").unwrap();
++    db.transition_operation(&op, State::Authorized, "auto", None)
++        .unwrap();
++    db.transition_operation(&op, State::Dispatched, "auto", None)
++        .unwrap();
++    db.settle_turn("retry", "failed").unwrap();
++    assert!(!db.regeneration_is_safe(&sid).unwrap());
++    assert!(db.begin_retry_turn("retry-again", &sid).is_err());
++    db.begin_turn(
++        "explicit-new",
++        Some(&sid),
++        Some(&Message::user("inspected effect; new explicit request")),
++    )
++    .unwrap();
++    assert!(db.regeneration_is_safe(&sid).unwrap());
++    integrity(&p);
++}
++#[test]
++fn retry_rechecks_unanswered_input_inside_transaction() {
++    let p = Private::new();
++    let (db, sid) = fixture(&p);
++    db.begin_turn("original", Some(&sid), Some(&Message::user("request")))
++        .unwrap();
++    db.settle_turn("original", "failed").unwrap();
++    assert!(db.regeneration_is_safe(&sid).unwrap());
++    // A manual attachment can change history while HTTP awaits the config lock.
++    db.add_message(&sid, &Message::tool("manual", "attachment"))
++        .unwrap();
++    assert!(db.begin_retry_turn("stale-retry", &sid).is_err());
++    let sql = Connection::open(p.db()).unwrap();
++    assert_eq!(
++        sql.query_row(
++            "SELECT COUNT(*) FROM conversation_turns WHERE id='stale-retry'",
++            [],
++            |r| r.get::<_, i64>(0)
++        )
++        .unwrap(),
++        0
++    );
++    integrity(&p);
++}
++
++#[test]
++fn legacy_user_retry_remains_blocked_after_repeated_restarts() {
++    let p = Private::new();
++    let (db, sid) = fixture(&p);
++    db.add_message(&sid, &Message::user("legacy user without Turn ID"))
++        .unwrap();
++    db.begin_retry_turn("legacy-retry", &sid).unwrap();
++    let op = db.prepare_operation("legacy-retry", "create_file").unwrap();
++    db.transition_operation(&op, State::Authorized, "auto", None)
++        .unwrap();
++    db.transition_operation(&op, State::Dispatched, "auto", None)
++        .unwrap();
++    db.settle_turn("legacy-retry", "cancelled").unwrap();
++    drop(db);
++    for _ in 0..3 {
++        let db = p.manager();
++        assert!(!db.regeneration_is_safe(&sid).unwrap());
++        assert!(db.begin_retry_turn("forbidden-retry", &sid).is_err());
++        assert_eq!(
++            db.list_operations(Some(&sid), 50).unwrap()[0].state,
++            "unknown_outcome"
++        );
++        assert_eq!(db.get_messages(&sid).unwrap().len(), 2);
++    }
++    integrity(&p);
++}
++
++#[test]
++fn nonexistent_session_cannot_dispatch_or_persist_untrusted_metadata() {
++    let p = Private::new();
++    let (db, _) = fixture(&p);
++    let (exec, db) = executor(&p, db);
++    let result = rt().block_on(exec.execute(
++        &call(&p),
++        &ToolCtx::auto(Some("/private/arbitrary-session-secret".into())),
++    ));
++    assert!(result.is_err());
++    assert!(!p.0.join("effect.txt").exists());
++    assert!(db
++        .lock()
++        .unwrap()
++        .list_operations(None, 50)
++        .unwrap()
++        .is_empty());
++    integrity(&p);
++}
++#[test]
++fn recovery_error_rolls_back_all_changes_and_next_start_can_recover() {
++    let p = Private::new();
++    let (db, sid) = fixture(&p);
++    db.begin_turn("interrupted", Some(&sid), Some(&Message::user("pending")))
++        .unwrap();
++    let op = db.prepare_operation("interrupted", "create_file").unwrap();
++    db.transition_operation(&op, State::Authorized, "auto", None)
++        .unwrap();
++    db.transition_operation(&op, State::Dispatched, "auto", None)
++        .unwrap();
++    drop(db);
++    let sql = Connection::open(p.db()).unwrap();
++    sql.execute_batch("CREATE TRIGGER fail_recovery BEFORE INSERT ON turn_recovery BEGIN SELECT RAISE(ABORT,'recovery_failure'); END;").unwrap();
++    assert!(SessionManager::open_at(p.db()).is_err());
++    assert_eq!(
++        sql.query_row("SELECT state FROM operation_journal", [], |r| r
++            .get::<_, String>(0))
++            .unwrap(),
++        "dispatched"
++    );
++    assert_eq!(
++        sql.query_row(
++            "SELECT COUNT(*) FROM operation_events WHERE state='unknown_outcome'",
++            [],
++            |r| r.get::<_, i64>(0)
++        )
++        .unwrap(),
++        0
++    );
++    sql.execute_batch("DROP TRIGGER fail_recovery").unwrap();
++    assert_eq!(
++        p.manager().list_operations(None, 50).unwrap()[0].state,
++        "unknown_outcome"
++    );
++    integrity(&p);
++}
++#[test]
++fn legacy_migration_preserves_messages_and_explicit_storage_settings() {
++    let p = Private::new();
++    let sql = Connection::open(p.db()).unwrap();
++    sql.execute_batch("CREATE TABLE sessions(id TEXT PRIMARY KEY,title TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL); CREATE TABLE messages(id INTEGER PRIMARY KEY AUTOINCREMENT,session_id TEXT NOT NULL,role TEXT NOT NULL,content TEXT NOT NULL,tool_name TEXT,tool_call_id TEXT,tool_result TEXT,image_url TEXT,timestamp TEXT NOT NULL); INSERT INTO sessions VALUES('old','old','now','now'); INSERT INTO messages(session_id,role,content,timestamp) VALUES('old','assistant','legacy completed','now');").unwrap();
++    for _ in 0..3 {
++        let db = p.manager();
++        assert_eq!(db.get_messages("old").unwrap().len(), 1);
++        assert_eq!(
++            sql.query_row("SELECT turn_id FROM messages", [], |r| r
++                .get::<_, Option<String>>(0))
++                .unwrap(),
++            None
++        );
++        assert_eq!(
++            sql.query_row("PRAGMA journal_mode", [], |r| r.get::<_, String>(0))
++                .unwrap(),
++            "wal"
++        );
++        assert_eq!(
++            sql.query_row("SELECT COUNT(*) FROM recovery_migrations", [], |r| r
++                .get::<_, i64>(0))
++                .unwrap(),
++            1
++        );
++    }
++    integrity(&p);
++}
++
++fn isolated_http(name: &str) -> bool {
++    if std::env::var("KDA_F1B3_HTTP").as_deref() == Ok(name) {
++        return false;
++    }
++    let p = Private::new();
++    let mut cmd = Command::new(std::env::current_exe().unwrap());
++    cmd.args(["--exact", name, "--nocapture"])
++        .env("KDA_F1B3_HTTP", name);
++    for (key, _) in std::env::vars() {
++        if key.ends_with("_API_KEY") || key.to_uppercase().ends_with("_PROXY") {
++            cmd.env_remove(key);
++        }
++    }
++    for (key, name) in [
++        ("XDG_CONFIG_HOME", "config"),
++        ("XDG_DATA_HOME", "data"),
++        ("XDG_CACHE_HOME", "cache"),
++    ] {
++        cmd.env(key, p.0.join(name));
++    }
++    cmd.env("ORT_DYLIB_PATH", p.0.join("absent.so"));
++    assert!(cmd.status().unwrap().success());
++    true
++}
++async fn http_journal(fail_result: bool) {
++    use axum::{routing::post, Router};
++    use kde_assistant_lib::backend::{http_server, Backend};
++    use std::sync::atomic::{AtomicUsize, Ordering};
++    let p = Private::new();
++    let file = p.0.join("http-effect.txt");
++    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
++    let mut cfg = Config::first_run();
++    cfg.ai.provider = "custom".into();
++    cfg.ai.api_key = "synthetic-fixture".into();
++    cfg.ai.base_url = format!("http://{}", listener.local_addr().unwrap());
++    cfg.ai.enable_tool_calling = true;
++    cfg.tools.create_file = true;
++    cfg.tools.confirm_sensitive = false;
++    cfg.tools.allowed_paths = vec![p.0.display().to_string()];
++    cfg.save().await.unwrap();
++    let calls = Arc::new(AtomicUsize::new(0));
++    let observed = calls.clone();
++    let destination = file.clone();
++    let app=Router::new().route("/chat/completions",post(move || {
++        let calls=observed.clone();let file=destination.clone();async move {
++            if calls.fetch_add(1,Ordering::SeqCst)==0 {
++                format!("data: {}\n\ndata: [DONE]\n\n",serde_json::json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"untrusted-provider-id","function":{"name":"create_file","arguments":serde_json::json!({"path":file,"content":"PRIVATE_HTTP_SECRET"}).to_string()}}]},"finish_reason":"tool_calls"}]}))
++            } else {"data: {\"choices\":[{\"delta\":{\"content\":\"completed\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n".into()}
++        }
++    }));
++    let provider = tokio::spawn(async move {
++        axum::serve(listener, app).await.unwrap();
++    });
++    let backend = Backend::new().await.unwrap();
++    let state = backend.http_state().unwrap();
++    let sid = backend
++        .sessions
++        .lock()
++        .unwrap()
++        .create_session("HTTP journal")
++        .unwrap()
++        .id;
++    let dbpath =
++        PathBuf::from(std::env::var_os("XDG_DATA_HOME").unwrap()).join("kde-assistant/sessions.db");
++    if fail_result {
++        Connection::open(&dbpath).unwrap().execute_batch("CREATE TRIGGER fail_result BEFORE UPDATE ON operation_journal WHEN NEW.state='succeeded' BEGIN SELECT RAISE(ABORT,'result_failure'); END;").unwrap();
++    }
++    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
++    let base = format!("http://{}", listener.local_addr().unwrap());
++    let app = http_server::router(state.clone());
++    let server = tokio::spawn(async move {
++        axum::serve(listener, app).await.unwrap();
++    });
++    let client = reqwest::Client::builder()
++        .no_proxy()
++        .timeout(Duration::from_secs(10))
++        .build()
++        .unwrap();
++    let stream = client
++        .post(format!("{base}/api/chat"))
++        .header("Host", "127.0.0.1:8765")
++        .bearer_auth(&state.local_token)
++        .json(&serde_json::json!({"session_id":sid,"message":"synthetic request"}))
++        .send()
++        .await
++        .unwrap()
++        .text()
++        .await
++        .unwrap();
++    assert!(file.exists());
++    if fail_result {
++        assert!(stream.contains("event: error"));
++        assert!(!stream.contains("event: done"));
++        assert!(!stream.contains("event: tool_result"));
++        assert_eq!(calls.load(Ordering::SeqCst), 1);
++    } else {
++        assert!(stream.contains("event: done"));
++        assert!(stream.contains("event: tool_result"));
++        assert_eq!(calls.load(Ordering::SeqCst), 2);
++    }
++    let url = format!("{base}/api/tools/operations?session_id={sid}");
++    assert_eq!(
++        client
++            .get(&url)
++            .header("Host", "127.0.0.1:8765")
++            .send()
++            .await
++            .unwrap()
++            .status(),
++        401
++    );
++    let records: serde_json::Value = client
++        .get(&url)
++        .header("Host", "127.0.0.1:8765")
++        .bearer_auth(&state.local_token)
++        .send()
++        .await
++        .unwrap()
++        .json()
++        .await
++        .unwrap();
++    assert_eq!(records.as_array().unwrap().len(), 1);
++    for session in ["nonexistent-session", "' OR 1=1 --"] {
++        let response = client
++            .get(format!("{base}/api/tools/operations"))
++            .query(&[("session_id", session), ("limit", "100000")])
++            .header("Host", "127.0.0.1:8765")
++            .bearer_auth(&state.local_token)
++            .send()
++            .await
++            .unwrap();
++        assert_eq!(response.status(), 200);
++        assert_eq!(
++            response.json::<serde_json::Value>().await.unwrap(),
++            serde_json::json!([])
++        );
++    }
++    assert_eq!(
++        records[0]["state"],
++        if fail_result {
++            "unknown_outcome"
++        } else {
++            "succeeded"
++        }
++    );
++    let id = records[0]["turn_id"].as_str().unwrap();
++    assert!(stream.contains(id));
++    assert!(!records.to_string().contains("PRIVATE_HTTP_SECRET"));
++    assert_eq!(
++        backend
++            .sessions
++            .lock()
++            .unwrap()
++            .get_messages(&sid)
++            .unwrap()
++            .len(),
++        if fail_result { 1 } else { 4 }
++    );
++    assert_eq!(state.chat_tasks.active_count(), 0);
++    server.abort();
++    provider.abort();
++    let _ = server.await;
++    let _ = provider.await;
++    let old_database = Arc::downgrade(&backend.sessions);
++    drop(client);
++    drop(state);
++    drop(backend);
++    tokio::time::timeout(Duration::from_secs(3), async {
++        while old_database.upgrade().is_some() {
++            tokio::time::sleep(Duration::from_millis(10)).await;
++        }
++    })
++    .await
++    .unwrap();
++    let restored = SessionManager::open_at(dbpath).unwrap();
++    assert_eq!(
++        restored.list_operations(Some(&sid), 50).unwrap()[0].state,
++        if fail_result {
++            "unknown_outcome"
++        } else {
++            "succeeded"
++        }
++    );
++    assert_eq!(fs::read_to_string(file).unwrap(), "PRIVATE_HTTP_SECRET");
++}
++#[test]
++fn http_success_and_authenticated_journal_match_turn() {
++    if isolated_http("http_success_and_authenticated_journal_match_turn") {
++        return;
++    }
++    rt().block_on(http_journal(false));
++}
++#[test]
++fn http_result_write_failure_has_no_tool_success_or_done() {
++    if isolated_http("http_result_write_failure_has_no_tool_success_or_done") {
++        return;
++    }
++    rt().block_on(http_journal(true));
++}
++
++#[test]
++fn http_manual_denial_is_persisted_and_write_failure_is_closed() {
++    if isolated_http("http_manual_denial_is_persisted_and_write_failure_is_closed") {
++        return;
++    }
++    rt().block_on(async {
++        use kde_assistant_lib::backend::{http_server, Backend};
++        Config::first_run().save().await.unwrap();
++        let backend = Backend::new().await.unwrap();
++        let state = backend.http_state().unwrap();
++        let sid = backend.sessions.lock().unwrap().create_session("denial").unwrap().id;
++        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
++        let base = format!("http://{}", listener.local_addr().unwrap());
++        let app = http_server::router(state.clone());
++        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
++        let client = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(5)).build().unwrap();
++        let private = Private::new();
++        let effect = private.0.join("denied.txt");
++        let request = || client.post(format!("{base}/api/tools/execute"))
++            .header("Host", "127.0.0.1:8765").bearer_auth(&state.local_token)
++            .json(&serde_json::json!({"name":"edit_file","session_id":sid,"arguments":{"path":effect,"mode":"append","content":"PRIVATE_DENIAL_SECRET"}}));
++        assert_eq!(request().send().await.unwrap().status(), 403);
++        let records = backend.sessions.lock().unwrap().list_operations(Some(&sid), 50).unwrap();
++        assert_eq!(records.len(), 1);
++        assert_eq!(records[0].state, "denied");
++        assert!(!effect.exists());
++        let sql = Connection::open(PathBuf::from(std::env::var_os("XDG_DATA_HOME").unwrap()).join("kde-assistant/sessions.db")).unwrap();
++        sql.execute_batch("CREATE TRIGGER reject_denial BEFORE UPDATE ON operation_journal WHEN NEW.state='denied' BEGIN SELECT RAISE(ABORT,'denial_failure'); END;").unwrap();
++        assert_eq!(request().send().await.unwrap().status(), 500);
++        assert!(!effect.exists());
++        assert_eq!(sql.query_row("SELECT COUNT(*) FROM operation_events WHERE state='dispatched'", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
++        assert_eq!(sql.query_row("SELECT COUNT(*) FROM operation_journal WHERE state='denied'", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
++        server.abort();
++        let _ = server.await;
++    });
++}
++
++#[test]
++fn dispatched_marker_without_an_effect_is_still_unknown() {
++    crash("dispatch_without_effect", Some("unknown_outcome"), false);
++}
++#[test]
++fn persisted_failure_survives_without_claiming_effect_rollback() {
++    crash("failed_result", Some("failed"), true);
++}

@@ -1,0 +1,125 @@
+[
+  {
+    "name": "fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 0.968
+  },
+  {
+    "name": "clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "seconds": 7.794
+  },
+  {
+    "name": "clippy-legacy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--features",
+      "legacy-fixtures",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "seconds": 8.1
+  },
+  {
+    "name": "build",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant",
+      "--bin",
+      "bench_voice"
+    ],
+    "exit": 0,
+    "seconds": 0.817
+  },
+  {
+    "name": "worker",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "f4_worker",
+      "--",
+      "--ignored",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "exit": 0,
+    "seconds": 4.944
+  },
+  {
+    "name": "f4",
+    "command": [
+      "python3",
+      "scripts/validate_f4.py",
+      "--output",
+      "/home/eirom/KDE-ASSISTANT-2/docs/recovery/F4-R-EVIDENCE/gates-final/f4"
+    ],
+    "exit": 0,
+    "seconds": 39.598
+  },
+  {
+    "name": "f35",
+    "command": [
+      "python3",
+      "scripts/validate_f35.py",
+      "--plasma"
+    ],
+    "exit": 0,
+    "seconds": 23.218,
+    "copied_summary": "docs/recovery/F4-R-EVIDENCE/gates-final/f35-results.json"
+  },
+  {
+    "name": "f2",
+    "command": [
+      "python3",
+      "scripts/validate_f2.py"
+    ],
+    "exit": 0,
+    "seconds": 72.718
+  },
+  {
+    "name": "f3",
+    "command": [
+      "python3",
+      "scripts/validate_f3.py",
+      "--runtime-only",
+      "--plasma"
+    ],
+    "exit": 0,
+    "seconds": 32.3,
+    "copied_summary": "docs/recovery/F4-R-EVIDENCE/gates-final/f3-results.json"
+  },
+  {
+    "name": "f1b3b",
+    "command": [
+      "python3",
+      "scripts/validate_f1b3b.py",
+      "--qml"
+    ],
+    "exit": 0,
+    "seconds": 38.03
+  }
+]

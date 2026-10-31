@@ -1,0 +1,480 @@
+{
+  "scope": "AUTOMATED_AUDIO_FIXTURE, synthetic Spanish text; NOT audible or human verified",
+  "text": "Hola. Esta es una prueba de voz en espa\u00f1ol de KDE Assistant.",
+  "model_sha256": "40febfb1679c69a4505ff311dc136e121e3419a13a290ef264fdf43ddedd0fb1",
+  "worker_sha256": "311e775e82c39b2729637436e885f39e3b21a62a4c911ba182a11fee16bbd383",
+  "records": [
+    {
+      "run": 0,
+      "name": "official-cli",
+      "wall_ms": 6870.136178999985,
+      "cpu_seconds": 9.820292,
+      "peak_sample_rss_kib": 219552,
+      "peak_sample_pss_kib": 211682,
+      "first_pcm_observed_ms": 5669.563757999981,
+      "observation_interval_ms": 25,
+      "pcm_bytes": 140288,
+      "generated_seconds": 3.1811337868480725,
+      "pcm_sha256": "d1b1faa94cdb7b6ae28760198010fc126062951c83e606615ded7767122aa02a",
+      "pid": 2828,
+      "reaped": true,
+      "loadavg_min": [
+        1.7373046875,
+        1.23095703125,
+        0.60595703125
+      ],
+      "loadavg_max": [
+        1.7783203125,
+        1.2568359375,
+        0.62158203125
+      ],
+      "worker_metrics": {}
+    },
+    {
+      "run": 0,
+      "name": "worker-1",
+      "wall_ms": 7561.942497999951,
+      "cpu_seconds": 7.395857,
+      "peak_sample_rss_kib": 215276,
+      "peak_sample_pss_kib": 208208,
+      "first_pcm_observed_ms": 5413.34932999996,
+      "observation_interval_ms": 25,
+      "pcm_bytes": 140288,
+      "generated_seconds": 3.1811337868480725,
+      "pcm_sha256": "c367bc60823bf9120ca3fddd0ab13fb5003c8ca8d2b3946613fd31d5d1c30e5c",
+      "pid": 2843,
+      "reaped": true,
+      "loadavg_min": [
+        1.7783203125,
+        1.2568359375,
+        0.62158203125
+      ],
+      "loadavg_max": [
+        1.79638671875,
+        1.26953125,
+        0.62939453125
+      ],
+      "worker_metrics": {
+        "import_ms": 609.7901900000124,
+        "load_ms": 4484.431504999975,
+        "first_pcm_ms": 5370.3026939999745,
+        "synthesis_ms": 2274.187353000002,
+        "pcm_bytes": 140288,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 1,
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      }
+    },
+    {
+      "run": 0,
+      "name": "worker-2",
+      "wall_ms": 6936.925803999998,
+      "cpu_seconds": 7.927592000000002,
+      "peak_sample_rss_kib": 232408,
+      "peak_sample_pss_kib": 225339,
+      "first_pcm_observed_ms": 5638.367017999997,
+      "observation_interval_ms": 25,
+      "pcm_bytes": 145408,
+      "generated_seconds": 3.297233560090703,
+      "pcm_sha256": "4853542872d403eecd8ced96e7fe2b2ba2ca940f79aa6a36fd08d0865aec153d",
+      "pid": 2845,
+      "reaped": true,
+      "loadavg_min": [
+        1.79638671875,
+        1.26953125,
+        0.62939453125
+      ],
+      "loadavg_max": [
+        1.97314453125,
+        1.31494140625,
+        0.64794921875
+      ],
+      "worker_metrics": {
+        "import_ms": 594.3380710000383,
+        "load_ms": 4871.357677999981,
+        "first_pcm_ms": 5621.226486000012,
+        "synthesis_ms": 1295.0952510000207,
+        "pcm_bytes": 145408,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 2,
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      }
+    },
+    {
+      "run": 0,
+      "name": "worker-3",
+      "wall_ms": 6194.971389000046,
+      "cpu_seconds": 7.674697999999999,
+      "peak_sample_rss_kib": 214444,
+      "peak_sample_pss_kib": 207364,
+      "first_pcm_observed_ms": 5157.8983170000465,
+      "observation_interval_ms": 25,
+      "pcm_bytes": 138752,
+      "generated_seconds": 3.1463038548752835,
+      "pcm_sha256": "357110b04e0e4026326d706b3e59de3fb9d85446f5e997833f256083db472518",
+      "pid": 2945,
+      "reaped": true,
+      "loadavg_min": [
+        1.97314453125,
+        1.31494140625,
+        0.64794921875
+      ],
+      "loadavg_max": [
+        2.21142578125,
+        1.3876953125,
+        0.6787109375
+      ],
+      "worker_metrics": {
+        "import_ms": 627.1297999999774,
+        "load_ms": 4344.084160000022,
+        "first_pcm_ms": 5124.30300699998,
+        "synthesis_ms": 1058.9559699999995,
+        "pcm_bytes": 138752,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      }
+    },
+    {
+      "run": 1,
+      "name": "official-cli",
+      "wall_ms": 6613.099422999994,
+      "cpu_seconds": 9.477769000000002,
+      "peak_sample_rss_kib": 219296,
+      "peak_sample_pss_kib": 211448,
+      "first_pcm_observed_ms": 5375.902135999979,
+      "observation_interval_ms": 25,
+      "pcm_bytes": 140288,
+      "generated_seconds": 3.1811337868480725,
+      "pcm_sha256": "79ea1bdcaeed8efe20944cdb183332ebf3ef83c00e56dbe7cce7ade41c22484b",
+      "pid": 3037,
+      "reaped": true,
+      "loadavg_min": [
+        2.1142578125,
+        1.380859375,
+        0.6787109375
+      ],
+      "loadavg_max": [
+        2.21142578125,
+        1.3876953125,
+        0.6806640625
+      ],
+      "worker_metrics": {}
+    },
+    {
+      "run": 1,
+      "name": "worker-1",
+      "wall_ms": 7596.084675999975,
+      "cpu_seconds": 7.446013000000001,
+      "peak_sample_rss_kib": 215764,
+      "peak_sample_pss_kib": 208685,
+      "first_pcm_observed_ms": 5411.673705999988,
+      "observation_interval_ms": 25,
+      "pcm_bytes": 140800,
+      "generated_seconds": 3.1927437641723357,
+      "pcm_sha256": "25ee1a44f506ba82db04a10821b6f9c45a1e5800b97b8f23e0dc45e049f0f708",
+      "pid": 3067,
+      "reaped": true,
+      "loadavg_min": [
+        1.9423828125,
+        1.3681640625,
+        0.6806640625
+      ],
+      "loadavg_max": [
+        2.1142578125,
+        1.380859375,
+        0.6845703125
+      ],
+      "worker_metrics": {
+        "import_ms": 615.2973430000088,
+        "load_ms": 4496.946215999969,
+        "first_pcm_ms": 5378.050664,
+        "synthesis_ms": 2301.3102849999996,
+        "pcm_bytes": 140800,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 1,
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      }
+    },
+    {
+      "run": 1,
+      "name": "worker-2",
+      "wall_ms": 6537.696755000014,
+      "cpu_seconds": 7.594913999999996,
+      "peak_sample_rss_kib": 216116,
+      "peak_sample_pss_kib": 209071,
+      "first_pcm_observed_ms": 5301.102572000047,
+      "observation_interval_ms": 25,
+      "pcm_bytes": 143360,
+      "generated_seconds": 3.250793650793651,
+      "pcm_sha256": "eaf6b96bfdd917ccb16050e221b37de510898f8e6d80aea949814ef0153ed6cb",
+      "pid": 3070,
+      "reaped": true,
+      "loadavg_min": [
+        1.9423828125,
+        1.3681640625,
+        0.6845703125
+      ],
+      "loadavg_max": [
+        1.947265625,
+        1.37890625,
+        0.69189453125
+      ],
+      "worker_metrics": {
+        "import_ms": 603.1954900000187,
+        "load_ms": 4488.18871200001,
+        "first_pcm_ms": 5253.745938000009,
+        "synthesis_ms": 1290.5649089999542,
+        "pcm_bytes": 143360,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 2,
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      }
+    },
+    {
+      "run": 1,
+      "name": "worker-3",
+      "wall_ms": 6201.223527999957,
+      "cpu_seconds": 7.679294000000007,
+      "peak_sample_rss_kib": 215948,
+      "peak_sample_pss_kib": 208913,
+      "first_pcm_observed_ms": 5168.701800000008,
+      "observation_interval_ms": 25,
+      "pcm_bytes": 141824,
+      "generated_seconds": 3.215963718820862,
+      "pcm_sha256": "1e8fcdcb3208029786a2c0f54fa0f75c8a0dfcffa40638261e0640a8a7541324",
+      "pid": 3073,
+      "reaped": true,
+      "loadavg_min": [
+        1.947265625,
+        1.37890625,
+        0.69189453125
+      ],
+      "loadavg_max": [
+        1.95166015625,
+        1.3896484375,
+        0.69921875
+      ],
+      "worker_metrics": {
+        "import_ms": 600.7931169999665,
+        "load_ms": 4414.0819099999935,
+        "first_pcm_ms": 5158.055962999981,
+        "synthesis_ms": 1018.8325910000344,
+        "pcm_bytes": 141824,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      }
+    },
+    {
+      "run": 2,
+      "name": "official-cli",
+      "wall_ms": 6524.572056000011,
+      "cpu_seconds": 9.352249000000004,
+      "peak_sample_rss_kib": 219188,
+      "peak_sample_pss_kib": 211444,
+      "first_pcm_observed_ms": 5346.442190000005,
+      "observation_interval_ms": 25,
+      "pcm_bytes": 139264,
+      "generated_seconds": 3.1579138321995464,
+      "pcm_sha256": "377057d204785b9a00aeed688023a47bc7cce4567a4c138270a7de26803aaa30",
+      "pid": 3077,
+      "reaped": true,
+      "loadavg_min": [
+        1.95166015625,
+        1.3896484375,
+        0.69921875
+      ],
+      "loadavg_max": [
+        1.95556640625,
+        1.39990234375,
+        0.70654296875
+      ],
+      "worker_metrics": {}
+    },
+    {
+      "run": 2,
+      "name": "worker-1",
+      "wall_ms": 7494.971582999995,
+      "cpu_seconds": 7.36904300000001,
+      "peak_sample_rss_kib": 215284,
+      "peak_sample_pss_kib": 208205,
+      "first_pcm_observed_ms": 5381.138747000023,
+      "observation_interval_ms": 25,
+      "pcm_bytes": 139264,
+      "generated_seconds": 3.1579138321995464,
+      "pcm_sha256": "8a4f5a863a2f2f5f07a72ed8832caa71e78e4687cd4edfb289badd5e8c0a89b6",
+      "pid": 3082,
+      "reaped": true,
+      "loadavg_min": [
+        1.87890625,
+        1.39306640625,
+        0.70654296875
+      ],
+      "loadavg_max": [
+        1.95556640625,
+        1.4033203125,
+        0.7158203125
+      ],
+      "worker_metrics": {
+        "import_ms": 608.598422,
+        "load_ms": 4453.575650000004,
+        "first_pcm_ms": 5327.090824000038,
+        "synthesis_ms": 2275.575919000005,
+        "pcm_bytes": 139264,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 1,
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      }
+    },
+    {
+      "run": 2,
+      "name": "worker-2",
+      "wall_ms": 6541.195239999979,
+      "cpu_seconds": 7.597027000000003,
+      "peak_sample_rss_kib": 216484,
+      "peak_sample_pss_kib": 209437,
+      "first_pcm_observed_ms": 5285.999367999977,
+      "observation_interval_ms": 25,
+      "pcm_bytes": 145408,
+      "generated_seconds": 3.297233560090703,
+      "pcm_sha256": "65f0d416ab851b0c33cd1fe7d19b8b3cb68ad9b4512f154ea131d6fc2004e3ec",
+      "pid": 3084,
+      "reaped": true,
+      "loadavg_min": [
+        1.888671875,
+        1.4033203125,
+        0.7158203125
+      ],
+      "loadavg_max": [
+        2.05810546875,
+        1.44677734375,
+        0.73388671875
+      ],
+      "worker_metrics": {
+        "import_ms": 605.9679070000357,
+        "load_ms": 4460.563112999978,
+        "first_pcm_ms": 5245.849086000021,
+        "synthesis_ms": 1308.513720999997,
+        "pcm_bytes": 145408,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 2,
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      }
+    },
+    {
+      "run": 2,
+      "name": "worker-3",
+      "wall_ms": 6216.9276910000235,
+      "cpu_seconds": 7.677869000000005,
+      "peak_sample_rss_kib": 214272,
+      "peak_sample_pss_kib": 207196,
+      "first_pcm_observed_ms": 5239.480236000019,
+      "observation_interval_ms": 25,
+      "pcm_bytes": 138752,
+      "generated_seconds": 3.1463038548752835,
+      "pcm_sha256": "fd51a562986ebaa6f6b761e75a8a8aaa382016b716f6289d30496469c7cb6f3e",
+      "pid": 3087,
+      "reaped": true,
+      "loadavg_min": [
+        1.97314453125,
+        1.43896484375,
+        0.73388671875
+      ],
+      "loadavg_max": [
+        2.05810546875,
+        1.44677734375,
+        0.7353515625
+      ],
+      "worker_metrics": {
+        "import_ms": 611.2008639999544,
+        "load_ms": 4450.764246000006,
+        "first_pcm_ms": 5204.235418999986,
+        "synthesis_ms": 988.245930000005,
+        "pcm_bytes": 138752,
+        "sample_rate": 22050,
+        "channels": 1,
+        "sample_width": 2,
+        "threads": 3,
+        "providers": [
+          "CPUExecutionProvider"
+        ]
+      }
+    }
+  ],
+  "summaries": {
+    "official-cli": {
+      "n": 3,
+      "p50_ms": 6613.099422999994,
+      "p95_ms": 6870.136178999985,
+      "min_ms": 6524.572056000011,
+      "max_ms": 6870.136178999985,
+      "mean_ms": 6669.26921933333,
+      "stddev_ms": 146.56039776893246,
+      "mad_ms": 88.52736699998331
+    },
+    "worker-1": {
+      "n": 3,
+      "p50_ms": 7561.942497999951,
+      "p95_ms": 7596.084675999975,
+      "min_ms": 7494.971582999995,
+      "max_ms": 7596.084675999975,
+      "mean_ms": 7550.99958566664,
+      "stddev_ms": 41.99821338863946,
+      "mad_ms": 34.142178000023705
+    },
+    "worker-2": {
+      "n": 3,
+      "p50_ms": 6541.195239999979,
+      "p95_ms": 6936.925803999998,
+      "min_ms": 6537.696755000014,
+      "max_ms": 6936.925803999998,
+      "mean_ms": 6671.93926633333,
+      "stddev_ms": 187.37922102472643,
+      "mad_ms": 3.4984849999655125
+    },
+    "worker-3": {
+      "n": 3,
+      "p50_ms": 6201.223527999957,
+      "p95_ms": 6216.9276910000235,
+      "min_ms": 6194.971389000046,
+      "max_ms": 6216.9276910000235,
+      "mean_ms": 6204.374202666675,
+      "stddev_ms": 9.236336305418346,
+      "mad_ms": 6.25213899991104
+    }
+  },
+  "audio_files_deleted": true
+}

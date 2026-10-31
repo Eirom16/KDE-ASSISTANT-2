@@ -1,0 +1,16 @@
+[
+  {
+    "name": "sherpa-onnx-streaming-zipformer-es-kroko-2025-08-06.tar.bz2",
+    "size": 124394665,
+    "digest": "sha256:31b2230a95d23290b308b393da930015a4b2105cb3abb9367aed35f7fcf29cf1",
+    "browser_download_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-es-kroko-2025-08-06.tar.bz2",
+    "updated_at": "2025-08-16T13:03:22Z"
+  },
+  {
+    "name": "sherpa-onnx-moonshine-base-es-quantized-2026-02-27.tar.bz2",
+    "size": 50846902,
+    "digest": "sha256:850c3dcc5dfccc8b1feb10bb221b11d6039b6f5c626241729f46863771016383",
+    "browser_download_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-base-es-quantized-2026-02-27.tar.bz2",
+    "updated_at": "2026-02-27T09:30:04Z"
+  }
+]

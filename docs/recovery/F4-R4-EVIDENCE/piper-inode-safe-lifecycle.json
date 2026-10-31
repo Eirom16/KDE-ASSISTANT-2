@@ -1,0 +1,77 @@
+{
+  "category": "AUTOMATED_AUDIO_FIXTURE",
+  "audible": "NOT_TESTED",
+  "physical_microphone": "NOT_TESTED",
+  "results": [
+    {
+      "test": "cancel-preparation",
+      "status": "PASS",
+      "cancel_ms": 17.51691500066954,
+      "children_reaped": [
+        37297
+      ]
+    },
+    {
+      "test": "cancel-active-preparation",
+      "status": "PASS",
+      "cancel_ms": 18.00798299973394,
+      "children_reaped": [
+        37298
+      ]
+    },
+    {
+      "test": "cancel-null-playback",
+      "status": "PASS",
+      "cancel_ms": 6.064582999897539
+    },
+    {
+      "test": "new-playback-after-cancel",
+      "status": "PASS"
+    },
+    {
+      "test": "session-change-during-playback",
+      "status": "PASS",
+      "cancel_ms": 14.172684999721241
+    },
+    {
+      "test": "mock-completed-turn-auto-read",
+      "status": "PASS",
+      "provider_calls": 1,
+      "persisted_text_unchanged": true
+    },
+    {
+      "test": "missing-model-text-independent",
+      "status": "PASS",
+      "error": "Piper o voz no instalados en las rutas configuradas"
+    }
+  ],
+  "idle": {
+    "seconds": 3.004,
+    "processes": {
+      "37290": {
+        "rss_kib": 29972,
+        "pss_kib": 26652,
+        "cpu_one_core_percent": 0.0
+      }
+    }
+  },
+  "provider_calls": [
+    {
+      "path": "/v1/chat/completions",
+      "messages": 2
+    }
+  ],
+  "observed_child_pids": [
+    37297,
+    37298,
+    37300,
+    37310,
+    37315,
+    37320,
+    37326,
+    37343,
+    37350,
+    37355
+  ],
+  "profile": "/var/tmp/kda-f4r3-piper-aqrh6h0h/coordinator-1792460422667486202"
+}

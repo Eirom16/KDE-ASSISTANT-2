@@ -1,0 +1,12 @@
+{
+  "command": [
+    "python3",
+    "-B",
+    "scripts/validate_f3.py",
+    "--runtime-only",
+    "--plasma"
+  ],
+  "exit": 0,
+  "seconds": 33.15315489299974,
+  "profile": "/var/tmp/kda-f4r4-_rbmkh36/f3-diagnostic"
+}

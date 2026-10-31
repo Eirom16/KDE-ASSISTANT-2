@@ -1,0 +1,28 @@
+{
+  "preserved_hashes": {
+    "docs/recovery/F4-VOICE-CONTRACT.md": "fef1c6c0096f17f7bfb6aa78c9c554e5bd1b790621f510aba1b2eeaf44eaeb82",
+    "docs/recovery/F4-REPORT.md": "6ea6d756160367ef2217ea47691c33824ea5c0419a22f44a8298ead3a48c4a15",
+    "docs/recovery/F4-MODEL-MATRIX.md": "f3508ea7eba413cc94e088f3f44b4f543d625ccf0a9e12e5aeaa2f04d413a26b",
+    "docs/recovery/F4-ISSUES.md": "9e56ff413891d1f2e3894081fde796c37d9beda871d570d67df517babc16f365",
+    "docs/recovery/F4-RESULTS.md": "d88334c2da9d24a915283caf9f3828b2b9e250c9fa8c2890f1ab789dc6097fe7",
+    "src/main.rs": "20c8b88077552c62a8e8e74d26b66665248592bce696655057e4721fd1fe91c0",
+    "src/backend/stt.rs": "bb430cd91dc8d9d480ac563c247aa248c2e52ea102eed3cafecf3f808bc7868c",
+    "src/bin/bench_voice.rs": "7939e29748d586604dc23f4752aa150f13793b32d8d69816454b3dab417144f0"
+  },
+  "free_disk": {
+    "total": 251763412992,
+    "used": 120699265024,
+    "free": 128644161536
+  },
+  "meminfo": {
+    "MemAvailable": "    3887440 kB",
+    "SwapFree": "        5974152 kB"
+  },
+  "cargo_jobs": "default",
+  "cpu_affinity": [
+    0,
+    1,
+    2,
+    3
+  ]
+}

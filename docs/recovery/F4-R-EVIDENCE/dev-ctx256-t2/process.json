@@ -1,0 +1,32 @@
+{
+  "command": [
+    "/home/eirom/KDE-ASSISTANT-2/target/debug/bench_voice",
+    "/var/tmp/kda-f4-tiny-jaan_09m/ggml-tiny.bin",
+    "/tmp/kda-f4-bench-gwjynnmf/corpus/tone.wav",
+    "3",
+    "/home/eirom/KDE-ASSISTANT-2/docs/recovery/F4-R-EVIDENCE/dev-ctx256-t2/benchmark.json",
+    "2",
+    "256",
+    "0.2"
+  ],
+  "exit": 0,
+  "elapsed_seconds": 18.77330938200066,
+  "cpu_user_seconds": 35.710057,
+  "cpu_system_seconds": 0.238977,
+  "maxrss_kib": 130972,
+  "sample_peak_rss_kib": 131384,
+  "sample_peak_pss_kib": 128275,
+  "loadavg_min": [
+    2.91943359375,
+    3.68896484375,
+    3.18896484375
+  ],
+  "loadavg_max": [
+    3.32568359375,
+    3.7490234375,
+    3.2138671875
+  ],
+  "affinity_requested": "inherited",
+  "compiler_overlap": false,
+  "scope": "synthetic signal; not speech accuracy; not hardware acceptance"
+}

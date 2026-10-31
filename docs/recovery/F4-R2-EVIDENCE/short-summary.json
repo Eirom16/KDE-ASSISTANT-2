@@ -1,0 +1,259 @@
+{
+  "sample": "short",
+  "reference_confirmed": true,
+  "unique_human_recordings": 1,
+  "words": 4,
+  "scope": "First authorized human corpus take; NOT product PTT; no model selection",
+  "results": [
+    {
+      "sample": "short",
+      "sha256": "a79638516c5110158698649e94fd4ef1eb4334e42dc801208973d7460ae3d039",
+      "engine": "whisper_full",
+      "audio_ctx": 0,
+      "seconds": 8.0,
+      "inference": {
+        "n": 3,
+        "p50_ms": 36984.624967,
+        "p95_ms": 37019.433917999995,
+        "min_ms": 31376.644089999998,
+        "max_ms": 37019.433917999995,
+        "mean_ms": 35126.90099166667,
+        "stddev_ms": 2651.8701623748834,
+        "mad_ms": 34.808950999991794
+      },
+      "text_available_warm": {
+        "n": 3,
+        "p50_ms": 37013.180003,
+        "p95_ms": 37045.359437,
+        "min_ms": 31403.942589,
+        "max_ms": 37045.359437,
+        "mean_ms": 35154.16067633333,
+        "stddev_ms": 2651.8371815170844,
+        "mad_ms": 32.179433999997855
+      },
+      "cold_model_load_ms": 144.56776,
+      "conversion_ms": 62.0353,
+      "score": {
+        "unique_clips": 1,
+        "reference_words": 4,
+        "primary_run0_errors": 0,
+        "primary_run0_wer": 0.0,
+        "repeat_score_variation": false,
+        "substitutions": 0,
+        "deletions": 0,
+        "insertions": 0,
+        "unjustified_empty": 0
+      },
+      "process": {
+        "exit": 0,
+        "reaped": true,
+        "elapsed_ms": 105783.02748699934,
+        "compiler_overlap": false,
+        "peak_rss_kib": 227188,
+        "peak_pss_kib": 223070,
+        "sampled_cpu_ticks": 30948,
+        "ticks_per_second": 100
+      },
+      "loadavg_min": [
+        0.46923828125,
+        0.40185546875,
+        0.53076171875
+      ],
+      "loadavg_max": [
+        4.03955078125,
+        1.6796875,
+        0.97900390625
+      ],
+      "hypothesis": "OMITTED: remains private until evaluation closure",
+      "text_available_warm_ms": [
+        31403.942589,
+        37013.180003,
+        37045.359437
+      ],
+      "state_ms": [
+        18.656934,
+        19.466302000000002,
+        14.713046
+      ],
+      "text_extraction_ms": [
+        0.019659,
+        0.009309,
+        0.009808
+      ],
+      "inference_region_cpu_ticks": [
+        9233,
+        10867,
+        10831
+      ]
+    },
+    {
+      "sample": "short",
+      "sha256": "a79638516c5110158698649e94fd4ef1eb4334e42dc801208973d7460ae3d039",
+      "engine": "whisper_reduced",
+      "audio_ctx": 512,
+      "seconds": 8.0,
+      "inference": {
+        "n": 3,
+        "p50_ms": 10950.976950999999,
+        "p95_ms": 11134.069587,
+        "min_ms": 10820.496297,
+        "max_ms": 11134.069587,
+        "mean_ms": 10968.514278333332,
+        "stddev_ms": 128.6149821180862,
+        "mad_ms": 130.48065399999905
+      },
+      "text_available_warm": {
+        "n": 3,
+        "p50_ms": 10974.833029,
+        "p95_ms": 11161.374593999999,
+        "min_ms": 10846.360154,
+        "max_ms": 11161.374593999999,
+        "mean_ms": 10994.189258999999,
+        "stddev_ms": 129.33038333917756,
+        "mad_ms": 128.47287499999948
+      },
+      "cold_model_load_ms": 257.27891600000004,
+      "conversion_ms": 63.18883,
+      "score": {
+        "unique_clips": 1,
+        "reference_words": 4,
+        "primary_run0_errors": 0,
+        "primary_run0_wer": 0.0,
+        "repeat_score_variation": false,
+        "substitutions": 0,
+        "deletions": 0,
+        "insertions": 0,
+        "unjustified_empty": 0
+      },
+      "process": {
+        "exit": 0,
+        "reaped": true,
+        "elapsed_ms": 33370.647439001914,
+        "compiler_overlap": false,
+        "peak_rss_kib": 157016,
+        "peak_pss_kib": 152866,
+        "sampled_cpu_ticks": 9609,
+        "ticks_per_second": 100
+      },
+      "loadavg_min": [
+        4.03955078125,
+        1.6796875,
+        0.97900390625
+      ],
+      "loadavg_max": [
+        4.68603515625,
+        2.0947265625,
+        1.14501953125
+      ],
+      "hypothesis": "OMITTED: remains private until evaluation closure",
+      "text_available_warm_ms": [
+        10974.833029,
+        11161.374593999999,
+        10846.360154
+      ],
+      "state_ms": [
+        18.92886,
+        22.311318,
+        20.29118
+      ],
+      "text_extraction_ms": [
+        0.009887,
+        0.010509000000000001,
+        0.009474
+      ],
+      "inference_region_cpu_ticks": [
+        3195,
+        3214,
+        3194
+      ]
+    },
+    {
+      "sample": "short",
+      "sha256": "a79638516c5110158698649e94fd4ef1eb4334e42dc801208973d7460ae3d039",
+      "engine": "vosk_small_es",
+      "audio_ctx": null,
+      "seconds": 8.0,
+      "inference": {
+        "n": 3,
+        "p50_ms": 1042.443115999049,
+        "p95_ms": 1048.652402998414,
+        "min_ms": 1038.8300209997396,
+        "max_ms": 1048.652402998414,
+        "mean_ms": 1043.308513332401,
+        "stddev_ms": 4.056392604305727,
+        "mad_ms": 3.6130949993093964
+      },
+      "text_available_warm": {
+        "n": 3,
+        "p50_ms": 1123.5350169990852,
+        "p95_ms": 1138.8628690037876,
+        "min_ms": 1120.1199310016818,
+        "max_ms": 1138.8628690037876,
+        "mean_ms": 1127.5059390015183,
+        "stddev_ms": 8.150689026078327,
+        "mad_ms": 3.4150859974033665
+      },
+      "cold_model_load_ms": 723.9491889995406,
+      "conversion_ms": 0.2574600002844818,
+      "score": {
+        "unique_clips": 1,
+        "reference_words": 4,
+        "primary_run0_errors": 0,
+        "primary_run0_wer": 0.0,
+        "repeat_score_variation": false,
+        "substitutions": 0,
+        "deletions": 0,
+        "insertions": 0,
+        "unjustified_empty": 0
+      },
+      "process": {
+        "exit": 0,
+        "reaped": true,
+        "elapsed_ms": 5616.626171999087,
+        "compiler_overlap": false,
+        "peak_rss_kib": 165236,
+        "peak_pss_kib": 154093,
+        "sampled_cpu_ticks": 441,
+        "ticks_per_second": 100
+      },
+      "loadavg_min": [
+        4.259765625,
+        2.0595703125,
+        1.138671875
+      ],
+      "loadavg_max": [
+        4.630859375,
+        2.0947265625,
+        1.14501953125
+      ],
+      "hypothesis": "OMITTED: remains private until evaluation closure",
+      "text_available_warm_ms": [
+        1138.8628690037876,
+        1123.5350169990852,
+        1120.1199310016818
+      ],
+      "state_ms": [
+        90.0861120026093,
+        80.96064799974556,
+        81.17879600104061
+      ],
+      "text_extraction_ms": [
+        0.12435400276444852,
+        0.13125300029059872,
+        0.11111400090157986
+      ],
+      "inference_cpu_seconds": [
+        1.034262265,
+        1.03001084,
+        1.021415002
+      ],
+      "loaded_idle": {
+        "seconds": 1.0042511589999776,
+        "cpu_ticks": 0,
+        "rss_kib": 150932,
+        "pss_kib": 139842
+      },
+      "library_ms": 45.560243001091294
+    }
+  ]
+}

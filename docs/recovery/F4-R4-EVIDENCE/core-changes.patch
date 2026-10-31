@@ -1,0 +1,679 @@
+--- R3/src/main.rs
++++ R4/src/main.rs
+@@ -19,10 +19,15 @@
+ 
+ fn main() -> Result<()> {
+     let worker_args: Vec<String> = std::env::args().collect();
+-    if worker_args
+-        .get(1)
+-        .is_some_and(|a| a == "--voice-piper-check" || a == "--voice-piper-worker")
+-    {
++    if worker_args.get(1).is_some_and(|a| {
++        matches!(
++            a.as_str(),
++            "--voice-piper-check"
++                | "--voice-piper-worker"
++                | "--voice-piper-stream"
++                | "--voice-piper-warm-experiment"
++        )
++    }) {
+         let check = worker_args[1] == "--voice-piper-check";
+         anyhow::ensure!(
+             worker_args.len() == if check { 4 } else { 6 },
+@@ -38,7 +43,14 @@
+             std::io::stdout().write_all(&serde_json::to_vec(&error)?)?;
+             return Ok(());
+         }
+-        return kde_assistant_lib::backend::voice_tts::worker(
++        let worker = if worker_args[1] == "--voice-piper-warm-experiment" {
++            kde_assistant_lib::backend::voice_tts::warm_experiment
++        } else if worker_args[1] == "--voice-piper-stream" {
++            kde_assistant_lib::backend::voice_tts::stream_worker
++        } else {
++            kde_assistant_lib::backend::voice_tts::worker
++        };
++        return worker(
+             runtime,
+             model,
+             worker_args[4].parse()?,
+--- R3/src/backend/voice_coordinator.rs
++++ R4/src/backend/voice_coordinator.rs
+@@ -563,38 +563,52 @@
+         cancel: &Cancellation,
+     ) -> Result<()> {
+         let selected = super::voice_tts::Selection::from_config(&cfg)?;
+-        let checked = voice_process::run(
+-            selected.command(true)?,
+-            &[],
+-            4096,
+-            Duration::from_secs(15),
+-            cancel,
+-        )
+-        .await?;
+-        let error: Option<String> =
+-            serde_json::from_slice(&checked).context("Respuesta inválida del validador Piper")?;
+-        if let Some(error) = error {
+-            anyhow::bail!("{error}");
+-        }
+-        let synth = selected.command(false)?;
+-        let pcm = voice_process::run(
+-            synth,
++        anyhow::ensure!(
++            selected.paths_present(),
++            "Piper o voz no instalados en las rutas configuradas"
++        );
++        // One disposable worker verifies all resources; no separate duplicate preflight.
++        // Full PCM is retained: Piper's sentence chunks can leave measurable supply gaps.
++        let started = std::time::Instant::now();
++        let generated = voice_process::run_observed(
++            selected.command(false)?,
+             text.as_bytes(),
+             16 * 1024 * 1024,
+             Duration::from_secs(90),
+             cancel,
+         )
+         .await?;
++        let pcm = &generated.data;
+         anyhow::ensure!(
+             !pcm.is_empty() && pcm.len() % 2 == 0,
+             "Piper no generó audio PCM válido"
+         );
++        let pcm_complete_ms = started.elapsed().as_secs_f64() * 1000.0;
++        anyhow::ensure!(!cancel.is_cancelled(), "Operación cancelada");
++        let mut play = voice_process::command("/usr/bin/pw-play");
++        play.args([
++            "--raw",
++            "--format",
++            "s16",
++            "--channels",
++            "1",
++            "--rate",
++            "22050",
++            "-",
++        ]);
+         self.update(id, State::Speaking, String::new(), None);
+-        let mut play = voice_process::command("/usr/bin/pw-play");
+-        play.args(["--raw", "--format", "s16", "--channels", "1", "--rate"])
+-            .arg("22050")
+-            .arg("-");
+-        voice_process::run(play, &pcm, 1024, Duration::from_secs(180), cancel).await?;
++        let playback =
++            voice_process::run_observed(play, pcm, 1024, Duration::from_secs(180), cancel).await?;
++        log::info!(
++            "voice_tts_timing {}",
++            serde_json::json!({
++                "route": "single-validation-buffered", "pcm_bytes": pcm.len(),
++                "pcm_complete_received_ms": pcm_complete_ms,
++                "player_spawn_ms": pcm_complete_ms + playback.spawn_ms,
++                "worker_process": generated, "playback_process": playback,
++                "playback_complete_ms": started.elapsed().as_secs_f64() * 1000.0,
++            })
++        );
+         Ok(())
+     }
+     pub async fn cancel_turn(&self, session: Option<&str>, turn: &str) {
+--- R3/src/backend/voice_process.rs
++++ R4/src/backend/voice_process.rs
+@@ -6,7 +6,7 @@
+         atomic::{AtomicBool, Ordering},
+         Arc,
+     },
+-    time::Duration,
++    time::{Duration, Instant},
+ };
+ use tokio::{
+     io::{AsyncReadExt, AsyncWriteExt},
+@@ -46,15 +46,37 @@
+     cmd
+ }
+ 
++#[derive(Debug, serde::Serialize)]
++pub struct Output {
++    #[serde(skip)]
++    pub data: Vec<u8>,
++    pub spawn_ms: f64,
++    pub first_output_ms: Option<f64>,
++    pub output_complete_ms: f64,
++    pub process_complete_ms: f64,
++}
+ pub async fn run(
++    cmd: Command,
++    input: &[u8],
++    limit: usize,
++    deadline: Duration,
++    cancel: &Cancellation,
++) -> Result<Vec<u8>> {
++    Ok(run_observed(cmd, input, limit, deadline, cancel)
++        .await?
++        .data)
++}
++pub async fn run_observed(
+     mut cmd: Command,
+     input: &[u8],
+     limit: usize,
+     deadline: Duration,
+     cancel: &Cancellation,
+-) -> Result<Vec<u8>> {
++) -> Result<Output> {
++    let started = Instant::now();
+     anyhow::ensure!(!cancel.is_cancelled(), "Operación cancelada");
+     let mut child = cmd.spawn().context("No se pudo iniciar el motor local")?;
++    let spawn_ms = started.elapsed().as_secs_f64() * 1000.0;
+     let mut stdin = child.stdin.take().context("Motor sin entrada")?;
+     let stdout = child.stdout.take().context("Motor sin salida")?;
+     let work = async {
+@@ -66,15 +88,38 @@
+         };
+         let read = async {
+             let mut data = Vec::new();
+-            stdout.take(limit as u64 + 1).read_to_end(&mut data).await?;
+-            anyhow::ensure!(data.len() <= limit, "Salida de audio demasiado grande");
+-            Ok::<_, anyhow::Error>(data)
++            let mut stdout = stdout.take(limit as u64 + 1);
++            let mut first_output_ms = None;
++            let mut buffer = [0u8; 32768];
++            loop {
++                let size = stdout.read(&mut buffer).await?;
++                if size == 0 {
++                    break;
++                }
++                first_output_ms.get_or_insert(started.elapsed().as_secs_f64() * 1000.0);
++                anyhow::ensure!(
++                    data.len() + size <= limit,
++                    "Salida de audio demasiado grande"
++                );
++                data.extend_from_slice(&buffer[..size]);
++            }
++            Ok::<_, anyhow::Error>((
++                data,
++                first_output_ms,
++                started.elapsed().as_secs_f64() * 1000.0,
++            ))
+         };
+         let ((), data, status) = tokio::try_join!(write, read, async {
+             Ok::<_, anyhow::Error>(child.wait().await?)
+         })?;
+         anyhow::ensure!(status.success(), "Motor local detenido o modelo inválido");
+-        Ok(data)
++        Ok(Output {
++            data: data.0,
++            spawn_ms,
++            first_output_ms: data.1,
++            output_complete_ms: data.2,
++            process_complete_ms: started.elapsed().as_secs_f64() * 1000.0,
++        })
+     };
+     let result = tokio::select! { biased;
+         _ = cancel.cancelled() => { Err(anyhow::anyhow!("Operación cancelada")) },
+--- R3/src/backend/voice_tts.rs
++++ R4/src/backend/voice_tts.rs
+@@ -4,13 +4,15 @@
+ use anyhow::{Context, Result};
+ use sha2::{Digest, Sha256};
+ use std::{
+-    fs::OpenOptions,
+-    io::Read,
++    fs::{File, OpenOptions},
++    io::{Read, Seek},
++    os::fd::AsRawFd,
+     os::unix::{
+         fs::{MetadataExt, OpenOptionsExt},
+         process::CommandExt,
+     },
+     path::{Path, PathBuf},
++    time::Instant,
+ };
+ use tokio::process::Command;
+ 
+@@ -64,12 +66,21 @@
+             speaker: cfg.piper_speaker,
+         })
+     }
+-    /// Presence only; the disposable preflight verifies every hash before execution.
++    /// Presence only; the disposable worker verifies every hash before execution.
+     pub fn paths_present(&self) -> bool {
+         self.runtime.join("bin/python").is_file()
+             && self.runtime.join(SITE).join("piper/voice.py").is_file()
+             && self.model.is_file()
+             && self.model.with_extension("onnx.json").is_file()
++    }
++    pub fn stream_command(&self) -> Result<Command> {
++        let mut cmd = voice_process::command(std::env::current_exe()?);
++        cmd.arg("--voice-piper-stream")
++            .arg(&self.runtime)
++            .arg(&self.model)
++            .arg(self.scale.to_string())
++            .arg(self.speaker.to_string());
++        Ok(cmd)
+     }
+     pub fn command(&self, check: bool) -> Result<Command> {
+         let mut command = voice_process::command(std::env::current_exe()?);
+@@ -90,7 +101,7 @@
+     }
+ }
+ 
+-fn verify_file(path: &Path, size: u64, expected: &str) -> Result<()> {
++fn verified_file(path: &Path, size: u64, expected: &str) -> Result<(File, [i128; 7])> {
+     let mut file = OpenOptions::new()
+         .read(true)
+         .custom_flags((rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32)
+@@ -98,7 +109,10 @@
+         .context("Recurso Piper ausente o no accesible")?;
+     let info = file.metadata()?;
+     anyhow::ensure!(
+-        info.is_file() && info.len() == size,
++        info.is_file()
++            && info.len() == size
++            && info.uid() == rustix::process::getuid().as_raw()
++            && info.mode() & 0o022 == 0,
+         "Recurso Piper incompleto o versión no evaluada"
+     );
+     let mut digest = Sha256::new();
+@@ -115,10 +129,47 @@
+         hex::encode(digest.finalize()) == expected,
+         "Integridad de recurso Piper inválida"
+     );
++    let after = file.metadata()?;
++    anyhow::ensure!(
++        identity(&info) == identity(&after),
++        "Recurso Piper cambió durante verificación"
++    );
++    file.rewind()?;
++    Ok((file, identity(&after)))
++}
++fn identity(meta: &std::fs::Metadata) -> [i128; 7] {
++    [
++        meta.dev() as i128,
++        meta.ino() as i128,
++        meta.len() as i128,
++        meta.mtime() as i128,
++        meta.mtime_nsec() as i128,
++        meta.ctime() as i128,
++        meta.ctime_nsec() as i128,
++    ]
++}
++fn verify_identity(file: &File, expected: [i128; 7]) -> Result<()> {
++    anyhow::ensure!(
++        identity(&file.metadata()?) == expected,
++        "Recurso Piper cambió después de verificar su hash"
++    );
+     Ok(())
+ }
+-
++fn verify_file(path: &Path, size: u64, hash: &str) -> Result<()> {
++    verified_file(path, size, hash).map(|_| ())
++}
++struct Verified {
++    model: File,
++    config: File,
++    model_identity: [i128; 7],
++    config_identity: [i128; 7],
++    metrics: serde_json::Value,
++}
+ pub fn validate(runtime: &Path, model: &Path) -> Result<()> {
++    validate_open(runtime, model).map(|_| ())
++}
++fn validate_open(runtime: &Path, model: &Path) -> Result<Verified> {
++    let started = Instant::now();
+     anyhow::ensure!(
+         runtime.is_absolute()
+             && model.is_absolute()
+@@ -140,19 +191,32 @@
+         python == Path::new("/usr/bin/python3").canonicalize()?,
+         "Intérprete Piper no evaluado"
+     );
+-    verify_file(model, 76_733_615, MODEL_HASH)?;
++    let hashing = Instant::now();
++    let (model_file, model_identity) = verified_file(model, 76_733_615, MODEL_HASH)?;
+     let config = model.with_extension("onnx.json");
+-    verify_file(&config, 4903, CONFIG_HASH)?;
++    let (config_file, config_identity) = verified_file(&config, 4903, CONFIG_HASH)?;
++    let model_hash_ms = hashing.elapsed().as_secs_f64() * 1000.0;
+     let metadata = super::voice_coordinator::read_voice_metadata(&config)?;
+     anyhow::ensure!(
+         super::voice_coordinator::piper_audio_options(&metadata, 0)? == 22050,
+         "Formato Piper no evaluado"
+     );
++    let runtime_hashing = Instant::now();
+     let resources: Vec<(String, u64, String)> = serde_json::from_str(RESOURCES)?;
+     for (path, size, hash) in resources {
+         verify_file(&runtime.join(SITE).join(path), size, &hash)?;
+     }
+-    Ok(())
++    Ok(Verified {
++        model: model_file,
++        config: config_file,
++        model_identity,
++        config_identity,
++        metrics: serde_json::json!({
++            "validation_ms": started.elapsed().as_secs_f64() * 1000.0,
++            "model_config_hash_ms": model_hash_ms,
++            "runtime_hash_ms": runtime_hashing.elapsed().as_secs_f64() * 1000.0,
++        }),
++    })
+ }
+ 
+ /// Replace the restricted Rust child: Python retains the same owned PID and pipes.
+@@ -163,7 +227,47 @@
+         "Duración Piper inválida"
+     );
+     anyhow::ensure!(speaker < 2, "Hablante Piper no disponible");
+-    validate(runtime, model)?;
++    launch(runtime, model, scale, speaker, "raw")
++}
++pub fn stream_worker(runtime: &Path, model: &Path, scale: f32, speaker: u32) -> Result<()> {
++    anyhow::ensure!(
++        scale.is_finite() && (0.5..=2.0).contains(&scale) && speaker < 2,
++        "Opciones Piper inválidas"
++    );
++    let result = launch(runtime, model, scale, speaker, "framed");
++    if let Err(ref error) = result {
++        use std::io::Write;
++        let message = serde_json::to_vec(&serde_json::json!({"error": error.to_string()}))?;
++        let mut output = std::io::stdout().lock();
++        output.write_all(b"KDA4PCM1")?;
++        output.write_all(&(message.len() as u32).to_le_bytes())?;
++        output.write_all(&message)?;
++    }
++    result
++}
++/// Offline experiment only. Two requests and fixed 3s idle TTL; no application setting.
++pub fn warm_experiment(runtime: &Path, model: &Path, scale: f32, speaker: u32) -> Result<()> {
++    anyhow::ensure!(
++        scale.is_finite() && (0.5..=2.0).contains(&scale) && speaker < 2,
++        "Opciones Piper inválidas"
++    );
++    launch(runtime, model, scale, speaker, "warm-experiment")
++}
++fn launch(runtime: &Path, model: &Path, scale: f32, speaker: u32, mode: &str) -> Result<()> {
++    let verified = validate_open(runtime, model)?;
++    // Compare against the identity at hashing time, never re-baseline a changed inode.
++    verify_identity(&verified.model, verified.model_identity)?;
++    verify_identity(&verified.config, verified.config_identity)?;
++    // Pin the verified model/config inodes across exec, rather than reopening their paths.
++    for fd in [&verified.model, &verified.config] {
++        rustix::io::fcntl_setfd(fd, rustix::io::FdFlags::empty())?;
++    }
++    let diagnostics = serde_json::json!({
++        "native": verified.metrics,
++        "exec_wall_ms": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs_f64()*1000.0,
++        "model_identity": verified.model_identity,
++        "config_identity": verified.config_identity,
++    });
+     // Start the trusted system interpreter directly: even an altered pyvenv.cfg
+     // must not redirect standard-library discovery before our verified imports.
+     // Private packages are added explicitly under -S, without system/user site.
+@@ -180,11 +284,14 @@
+             WORKER,
+         ])
+         .arg(runtime.join(SITE))
+-        .arg(model)
++        .arg(format!("/proc/self/fd/{}", verified.model.as_raw_fd()))
+         .arg(scale.to_string())
+         .arg(speaker.to_string())
+         .arg("3")
+         .arg("all")
++        .arg(mode)
++        .arg(format!("/proc/self/fd/{}", verified.config.as_raw_fd()))
++        .arg(serde_json::to_string(&diagnostics)?)
+         .env("OPENBLAS_NUM_THREADS", "1")
+         .env("OMP_NUM_THREADS", "1")
+         .current_dir(runtime);
+@@ -210,6 +317,37 @@
+         cfg.piper_length_scale = 1.0;
+         cfg.piper_model = "../unverified".into();
+         assert!(Selection::from_config(&cfg).is_err());
++    }
++    #[test]
++    fn verified_inode_is_retained_and_metadata_change_invalidates_identity() {
++        let directory = std::env::temp_dir().join(format!("f4-piper-pin-{}", uuid::Uuid::new_v4()));
++        std::fs::create_dir(&directory).unwrap();
++        let path = directory.join("model");
++        std::fs::write(&path, b"data").unwrap();
++        let hash = hex::encode(Sha256::digest(b"data"));
++        let (mut pinned, before) = verified_file(&path, 4, &hash).unwrap();
++        std::fs::rename(&path, directory.join("old")).unwrap();
++        std::fs::write(&path, b"oops").unwrap();
++        let mut content = String::new();
++        pinned.read_to_string(&mut content).unwrap();
++        assert_eq!(content, "data");
++        assert_ne!(identity(&std::fs::metadata(&path).unwrap()), before);
++        assert!(verified_file(&path, 4, &hash).is_err());
++        std::fs::remove_dir_all(directory).unwrap();
++    }
++    #[test]
++    fn modification_after_hash_cannot_become_the_expected_exec_identity() {
++        let directory =
++            std::env::temp_dir().join(format!("f4-piper-race-{}", uuid::Uuid::new_v4()));
++        std::fs::create_dir(&directory).unwrap();
++        let path = directory.join("model");
++        std::fs::write(&path, b"data").unwrap();
++        let hash = hex::encode(Sha256::digest(b"data"));
++        let (file, expected) = verified_file(&path, 4, &hash).unwrap();
++        verify_identity(&file, expected).unwrap();
++        std::fs::write(&path, b"changed size").unwrap();
++        assert!(verify_identity(&file, expected).is_err());
++        std::fs::remove_dir_all(directory).unwrap();
+     }
+     #[test]
+     fn resource_integrity_rejects_corruption_and_special_files() {
+--- R3/src/backend/piper_worker.py
++++ R4/src/backend/piper_worker.py
+@@ -1,32 +1,89 @@
+-"""Disposable CPU-only Piper inference helper. Invoked with -I -B -S by Rust.
++"""Disposable, bounded CPU inference. Rust owns validation, lifetime and playback.
+ 
+-No devices, conversation authority, downloads, server, or audio files.
++No devices, downloads, conversation authority, server, or audio files.
+ """
+ import json
++import os
++import struct
++import select
+ import sys
+ import time
+ 
+ started = time.perf_counter()
+-if len(sys.argv) != 7:
++python_entered_wall_ms = time.time()*1000
++if len(sys.argv) not in (7, 10):
+     raise ValueError('Invalid Piper worker arguments')
+-site_packages, model, scale, speaker, threads, optimization = sys.argv[1:]
++site_packages, model, scale, speaker, threads, optimization = sys.argv[1:7]
++mode, config_path, diagnostics = ('raw', model + '.json', {}) if len(sys.argv) == 7 else (
++    sys.argv[7], sys.argv[8], json.loads(sys.argv[9]))
++if mode not in ('raw', 'framed', 'warm-experiment'):
++    raise ValueError('Invalid Piper protocol')
+ scale, speaker, threads = float(scale), int(speaker), int(threads)
+ if not 0.5 <= scale <= 2 or not 0 <= speaker < 2 or not 1 <= threads <= 3:
+     raise ValueError('Invalid Piper synthesis options')
+-text = sys.stdin.buffer.read(16001)
+-if not text.strip() or len(text) > 16000:
+-    raise ValueError('Invalid Piper input length')
+-text = text.decode('utf-8')
++def request():
++    # Benchmark only: two requests maximum, three seconds idle TTL, no server.
++    deadline = time.monotonic() + 3
++    def exact(size):
++        data = bytearray()
++        while len(data) < size:
++            remaining = deadline - time.monotonic()
++            if remaining <= 0 or not select.select([0], [], [], remaining)[0]:
++                raise TimeoutError('Prepared experiment idle TTL')
++            block = os.read(0, size - len(data))
++            if not block:
++                raise EOFError('Prepared experiment input closed')
++            data.extend(block)
++        return bytes(data)
++    size = struct.unpack('<I', exact(4))[0]
++    if not 0 < size <= 16000:
++        raise ValueError('Invalid prepared request size')
++    return exact(size)
++
++
++def decode_text(data):
++    if not data.strip() or len(data) > 16000:
++        raise ValueError('Invalid Piper input length')
++    return data.decode('utf-8')
++
++
++text = decode_text(request() if mode == 'warm-experiment' else sys.stdin.buffer.read(16001))
++
++
++def check_identity(path, key):
++    if key not in diagnostics:
++        return  # Legacy offline diagnostic invocation; production always pins FDs.
++    info = os.stat(path)
++    actual = [info.st_dev, info.st_ino, info.st_size,
++              info.st_mtime_ns // 10**9, info.st_mtime_ns % 10**9,
++              info.st_ctime_ns // 10**9, info.st_ctime_ns % 10**9]
++    if actual != diagnostics[key]:
++        raise ValueError('Verified voice resource changed')
++
++
++def packet(value):
++    encoded = json.dumps(value).encode()
++    if len(encoded) > 8192:
++        raise ValueError('Diagnostic limit')
++    sys.stdout.buffer.write(struct.pack('<I', len(encoded)))
++    sys.stdout.buffer.write(encoded)
++
++
+ # -S avoids sitecustomize and executable .pth files, including those in a venv.
+ sys.path.insert(0, site_packages)
++ort_started = time.perf_counter()
+ import onnxruntime
++ort_imported = time.perf_counter()
+ from piper import PiperVoice, SynthesisConfig
+ from piper.config import PiperConfig
+ imported = time.perf_counter()
+-with open(model + '.json', 'r', encoding='utf-8') as source:
++check_identity(model, 'model_identity')
++check_identity(config_path, 'config_identity')
++with open(config_path, 'r', encoding='utf-8') as source:
+     config = PiperConfig.from_dict(json.load(source))
+ if config.espeak_voice != 'es' or config.sample_rate != 22050 or config.num_speakers != 2:
+     raise ValueError('Unsupported voice configuration')
++configured = time.perf_counter()
+ options = onnxruntime.SessionOptions()
+ options.graph_optimization_level = {
+     'all': onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL,
+@@ -43,27 +100,97 @@
+ options.inter_op_num_threads = 1
+ options.add_session_config_entry('session.intra_op.allow_spinning', '0')
+ options.add_session_config_entry('session.inter_op.allow_spinning', '0')
++session_started = time.perf_counter()
+ voice = PiperVoice(config=config, session=onnxruntime.InferenceSession(
+     model, sess_options=options, providers=['CPUExecutionProvider']))
+ loaded = time.perf_counter()
+-print(json.dumps({'event': 'loaded', 'import_ms': (imported-started)*1000,
+-                  'load_ms': (loaded-imported)*1000}), file=sys.stderr, flush=True)
+-first = None
+-count = 0
+-for chunk in voice.synthesize(text, SynthesisConfig(speaker_id=speaker, length_scale=scale)):
+-    if chunk.sample_rate != 22050 or chunk.sample_width != 2 or chunk.sample_channels != 1:
+-        raise ValueError('Invalid PCM format')
+-    pcm = chunk.audio_int16_bytes
+-    count += len(pcm)
+-    if count > 16 * 1024 * 1024:
+-        raise ValueError('PCM output exceeds limit')
+-    sys.stdout.buffer.write(pcm)
+-    sys.stdout.buffer.flush()
+-    if first is None:
+-        first = time.perf_counter()
+-if not count or count % 2:
+-    raise ValueError('Empty or malformed PCM')
+-print(json.dumps({'import_ms': (imported-started)*1000, 'load_ms': (loaded-imported)*1000,
+-                  'first_pcm_ms': (first-started)*1000, 'synthesis_ms': (time.perf_counter()-loaded)*1000,
+-                  'pcm_bytes': count, 'sample_rate': 22050, 'channels': 1, 'sample_width': 2,
+-                  'threads': threads, 'optimization': optimization, 'providers': voice.session.get_providers()}), file=sys.stderr)
++check_identity(model, 'model_identity')
++check_identity(config_path, 'config_identity')
++if diagnostics:
++    os.close(int(model.rsplit('/', 1)[1]))
++    os.close(int(config_path.rsplit('/', 1)[1]))
++# Wrappers measure actual library stages without changing text, normalization or PCM.
++stages = {'phonemize_ms': 0., 'phoneme_ids_ms': 0., 'inference_ms': 0.}
++for method, metric in [('phonemize', 'phonemize_ms'), ('phonemes_to_ids', 'phoneme_ids_ms'),
++                       ('phoneme_ids_to_audio', 'inference_ms')]:
++    original = getattr(voice, method)
++    def measured(*args, _call=original, _metric=metric, **kwargs):
++        before = time.perf_counter()
++        result = _call(*args, **kwargs)
++        stages[_metric] += (time.perf_counter() - before) * 1000
++        return result
++    setattr(voice, method, measured)
++def synthesize(text, request_index, operation_started):
++    synthesis_started = time.perf_counter()
++    if mode != 'raw':
++        sys.stdout.buffer.write(b'KDA4PCM1')
++        packet(dict(sample_rate=22050, channels=1, sample_width=2))
++        sys.stdout.buffer.flush()
++    first = None
++    count = 0
++    chunk_count = 0
++    first_chunk_bytes = 0
++    supply_gap_ms = 0.
++    conversion_ms = ipc_ms = 0.
++    for chunk in voice.synthesize(text, SynthesisConfig(speaker_id=speaker, length_scale=scale)):
++        if chunk.sample_rate != 22050 or chunk.sample_width != 2 or chunk.sample_channels != 1:
++            raise ValueError('Invalid PCM format')
++        converted = time.perf_counter()
++        pcm = chunk.audio_int16_bytes
++        conversion_ms += (time.perf_counter() - converted) * 1000
++        ready = time.perf_counter()
++        if first is not None:
++            supply_gap_ms = max(supply_gap_ms, (ready-first)*1000 - count/44.1)
++        else:
++            first_chunk_bytes = len(pcm)
++        chunk_count += 1
++        count += len(pcm)
++        if not pcm or len(pcm) % 2 or count > 16 * 1024 * 1024:
++            raise ValueError('PCM output exceeds limit or malformed')
++        if first is None:
++            first = time.perf_counter()
++        writing = time.perf_counter()
++        # One frame buffered; blocking stdout provides backpressure to inference.
++        for offset in range(0, len(pcm), 32768):
++            part = pcm[offset:offset+32768]
++            if mode != 'raw':
++                sys.stdout.buffer.write(struct.pack('<I', len(part)))
++            sys.stdout.buffer.write(part)
++            sys.stdout.buffer.flush()
++        ipc_ms += (time.perf_counter() - writing) * 1000
++    if not count:
++        raise ValueError('Empty PCM')
++    result = dict(python_bootstrap_wall_estimate_ms=(python_entered_wall_ms-diagnostics['exec_wall_ms']) if 'exec_wall_ms' in diagnostics else None,
++                  import_ms=(imported-started)*1000, ort_import_ms=(ort_imported-ort_started)*1000,
++                  piper_import_ms=(imported-ort_imported)*1000, config_ms=(configured-imported)*1000,
++                  session_ms=(loaded-session_started)*1000, load_ms=(loaded-imported)*1000,
++                  first_pcm_ms=(first-operation_started)*1000,
++                  prepared=request_index>0, load_per_request_ms=0. if request_index else (loaded-imported)*1000,
++                  chunk_count=chunk_count, first_chunk_bytes=first_chunk_bytes,
++                  supply_gap_ms=max(0.,supply_gap_ms), synthesis_ms=(time.perf_counter()-synthesis_started)*1000,
++                  pcm_conversion_ms=conversion_ms, ipc_write_ms=ipc_ms, pcm_bytes=count,
++                  sample_rate=22050, channels=1, sample_width=2, threads=threads,
++                  optimization=optimization, providers=voice.session.get_providers(),
++                  native=diagnostics.get('native', {}), **stages)
++    if mode != 'raw':
++        sys.stdout.buffer.write(struct.pack('<I', 0))
++        packet(result)
++        sys.stdout.buffer.flush()
++    print(json.dumps(result), file=sys.stderr)
++
++synthesize(text, 0, started)
++if mode == 'warm-experiment':
++    try:
++        text = decode_text(request())
++        for key in stages:
++            stages[key] = 0.
++        synthesize(text, 1, time.perf_counter())
++        # Keep the second completed model idle only until the fixed experiment TTL.
++        # A third request is rejected; the parent owns cancellation/reaping.
++        try:
++            request()
++            raise ValueError('Prepared experiment request budget exceeded')
++        except (TimeoutError, EOFError):
++            pass
++    except (TimeoutError, EOFError):
++        pass

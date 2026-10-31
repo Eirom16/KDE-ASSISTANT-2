@@ -1,0 +1,9 @@
+{
+  "category": "AUTOMATED_AUDIO_FIXTURE",
+  "inference_marker_observed": true,
+  "pid": 45931,
+  "exit": -9,
+  "reaped": true,
+  "kill_wait_ms": 32.01792599975306,
+  "product_integration": false
+}

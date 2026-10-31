@@ -1,0 +1,9 @@
+{
+  "trial": 1,
+  "result": "LIVE_TTS_PASS",
+  "user_observation": "La escuche completa y la calidad fue excelente",
+  "complete_phrase": true,
+  "quality": "excelente",
+  "volume": "NOT_RATED",
+  "perceived_latency": "NOT_RATED"
+}

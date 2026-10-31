@@ -50,7 +50,8 @@ impl SpeechService {
     pub async fn new(config: Arc<RwLock<Config>>) -> Result<Self> {
         // Inicializar whisper (STT) con el modelo elegido (tiny/base).
         let cfg = config.read().await.clone();
-        let whisper_path = whisper_model_path_for(&cfg.speech.stt_model)?;
+        let whisper_path = whisper_model_path_for(&cfg.speech.stt_model)
+            .unwrap_or_else(|_| PathBuf::from("/nonexistent/kde-assistant-invalid-stt-model"));
         let language_override = if cfg.speech.stt_language == "auto" {
             None
         } else {
@@ -273,22 +274,8 @@ impl SpeechService {
 
     /// Decide el backend STT según config y disponibilidad de key.
     fn resolve_stt_backend(&self, cfg: &Config) -> SttBackend {
-        let wants_api = !cfg.speech.stt_backend.trim().eq_ignore_ascii_case("local");
-        if !wants_api {
-            return SttBackend::Local;
-        }
-        let is_groq = cfg.ai.provider_id() == "groq";
-        let has_key = !cfg.ai.effective_api_key().is_empty();
-        if is_groq && has_key {
-            SttBackend::Api
-        } else {
-            if cfg.speech.stt_backend.trim().eq_ignore_ascii_case("api") {
-                log::warn!(
-                    "stt_backend=api pero el proveedor no es Groq o falta key; usando local"
-                );
-            }
-            SttBackend::Local
-        }
+        let _ = cfg;
+        SttBackend::Local
     }
 
     /// Transcribe vía API Groq, con el cliente cacheado por (url, key, modelo).
@@ -360,10 +347,17 @@ pub fn whisper_model_path_for(stt_model: &str) -> Result<PathBuf> {
     let base = dirs::data_local_dir()
         .ok_or_else(|| anyhow::anyhow!("no se pudo obtener data_local_dir"))?
         .join("kde-assistant/models");
-    let file = if stt_model.trim().eq_ignore_ascii_case("tiny") {
-        "ggml-tiny.bin"
-    } else {
-        "ggml-base.bin"
+    let name = stt_model.trim();
+    if std::path::Path::new(name).is_absolute() {
+        return Ok(PathBuf::from(name));
+    }
+    let file = match name {
+        "tiny" => "ggml-tiny.bin",
+        "base" => "ggml-base.bin",
+        "small" => "ggml-small.bin",
+        _ => {
+            anyhow::bail!("Modelo STT desconocido; usa tiny, base, small o una ruta absoluta GGML")
+        }
     };
     Ok(base.join(file))
 }

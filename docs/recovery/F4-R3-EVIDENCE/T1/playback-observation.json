@@ -1,0 +1,29 @@
+{
+  "purpose": "live_f4r3_tts_t1",
+  "transitions": [
+    {
+      "state": "preparing",
+      "elapsed_ms": 79.43283400027212
+    },
+    {
+      "state": "speaking",
+      "elapsed_ms": 8038.394888000312
+    },
+    {
+      "state": "idle",
+      "elapsed_ms": 11883.662944000207
+    }
+  ],
+  "ended": true,
+  "playback_completed": true,
+  "child_pids": [
+    11845,
+    11846,
+    11855
+  ],
+  "children_reaped": true,
+  "human_confirmation": "PENDING_USER_REPORT",
+  "audible_latency": "NOT_MEASURABLE_WITHOUT_HUMAN_REPORT",
+  "raw_audio_saved": false,
+  "microphone": false
+}

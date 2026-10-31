@@ -1,0 +1,21 @@
+{
+  "branch": "recovery/f4-voice-coordinator",
+  "head": "9544a58eba4b6adf6c6343c04db80813b084f76b",
+  "index_empty": true,
+  "preserved_reports": {
+    "docs/recovery/F4-ISSUES.md": "9e56ff413891d1f2e3894081fde796c37d9beda871d570d67df517babc16f365",
+    "docs/recovery/F4-MODEL-MATRIX.md": "f3508ea7eba413cc94e088f3f44b4f543d625ccf0a9e12e5aeaa2f04d413a26b",
+    "docs/recovery/F4-R-BENCHMARKS.md": "e8dd3feeebd71bdfd3b70040b8547c8ddef1b48b93f841dede916b2e40858730",
+    "docs/recovery/F4-R-ISSUES.md": "2c250091ac7a825ec21d1736fd796e7ff856df9cc010deca27d7f0f7a5ca031e",
+    "docs/recovery/F4-R-REPORT.md": "c0fbe9d4e8f05b7f1b95f1899123326c4426ba41e1f7d85cf5c2a494d619867d",
+    "docs/recovery/F4-R-RESULTS.md": "342d55f187247772fd658e3aa0bf9faaf6d29580cae324133f1ba047bb3f3900",
+    "docs/recovery/F4-R2-BENCHMARKS.md": "5b01d27e20f21b099b29fe7af968d33b33f880fdfdf4bdc55ad5d4d3828f2c7e",
+    "docs/recovery/F4-R2-ISSUES.md": "7a5fa905bb4dc2c69eb9b8af9788d28bdf8a0a154e2fb708cdd8dce7eb73ea11",
+    "docs/recovery/F4-R2-REPORT.md": "33da04c84a12f513afb7d983a1eb5abd06b2817f8cec612c708943ee82b464be",
+    "docs/recovery/F4-R2-RESULTS.md": "41c22a59bfc4dc58a255ecd5203e2a404f68d8eda65a167bec723103b82d502d",
+    "docs/recovery/F4-REPORT.md": "6ea6d756160367ef2217ea47691c33824ea5c0419a22f44a8298ead3a48c4a15",
+    "docs/recovery/F4-RESULTS.md": "d88334c2da9d24a915283caf9f3828b2b9e250c9fa8c2890f1ab789dc6097fe7",
+    "docs/recovery/F4-VOICE-CONTRACT.md": "fef1c6c0096f17f7bfb6aa78c9c554e5bd1b790621f510aba1b2eeaf44eaeb82"
+  },
+  "python": "3.14.8 (main, Oct  2 2026, 10:23:31) [GCC 16.2.1 20260810]"
+}

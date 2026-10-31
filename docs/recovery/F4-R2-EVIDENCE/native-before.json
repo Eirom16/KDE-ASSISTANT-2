@@ -1,0 +1,211 @@
+{
+  "sample": "long",
+  "wav_sha256": "18ae8a19591549a49173204455dc523d68b83a69b4fda2775507100a2a73a366",
+  "seconds": 15.0,
+  "scope": "Authorised human WAV, offline native worker; NOT live PTT",
+  "binary_sha256": {
+    "kde-assistant": "ec5712326f6d57e697568995bfca5b17c96b407fb6730fa999ac12e0c3780cc2",
+    "bench_voice": "a9e27205a1d6ce6c1bae179bb6d828be923713cedf99aafd49f982de25904a70"
+  },
+  "commands": {
+    "preflight": [
+      "/home/eirom/KDE-ASSISTANT-2/target/debug/kde-assistant",
+      "--voice-vosk-check",
+      "/var/tmp/kda-f4r2-vosk-pruy5scb/vosk/libvosk.so",
+      "/var/tmp/kda-f4r2-vosk-pruy5scb/vosk-model-small-es-0.42"
+    ],
+    "worker": [
+      "/home/eirom/KDE-ASSISTANT-2/target/debug/bench_voice",
+      "--vosk",
+      "/var/tmp/kda-f4r2-vosk-pruy5scb/vosk/libvosk.so",
+      "/var/tmp/kda-f4r2-vosk-pruy5scb/vosk-model-small-es-0.42",
+      "/var/tmp/kda-f4r2-corpus-gjw89ydm/long.wav"
+    ]
+  },
+  "records": [
+    {
+      "run": 0,
+      "kind": "preflight",
+      "process": {
+        "wall_ms": 2896.08964099898,
+        "pid": 89682,
+        "reaped": true,
+        "cpu_seconds": 2.865687,
+        "peak_sample_rss_kib": 13688,
+        "peak_sample_pss_kib": 11161,
+        "loadavg_min": [
+          0.64501953125,
+          0.837890625,
+          1.18603515625
+        ],
+        "loadavg_max": [
+          0.75390625,
+          0.857421875,
+          1.1904296875
+        ],
+        "monitor_interval_ms": 50,
+        "compiler_overlap": false
+      }
+    },
+    {
+      "run": 0,
+      "kind": "worker",
+      "process": {
+        "wall_ms": 7277.991522998491,
+        "pid": 89684,
+        "reaped": true,
+        "cpu_seconds": 7.266871,
+        "peak_sample_rss_kib": 164404,
+        "peak_sample_pss_kib": 161586,
+        "loadavg_min": [
+          0.75390625,
+          0.857421875,
+          1.18896484375
+        ],
+        "loadavg_max": [
+          0.77392578125,
+          0.85986328125,
+          1.1904296875
+        ],
+        "monitor_interval_ms": 50,
+        "compiler_overlap": false
+      },
+      "conversion_ms": 164.90940400000002,
+      "engine": "native_vosk_0.3.45",
+      "inference_release_ms": 2564.4715370000004,
+      "live_ptt": "NOT_TESTED",
+      "verification_load_ms": 4472.711319,
+      "worker_total_ms": 7037.182856
+    },
+    {
+      "run": 1,
+      "kind": "preflight",
+      "process": {
+        "wall_ms": 2891.2626230012393,
+        "pid": 90198,
+        "reaped": true,
+        "cpu_seconds": 2.857091,
+        "peak_sample_rss_kib": 13384,
+        "peak_sample_pss_kib": 10936,
+        "loadavg_min": [
+          0.77392578125,
+          0.85986328125,
+          1.1875
+        ],
+        "loadavg_max": [
+          0.79248046875,
+          0.8623046875,
+          1.18896484375
+        ],
+        "monitor_interval_ms": 50,
+        "compiler_overlap": false
+      }
+    },
+    {
+      "run": 1,
+      "kind": "worker",
+      "process": {
+        "wall_ms": 7295.099724000465,
+        "pid": 90199,
+        "reaped": true,
+        "cpu_seconds": 7.2775050000000014,
+        "peak_sample_rss_kib": 161096,
+        "peak_sample_pss_kib": 158254,
+        "loadavg_min": [
+          0.79248046875,
+          0.8623046875,
+          1.1875
+        ],
+        "loadavg_max": [
+          0.8896484375,
+          0.88134765625,
+          1.19189453125
+        ],
+        "monitor_interval_ms": 50,
+        "compiler_overlap": false
+      },
+      "conversion_ms": 163.564116,
+      "engine": "native_vosk_0.3.45",
+      "inference_release_ms": 2561.685125,
+      "live_ptt": "NOT_TESTED",
+      "verification_load_ms": 4510.521799,
+      "worker_total_ms": 7072.206924
+    },
+    {
+      "run": 2,
+      "kind": "preflight",
+      "process": {
+        "wall_ms": 2899.4367410014092,
+        "pid": 90726,
+        "reaped": true,
+        "cpu_seconds": 2.865668999999998,
+        "peak_sample_rss_kib": 13440,
+        "peak_sample_pss_kib": 10992,
+        "loadavg_min": [
+          0.8896484375,
+          0.88134765625,
+          1.1904296875
+        ],
+        "loadavg_max": [
+          0.89892578125,
+          0.8837890625,
+          1.19189453125
+        ],
+        "monitor_interval_ms": 50,
+        "compiler_overlap": false
+      }
+    },
+    {
+      "run": 2,
+      "kind": "worker",
+      "process": {
+        "wall_ms": 7472.880220000661,
+        "pid": 90739,
+        "reaped": true,
+        "cpu_seconds": 7.418901,
+        "peak_sample_rss_kib": 165168,
+        "peak_sample_pss_kib": 162310,
+        "loadavg_min": [
+          0.89892578125,
+          0.8837890625,
+          1.1904296875
+        ],
+        "loadavg_max": [
+          0.9873046875,
+          0.90234375,
+          1.19482421875
+        ],
+        "monitor_interval_ms": 50,
+        "compiler_overlap": false
+      },
+      "conversion_ms": 162.57362799999999,
+      "engine": "native_vosk_0.3.45",
+      "inference_release_ms": 2698.893313,
+      "live_ptt": "NOT_TESTED",
+      "verification_load_ms": 4540.998238,
+      "worker_total_ms": 7239.891551000001
+    }
+  ],
+  "summaries": {
+    "preflight": {
+      "n": 3,
+      "p50_ms": 2896.08964099898,
+      "p95_ms": 2899.4367410014092,
+      "min_ms": 2891.2626230012393,
+      "max_ms": 2899.4367410014092,
+      "mean_ms": 2895.5963350005427,
+      "stddev_ms": 3.355251046369587,
+      "mad_ms": 3.3471000024292152
+    },
+    "worker": {
+      "n": 3,
+      "p50_ms": 7295.099724000465,
+      "p95_ms": 7472.880220000661,
+      "min_ms": 7277.991522998491,
+      "max_ms": 7472.880220000661,
+      "mean_ms": 7348.657155666539,
+      "stddev_ms": 88.11621084227565,
+      "mad_ms": 17.10820100197452
+    }
+  }
+}

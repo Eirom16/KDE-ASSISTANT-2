@@ -333,6 +333,12 @@ Ver `git log --oneline` para historial y `KDE-ASSISTANT-V2-PLAN.md` seccion "Pas
 
 ## Filosofia
 
+### Política permanente: REUSE FIRST
+
+Antes de implementar una funcionalidad compleja, buscar bibliotecas o proyectos mantenidos que ya la resuelvan y evaluar brevemente licencia, compatibilidad, rendimiento, seguridad y coste de integración. Preferir reutilizar o adaptar soluciones existentes cuando convenga técnicamente; justificar con evidencia una implementación desde cero. Documentar procedencia, licencia y modificaciones en el informe principal de la fase.
+
+No convertir esta búsqueda en una auditoría extensa ni reescribir componentes funcionales por esta política. No descargar, clonar ni instalar proyectos nuevos sin autorización. Aplica especialmente a voz, integración KDE e interfaz; las autorizaciones y restricciones de la tarea vigente prevalecen sobre ejemplos históricos de este archivo.
+
 - **Privacidad primero:** Voz y archivos locales, solo el prompt va a la nube.
 - **Rendimiento:** Rust + Tokio, nunca bloquear UI.
 - **Estetica Apple:** Minimalismo, frosted glass, un solo color interactivo, tracking negativo.

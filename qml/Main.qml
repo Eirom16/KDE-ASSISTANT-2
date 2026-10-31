@@ -92,6 +92,7 @@ ApplicationWindow {
     // real es tray "Salir" (quitRequested -> Qt.quit()).
     onClosing: function(close) {
         desktopWindow.userInteracted = true
+        nativeVoice.hide()
         if (closeToTray && tray.trayAvailable) {
             close.accepted = false
             desktopWindow.hide()
@@ -112,6 +113,9 @@ ApplicationWindow {
 
     property var messages: []          // [{role, authorLabel, content, timestamp, isStreaming, toolCalls}]
     property bool voiceAvailable: false
+    property bool voiceOutputReady: false
+    property bool voiceModelReady: false
+    onVisibleChanged: { if (nativeVoice) { if (visible && !nativeVoice.backgroundEnabled) root.syncVoiceSession(); else if (!visible) nativeVoice.hide() } }
 
     // === Helpers ===
     function nowTime() {
@@ -381,6 +385,7 @@ ApplicationWindow {
                 terminalReceived = true
                 rawText = obj.message || qsTr("Cancelado por el usuario; los efectos iniciados pueden haber terminado.")
             } else if (ev === "done") {
+                nativeVoice.observe()
                 forgetTurnConsents(obj.turn_id)
                 terminalReceived = true
                 if (obj && obj.full_content && !rawText) rawText = obj.full_content
@@ -775,6 +780,7 @@ ApplicationWindow {
     }
 
     function detachChat() {
+        nativeVoice.detach()
         var consents = Object.keys(pendingConsents)
         for (var i = 0; i < consents.length; i++) approveTool(consents[i], false)
         if (consentDialog.visible) consentDialog.close()
@@ -804,7 +810,7 @@ ApplicationWindow {
         startDesktopStream()
         startVoiceStream()
         startAgentStream()
-        checkVoiceCalibration()
+        // Hey Jarvis stays OFF until the explicit, one-dictation action.
         // Rescate: si la ventana quedó oculta (recreación por flags),
         // forzar visible + diagnóstico de geometría.
         rescueTimer.start()
@@ -955,7 +961,9 @@ ApplicationWindow {
                             if (c.status !== 200) return
                             try {
                                 var cfg = JSON.parse(c.responseText)
-                                voiceAvailable = !!(cfg.capabilities && cfg.capabilities.voice === "active")
+                                voiceOutputReady = !!(cfg.capabilities && cfg.capabilities.piper_binary_present)
+                                voiceAvailable = !!(cfg.capabilities && cfg.capabilities.native_dictation)
+                                voiceModelReady = !!(cfg.capabilities && (cfg.capabilities.stt_model_present !== undefined ? cfg.capabilities.stt_model_present : cfg.capabilities.whisper_model_present))
                                 var key = (cfg.ai && cfg.ai.has_api_key === true) ? "configured" : ""
                                 var model = (cfg.ai && cfg.ai.model) ? String(cfg.ai.model) : ""
                                 lastModel = model
@@ -1264,7 +1272,7 @@ ApplicationWindow {
                     onClicked: {
                         if (root.voiceState === "speaking") {
                             bargeIn()
-                            root.voiceState = "listening"
+                            root.voiceState = "idle"
                         } else if (root.voiceState !== "idle") {
                             root.voiceState = "idle"
                         }
@@ -1274,6 +1282,7 @@ ApplicationWindow {
 
             // === ChatView ===
             ChatView {
+                speechAvailable: root.voiceOutputReady
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 messages: root.messages
@@ -1320,11 +1329,22 @@ ApplicationWindow {
                 Layout.margins: Theme.spacingSm
                 Layout.preferredHeight: implicitHeight
                 streaming: root.streaming
-                voiceEnabled: root.voiceAvailable
-                // El mic del chat refleja SOLO el dictado al input; la
-                // conversación por voz (wake word / PTT) es del avatar y
-                // no debe pintar este botón como si estuviera dictando.
+                voiceEnabled: root.voiceAvailable && !nativeVoice.backgroundEnabled
+                voiceReady: root.voiceModelReady
+                voiceUnavailableText: qsTr("Modelo STT no instalado · Configuración → Voz")
+                // Estado del dictado coordinado por Rust; no representa wake
+                // ni una escucha automática del personaje.
                 recording: root.dictating
+                voiceStatus: nativeVoice.state
+                voiceBusy: nativeVoice.busy
+                wakeAvailable: root.voiceAvailable
+                backgroundEnabled: nativeVoice.backgroundEnabled
+                backgroundPaused: nativeVoice.backgroundPaused
+                microphoneActive: nativeVoice.microphoneActive
+                backgroundState: nativeVoice.backgroundState
+                onWakeClicked: root.controlBackground(!nativeVoice.backgroundEnabled ? "enable" : nativeVoice.backgroundPaused ? "resume" : "pause")
+                onBackgroundDisableClicked: root.controlBackground("disable")
+                onVoiceCancelClicked: nativeVoice.cancel()
                 onSendClicked: function(text) {
                     root.sendMessage(text)
                 }
@@ -1421,7 +1441,7 @@ ApplicationWindow {
     property string recoveryStatus: "idle"
     property int recoveryCount: 0
     property int recoveryGeneration: 0
-    onCurrentSessionIdChanged: refreshRecovery()
+    onCurrentSessionIdChanged: { refreshRecovery(); syncVoiceSession() }
     onStreamingChanged: { if (!streaming) refreshRecovery() }
     function refreshRecovery() {
         var session = currentSessionId
@@ -1448,6 +1468,10 @@ ApplicationWindow {
     // === Settings dialog (overlay) ===
     SettingsDialog {
         id: settings
+        backgroundEnabled: nativeVoice.backgroundEnabled
+        backgroundPaused: nativeVoice.backgroundPaused
+        microphoneActive: nativeVoice.microphoneActive
+        onBackgroundControlRequested: function(action) { root.controlBackground(action) }
         anchors.fill: parent
         open_: false
         backendUrl: root.backendUrl
@@ -1522,6 +1546,10 @@ ApplicationWindow {
         id: tray
         windowVisible: desktopWindow.canHide
         recentSessions: root.sessions.slice(0, 5)
+        backgroundEnabled: nativeVoice.backgroundEnabled
+        backgroundPaused: nativeVoice.backgroundPaused
+        microphoneActive: nativeVoice.microphoneActive
+        onBackgroundActionRequested: function(action) { root.controlBackground(action) }
         statusText: root.backendStatusText() + " · " + root.shortcutStatusText()
         voiceEnabled: root.voiceAvailable
         alwaysOnTop: root.alwaysOnTop
@@ -1529,7 +1557,7 @@ ApplicationWindow {
         pttShortcut: root.pttShortcut
         backendUrl: root.backendUrl
         onShowRequested: desktopWindow.present()
-        onHideRequested: desktopWindow.hide()
+        onHideRequested: { nativeVoice.hide(); desktopWindow.hide() }
         onMinimizeRequested: desktopWindow.minimize()
         onDictateRequested: {
             if (!root.voiceAvailable) return
@@ -1662,86 +1690,69 @@ ApplicationWindow {
         onTriggered: startVoiceStream()
     }
 
-    function bargeIn() {
-        var req = new XMLHttpRequest()
-        req.open("POST", backendUrl + "/api/voice/barge_in")
-        req.setRequestHeader("Content-Type", "application/json")
-        setAuth(req)
-        req.send(JSON.stringify({}))
-        console.log("Barge-in solicitado")
+    function bargeIn() { nativeVoice.cancel() }
+
+    // Dictation inserts into the current draft; only Send creates a chat turn.
+    readonly property bool dictating: nativeVoice.state === "recording"
+    VoiceController {
+        id: nativeVoice
+        objectName: "nativeVoiceController"
+        backgroundMonitoring: true
+        onWakeDetected: desktopWindow.present()
+        backendUrl: root.backendUrl
+        token: AuthToken.token
+        sessionId: root.currentSessionId
+        onTranscriptReady: function(text) {
+            if (text.trim().length > 0) {
+                inputBar.text = inputBar.text.length > 0 ? inputBar.text + " " + text : text
+                inputBar.focusInput()
+            } else { root.lastError = qsTr("No se escuchó habla reconocible"); root.showErrorBanner = true }
+        }
+        onFailed: function(message) { root.lastError = message; root.lastErrorDetail = ""; root.showErrorBanner = true }
     }
-
-    // === Dictado al input (boton mic del chat) ===
-    // Graba con el micro del sistema y, al parar, transcribe con Whisper y
-    // vuelca el texto en el InputBar (sin LLM ni TTS, a diferencia del asistente por voz).
-    property bool dictating: false
-
+    function controlBackground(action) {
+        if (action !== "enable" || currentSessionId) { nativeVoice.backgroundControl(action); return }
+        nativeVoice.request("/api/session", {title: qsTr("Conversación de voz")}, function(ok,value) {
+            if (!ok || !value.id) { root.lastError = qsTr("No se pudo crear la conversación de voz"); root.showErrorBanner=true; return }
+            root.currentSessionId = value.id
+            root.loadSessions()
+            Qt.callLater(function() { nativeVoice.backgroundControl("enable") })
+        })
+    }
     function toggleDictation() {
-        if (root.dictating) root.stopDictation()
+        if (nativeVoice.state === "recording") nativeVoice.stop()
+        else if (nativeVoice.busy) nativeVoice.cancel()
         else root.startDictation()
     }
-
     function startDictation() {
+        if (nativeVoice.busy || !root.visible) return
+        if (currentSessionId) { nativeVoice.start(); return }
+        var requestGeneration = chatRequestGeneration
+        var voiceGeneration = nativeVoice.generation
+        nativeVoice.requestPending = true
+        nativeVoice.state = "preparing"
         var req = new XMLHttpRequest()
-        req.open("POST", backendUrl + "/api/dictate/start")
+        req.open("POST", backendUrl + "/api/session")
         req.setRequestHeader("Content-Type", "application/json")
         setAuth(req)
         req.onreadystatechange = function() {
-            if (req.readyState !== XMLHttpRequest.DONE) return
+            if (req.readyState !== XMLHttpRequest.DONE || requestGeneration !== chatRequestGeneration
+                    || voiceGeneration !== nativeVoice.generation || !root.visible) return
+            nativeVoice.requestPending = false
+            nativeVoice.state = "idle"
             if (xhr_ok(req)) {
-                root.dictating = true
-                root.voiceState = "listening"
-            } else {
-                var msg = qsTr("No se pudo iniciar el dictado")
-                try {
-                    var r = JSON.parse(req.responseText)
-                    if (r.error) msg = r.error
-                } catch (e) {}
-                lastError = msg
-                lastErrorDetail = qsTr("Verifica el micrófono en Configuración.")
-                showErrorBanner = true
-            }
+                var session = JSON.parse(req.responseText)
+                currentSessionId = session.id
+                loadSessions()
+                var nextGeneration = nativeVoice.generation
+                Qt.callLater(function() {
+                    if (root.visible && nextGeneration === nativeVoice.generation) nativeVoice.start()
+                })
+            } else { root.lastError = qsTr("No se pudo crear una conversación para dictar"); root.showErrorBanner = true }
         }
-        req.send(JSON.stringify({}))
+        req.send(JSON.stringify({title: qsTr("Nueva conversación")}))
     }
-
-    function stopDictation() {
-        root.dictating = false
-        root.voiceState = "processing"
-        var req = new XMLHttpRequest()
-        req.open("POST", backendUrl + "/api/dictate/stop")
-        req.setRequestHeader("Content-Type", "application/json")
-        setAuth(req)
-        req.onreadystatechange = function() {
-            if (req.readyState !== XMLHttpRequest.DONE) return
-            root.voiceState = "idle"
-            if (xhr_ok(req)) {
-                try {
-                    var r = JSON.parse(req.responseText)
-                    var t = (r.transcript || "").trim()
-                    if (t.length > 0) {
-                        var cur = inputBar.text.trim()
-                        inputBar.text = cur.length > 0 ? cur + " " + t : t
-                        inputBar.focusInput()
-                    } else {
-                        lastError = qsTr("No se escuchó nada")
-                        lastErrorDetail = qsTr("Acércate al micrófono e inténtalo de nuevo.")
-                        showErrorBanner = true
-                    }
-                } catch (e) {}
-            } else {
-                var msg = qsTr("Falló la transcripción")
-                try {
-                    var r2 = JSON.parse(req.responseText)
-                    if (r2.error) msg = r2.error
-                } catch (e) {}
-                lastError = msg
-                lastErrorDetail = ""
-                showErrorBanner = true
-            }
-        }
-        req.send(JSON.stringify({}))
-    }
+    function stopDictation() { nativeVoice.stop() }
 
     property var voiceStreamXhr: null
     function startVoiceStream() {
@@ -2026,11 +2037,7 @@ ApplicationWindow {
     function speakText(rawText) {
         var text = stripMarkdownForSpeech(rawText)
         if (!text) return
-        var req = new XMLHttpRequest()
-        req.open("POST", backendUrl + "/api/speak")
-        req.setRequestHeader("Content-Type", "application/json")
-        setAuth(req)
-        req.send(JSON.stringify({ text: text }))
+        nativeVoice.read(text)
     }
 
     // Copia al portapapeles via buffer oculto.

@@ -1,0 +1,80 @@
+[
+  {
+    "name": "f4",
+    "command": [
+      "python3",
+      "scripts/validate_f4.py",
+      "--output",
+      "docs/recovery/F4-EVIDENCE/final-automation"
+    ],
+    "exit": 0,
+    "seconds": 53.961332189999666
+  },
+  {
+    "name": "worker",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "--test",
+      "f4_worker",
+      "--",
+      "--ignored",
+      "--test-threads=1"
+    ],
+    "exit": 0,
+    "seconds": 5.308344254000076
+  },
+  {
+    "name": "fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--check"
+    ],
+    "exit": 0,
+    "seconds": 1.2888232410000455
+  },
+  {
+    "name": "clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "seconds": 11.710764720000043
+  },
+  {
+    "name": "clippy-legacy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--features",
+      "legacy-fixtures",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0,
+    "seconds": 10.759214258000156
+  },
+  {
+    "name": "build",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "--bin",
+      "kde-assistant"
+    ],
+    "exit": 0,
+    "seconds": 0.5117862249999234
+  }
+]

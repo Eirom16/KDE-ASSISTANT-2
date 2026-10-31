@@ -1,0 +1,23 @@
+{
+  "at_utc": "2026-10-19T01:44:10.880317+00:00",
+  "scope": "End of authorised Vosk/PTT evaluation",
+  "removed": [
+    {
+      "directory": "/var/tmp/kda-f4r2-vosk-pruy5scb",
+      "absent": true
+    },
+    {
+      "directory": "/var/tmp/kda-f4r2-ptt-2xa4_pcz",
+      "absent": true
+    },
+    {
+      "directory": "/var/tmp/kda-f4r2-ptt-gpfkwmrz",
+      "absent": true
+    }
+  ],
+  "corpus_previously_removed": true,
+  "forensic_erasure_claim": false,
+  "personal_profile_accessed": false,
+  "previous_whisper_tiny_model": "Untouched pre-existing authorised artifact",
+  "permanent_voice_installation": false
+}

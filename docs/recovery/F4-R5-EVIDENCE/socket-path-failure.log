@@ -1,0 +1,3 @@
+[E][19:45:31.024729] mod.protocol-native | [module-protocol-:  762 init_socket_name()] server 0x55d10de62400: socket path "/var/tmp/kda-f4r5-3y7zg8fs/extended-1792539930985145720/pending-expiry-1792539930985356312/runtime/f4-unreachable-audio" plus null terminator exceeds 108 bytes
+[E][19:45:31.024925] pw.conf      | [          conf.c:  607 load_module()] 0x55d10de58db0: could not load mandatory module "libpipewire-module-protocol-native": File name too long
+[E][19:45:31.025050] default      | [      pipewire.c:  124 main()] failed to create context: File name too long

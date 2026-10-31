@@ -1,0 +1,66 @@
+['cargo', 'fmt']
+['cargo', 'test', '--offline', '--locked', '--lib', 'backend::voice_', '--', '--test-threads=1']
+   Compiling kde-assistant v0.1.0 (/home/eirom/KDE-ASSISTANT-2)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23.18s
+     Running unittests src/lib.rs (target/debug/deps/kde_assistant_lib-d671980a990f445c)
+
+running 34 tests
+test backend::voice_coordinator::tests::cancel_before_start_revokes_reserved_generation_and_shutdown_blocks_admission ... ok
+test backend::voice_coordinator::tests::cancellation_during_capture ... ok
+test backend::voice_coordinator::tests::cancellation_during_stt_load_and_inference ... ok
+test backend::voice_coordinator::tests::capture_is_bounded_and_device_eof_is_an_error ... ok
+test backend::voice_coordinator::tests::interruption_of_tts_generation_or_playback ... ok
+test backend::voice_coordinator::tests::invalid_transition_is_rejected_without_overwriting_text ... ok
+test backend::voice_coordinator::tests::missing_model_fails_before_any_capture_and_text_backend_remains_available ... ok
+test backend::voice_coordinator::tests::obsolete_results_never_replace_current_session ... ok
+test backend::voice_coordinator::tests::piper_metadata_is_bounded_and_rejects_non_regular_inputs ... ok
+test backend::voice_coordinator::tests::silence_endpoint_and_stop_release_capture ... ok
+test backend::voice_coordinator::tests::stop_during_preparing_returns_idle_without_model_or_capture ... ok
+test backend::voice_coordinator::tests::transition_table_rejects_incompatible_states ... ok
+test backend::voice_pipeline::tests::auto_barge_ignora_mic_alto_si_tts_aun_no_suena ... ok
+test backend::voice_pipeline::tests::barge_in_transita_interrupted_a_listening ... ok
+test backend::voice_pipeline::tests::dictado_activo_aborta_wait_for_speech_rapido ... ok
+test backend::voice_pipeline::tests::dictado_activo_bloquea_start_listening ... ok
+test backend::voice_pipeline::tests::emit_state_mapea_a_strings_legados ... ok
+test backend::voice_pipeline::tests::signal_broadcast_state ... ok
+test backend::voice_pipeline::tests::signal_level_throttled ... ok
+test backend::voice_pipeline::tests::voice_context_preserves_complete_tool_units ... ok
+test backend::voice_pipeline::tests::voice_context_rejects_incomplete_legacy_group ... ok
+test backend::voice_pipeline::tests::wait_for_speech_times_out_quiet ... ok
+test backend::voice_pipeline::tests::wake_word_aislado_no_es_prompt ... ok
+test backend::voice_process::tests::cancellation_waits_for_child_reaping ... ok
+test backend::voice_process::tests::stdout_is_drained_while_writing_and_secrets_are_not_inherited ... ok
+test backend::voice_process::tests::timeout_and_output_limit_kill_and_reap_the_exact_child ... ok
+test backend::voice_state::tests::barge_in_es_valido ... ok
+test backend::voice_state::tests::error_se_recupera_a_idle_o_listening ... ok
+test backend::voice_state::tests::flujo_feliz_es_valido ... ok
+test backend::voice_state::tests::operaciones_incrementan_id ... ok
+test backend::voice_state::tests::self_transition_es_noop_valido ... ok
+test backend::voice_state::tests::transiciones_no_previstas_se_marcan ... ok
+test backend::voice_state::tests::ui_mapping_es_compatible_con_qml ... ok
+test backend::voice_stt::tests::default_remains_whisper_and_unknown_engine_does_not_fallback ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 145 filtered out; finished in 1.59s
+
+['cargo', 'test', '--offline', '--locked', '--lib', 'backend::vosk::tests', '--', '--test-threads=1']
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.59s
+     Running unittests src/lib.rs (target/debug/deps/kde_assistant_lib-d671980a990f445c)
+
+running 2 tests
+test backend::vosk::tests::arbitrary_shared_library_is_rejected_without_dlopen ... ok
+test backend::vosk::tests::missing_runtime_invalid_pcm_and_relative_paths_fail_before_native_load ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 177 filtered out; finished in 0.87s
+
+['cargo', 'test', '--offline', '--locked', '--test', 'f4_cli', '--', '--test-threads=1']
+   Compiling kde-assistant v0.1.0 (/home/eirom/KDE-ASSISTANT-2)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 34.11s
+     Running tests/f4_cli.rs (target/debug/deps/f4_cli-912f59e2162ef552)
+
+running 1 test
+test internal_and_unknown_arguments_never_start_backend_or_create_profile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+['cargo', 'build', '--offline', '--locked', '--bin', 'kde-assistant', '--bin', 'bench_voice']
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.59s

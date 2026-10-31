@@ -1,0 +1,347 @@
+{
+  "category": "AUTOMATED_AUDIO_FIXTURE",
+  "library_ms": 38.3162469988747,
+  "cold_model_load_ms": 664.568574000441,
+  "loaded_idle": {
+    "seconds": 2.0038247640004556,
+    "cpu_ticks": 1,
+    "rss_kib": 147740,
+    "pss_kib": 137232
+  },
+  "runs": [
+    {
+      "signal": "tone",
+      "run": 0,
+      "conversion_ms": 0.28747800024575554,
+      "state_ms": 84.1418829986651,
+      "inference_ms": 388.7191719986731,
+      "text_ms": 0.016218000382650644,
+      "text": "",
+      "cpu_ticks": 39
+    },
+    {
+      "signal": "tone",
+      "run": 1,
+      "conversion_ms": 0.28747800024575554,
+      "state_ms": 80.1631569993333,
+      "inference_ms": 369.5978389987431,
+      "text_ms": 0.014555000234395266,
+      "text": "",
+      "cpu_ticks": 38
+    },
+    {
+      "signal": "tone",
+      "run": 2,
+      "conversion_ms": 0.28747800024575554,
+      "state_ms": 79.00920899919583,
+      "inference_ms": 387.7534540006309,
+      "text_ms": 0.015295001503545791,
+      "text": "",
+      "cpu_ticks": 38
+    },
+    {
+      "signal": "tone",
+      "run": 3,
+      "conversion_ms": 0.28747800024575554,
+      "state_ms": 79.71723499940708,
+      "inference_ms": 376.8361869988439,
+      "text_ms": 0.01604999852133915,
+      "text": "",
+      "cpu_ticks": 37
+    },
+    {
+      "signal": "tone",
+      "run": 4,
+      "conversion_ms": 0.28747800024575554,
+      "state_ms": 79.10912199804443,
+      "inference_ms": 410.453010998026,
+      "text_ms": 0.015043002349557355,
+      "text": "",
+      "cpu_ticks": 42
+    },
+    {
+      "signal": "tone",
+      "run": 5,
+      "conversion_ms": 0.28747800024575554,
+      "state_ms": 78.49995799915632,
+      "inference_ms": 378.7708659983764,
+      "text_ms": 0.01525599873275496,
+      "text": "",
+      "cpu_ticks": 38
+    },
+    {
+      "signal": "tone",
+      "run": 6,
+      "conversion_ms": 0.28747800024575554,
+      "state_ms": 78.83211199805373,
+      "inference_ms": 368.55205400206614,
+      "text_ms": 0.014695000572828576,
+      "text": "",
+      "cpu_ticks": 37
+    },
+    {
+      "signal": "tone",
+      "run": 7,
+      "conversion_ms": 0.28747800024575554,
+      "state_ms": 78.92301800166024,
+      "inference_ms": 364.5643329982704,
+      "text_ms": 0.015059998986544088,
+      "text": "",
+      "cpu_ticks": 37
+    },
+    {
+      "signal": "tone",
+      "run": 8,
+      "conversion_ms": 0.28747800024575554,
+      "state_ms": 79.94457899985719,
+      "inference_ms": 378.92636300239246,
+      "text_ms": 0.015260000509442762,
+      "text": "",
+      "cpu_ticks": 37
+    },
+    {
+      "signal": "tone",
+      "run": 9,
+      "conversion_ms": 0.28747800024575554,
+      "state_ms": 79.49931899929652,
+      "inference_ms": 369.99545299840975,
+      "text_ms": 0.014901001122780144,
+      "text": "",
+      "cpu_ticks": 37
+    },
+    {
+      "signal": "silence",
+      "run": 0,
+      "conversion_ms": 0.34013900221907534,
+      "state_ms": 78.6487470031716,
+      "inference_ms": 346.6136879978876,
+      "text_ms": 0.014503999409498647,
+      "text": "",
+      "cpu_ticks": 35
+    },
+    {
+      "signal": "silence",
+      "run": 1,
+      "conversion_ms": 0.34013900221907534,
+      "state_ms": 79.5183160007582,
+      "inference_ms": 351.0195079979894,
+      "text_ms": 0.01567500294186175,
+      "text": "",
+      "cpu_ticks": 35
+    },
+    {
+      "signal": "silence",
+      "run": 2,
+      "conversion_ms": 0.34013900221907534,
+      "state_ms": 79.63743599975714,
+      "inference_ms": 353.91979400083073,
+      "text_ms": 0.014875997294439003,
+      "text": "",
+      "cpu_ticks": 35
+    },
+    {
+      "signal": "silence",
+      "run": 3,
+      "conversion_ms": 0.34013900221907534,
+      "state_ms": 78.71384099780698,
+      "inference_ms": 344.9114710019785,
+      "text_ms": 0.015675999748054892,
+      "text": "",
+      "cpu_ticks": 35
+    },
+    {
+      "signal": "silence",
+      "run": 4,
+      "conversion_ms": 0.34013900221907534,
+      "state_ms": 78.86482899994007,
+      "inference_ms": 359.2635729983158,
+      "text_ms": 0.014904999261489138,
+      "text": "",
+      "cpu_ticks": 35
+    },
+    {
+      "signal": "silence",
+      "run": 5,
+      "conversion_ms": 0.34013900221907534,
+      "state_ms": 79.29234800030827,
+      "inference_ms": 368.5868960019434,
+      "text_ms": 0.018868999177357182,
+      "text": "",
+      "cpu_ticks": 38
+    },
+    {
+      "signal": "silence",
+      "run": 6,
+      "conversion_ms": 0.34013900221907534,
+      "state_ms": 79.20578599805594,
+      "inference_ms": 348.1765180004004,
+      "text_ms": 0.04525300028035417,
+      "text": "",
+      "cpu_ticks": 34
+    },
+    {
+      "signal": "silence",
+      "run": 7,
+      "conversion_ms": 0.34013900221907534,
+      "state_ms": 79.62297199992463,
+      "inference_ms": 379.9409769999329,
+      "text_ms": 0.014915000065229833,
+      "text": "",
+      "cpu_ticks": 38
+    },
+    {
+      "signal": "silence",
+      "run": 8,
+      "conversion_ms": 0.34013900221907534,
+      "state_ms": 79.27952099998947,
+      "inference_ms": 354.2443459991773,
+      "text_ms": 0.014812001609243453,
+      "text": "",
+      "cpu_ticks": 36
+    },
+    {
+      "signal": "silence",
+      "run": 9,
+      "conversion_ms": 0.34013900221907534,
+      "state_ms": 78.43046600100934,
+      "inference_ms": 344.6062670009269,
+      "text_ms": 0.024413002392975613,
+      "text": "",
+      "cpu_ticks": 34
+    },
+    {
+      "signal": "noise",
+      "run": 0,
+      "conversion_ms": 0.24723599926801398,
+      "state_ms": 79.52917700094986,
+      "inference_ms": 473.15243600314716,
+      "text_ms": 0.01460000203223899,
+      "text": "",
+      "cpu_ticks": 47
+    },
+    {
+      "signal": "noise",
+      "run": 1,
+      "conversion_ms": 0.24723599926801398,
+      "state_ms": 79.89216699934332,
+      "inference_ms": 470.90644300260465,
+      "text_ms": 0.015842000721022487,
+      "text": "",
+      "cpu_ticks": 46
+    },
+    {
+      "signal": "noise",
+      "run": 2,
+      "conversion_ms": 0.24723599926801398,
+      "state_ms": 79.03315800285782,
+      "inference_ms": 469.9108200002229,
+      "text_ms": 0.028914000722579658,
+      "text": "",
+      "cpu_ticks": 47
+    },
+    {
+      "signal": "noise",
+      "run": 3,
+      "conversion_ms": 0.24723599926801398,
+      "state_ms": 79.72600100038107,
+      "inference_ms": 470.1237780027441,
+      "text_ms": 0.012972002878086641,
+      "text": "",
+      "cpu_ticks": 47
+    },
+    {
+      "signal": "noise",
+      "run": 4,
+      "conversion_ms": 0.24723599926801398,
+      "state_ms": 79.78125299996464,
+      "inference_ms": 468.7147830009053,
+      "text_ms": 0.015751000319141895,
+      "text": "",
+      "cpu_ticks": 47
+    },
+    {
+      "signal": "noise",
+      "run": 5,
+      "conversion_ms": 0.24723599926801398,
+      "state_ms": 80.69346499905805,
+      "inference_ms": 475.88706700116745,
+      "text_ms": 0.01074199826689437,
+      "text": "",
+      "cpu_ticks": 48
+    },
+    {
+      "signal": "noise",
+      "run": 6,
+      "conversion_ms": 0.24723599926801398,
+      "state_ms": 79.06307700250181,
+      "inference_ms": 464.87694199822727,
+      "text_ms": 0.015072000678628683,
+      "text": "",
+      "cpu_ticks": 46
+    },
+    {
+      "signal": "noise",
+      "run": 7,
+      "conversion_ms": 0.24723599926801398,
+      "state_ms": 80.12845900157117,
+      "inference_ms": 471.8652769988694,
+      "text_ms": 0.015644000086467713,
+      "text": "",
+      "cpu_ticks": 46
+    },
+    {
+      "signal": "noise",
+      "run": 8,
+      "conversion_ms": 0.24723599926801398,
+      "state_ms": 81.3545869968948,
+      "inference_ms": 471.7814489995362,
+      "text_ms": 0.014709999959450215,
+      "text": "",
+      "cpu_ticks": 47
+    },
+    {
+      "signal": "noise",
+      "run": 9,
+      "conversion_ms": 0.24723599926801398,
+      "state_ms": 80.51607299785246,
+      "inference_ms": 466.0773940013314,
+      "text_ms": 0.015746998542454094,
+      "text": "",
+      "cpu_ticks": 47
+    }
+  ],
+  "summary": {
+    "tone": {
+      "n": 10,
+      "p50_ms": 376.8361869988439,
+      "p95_ms": 410.453010998026,
+      "min_ms": 364.5643329982704,
+      "max_ms": 410.453010998026,
+      "mean_ms": 379.4168731994432,
+      "stddev_ms": 12.846827999700224,
+      "mad_ms": 8.728579998205532
+    },
+    "silence": {
+      "n": 10,
+      "p50_ms": 351.0195079979894,
+      "p95_ms": 379.9409769999329,
+      "min_ms": 344.6062670009269,
+      "max_ms": 379.9409769999329,
+      "mean_ms": 355.1283037999383,
+      "stddev_ms": 10.81179876747267,
+      "mad_ms": 6.324942500214092
+    },
+    "noise": {
+      "n": 10,
+      "p50_ms": 470.1237780027441,
+      "p95_ms": 475.88706700116745,
+      "min_ms": 464.87694199822727,
+      "max_ms": 475.88706700116745,
+      "mean_ms": 470.3296389008756,
+      "stddev_ms": 3.070681817272887,
+      "mad_ms": 1.5752469989820383
+    }
+  },
+  "wer": "NOT_TESTED",
+  "live_microphone": "NOT_TESTED"
+}

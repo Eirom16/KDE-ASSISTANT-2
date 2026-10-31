@@ -1,0 +1,44 @@
+{
+  "purpose": "live_f4r3_tts_t1",
+  "command": [
+    "/usr/bin/python3",
+    "-B",
+    "/home/eirom/KDE-ASSISTANT-2/scripts/live_f4_tts.py",
+    "--launch",
+    "--profile",
+    "/var/tmp/kda-f4r3-piper-aqrh6h0h/live-t1-1792419192735966309",
+    "--receipt",
+    "/var/tmp/kda-f4r3-piper-aqrh6h0h/live-t1-1792419192735966309/t1-audible-consent.json"
+  ],
+  "exit": 0,
+  "wall_seconds": 12.241,
+  "error": null,
+  "observed_owned_pids": [
+    11837,
+    11845,
+    11846,
+    11855
+  ],
+  "observed_executables": {
+    "11837": [
+      "/home/eirom/KDE-ASSISTANT-2/target/debug/kde-assistant"
+    ],
+    "11845": [
+      "/home/eirom/KDE-ASSISTANT-2/target/debug/kde-assistant"
+    ],
+    "11846": [
+      "/home/eirom/KDE-ASSISTANT-2/target/debug/kde-assistant",
+      "/usr/bin/python3.14"
+    ],
+    "11855": [
+      "/usr/bin/pw-cat"
+    ]
+  },
+  "all_observed_children_reaped": true,
+  "audio_authorization": "si, lo autorizo",
+  "readiness": "Volumen c\u00f3modo; reproducir ahora",
+  "microphone": false,
+  "raw_audio_saved": false,
+  "human_result": "PENDING_USER_REPORT",
+  "scope": "ONE_T1_ONLY; no automatic retry or T2-T5"
+}

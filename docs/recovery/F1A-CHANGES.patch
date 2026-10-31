@@ -1,0 +1,2247 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index e019549f17195264b8f94ec84d4c080e6e7ca990..e93e4567dee19144155126103b1b07c963617c02 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -62,6 +62,7 @@ dirs = "5"
+ once_cell = "1"
+ hex = "0.4"
+ ctrlc = "3"
++rustix = { version = "1.1", features = ["fs"] }
+ 
+ # Hashing para verificar integridad de descargas
+ sha2 = "0.10"
+@@ -80,4 +81,4 @@ codegen-units = 1
+ 
+ [profile.dev]
+ opt-level = 0
+-debug = true
+\ No newline at end of file
++debug = true
+diff --git a/src/backend/ai_service.rs b/src/backend/ai_service.rs
+index b189d991d6a3c42406fbd66b80e40385ce60d0f2..630dd571eb2139e7f51a89e770c46e0103a63f09 100644
+--- a/src/backend/ai_service.rs
++++ b/src/backend/ai_service.rs
+@@ -128,10 +128,11 @@ impl AiService {
+             .timeout(std::time::Duration::from_secs(120))
+             .user_agent("KDE-Assistant/2.0")
+             .build()?;
+-        let provider = config
+-            .try_read()
+-            .map(|c| crate::models::AiConfig::provider_name(c.ai.provider_id()).to_string())
+-            .unwrap_or_else(|_| "OpenRouter".to_string());
++        let provider = {
++            let cfg = config.try_read().context("configuracion no disponible")?;
++            cfg.ai.validate_provider()?;
++            crate::models::AiConfig::provider_name(cfg.ai.provider_id()).to_string()
++        };
+         log::info!("AiService: cliente {provider} listo");
+         Ok(Self {
+             config,
+@@ -140,11 +141,14 @@ impl AiService {
+         })
+     }
+ 
+-    fn snapshot(&self) -> Config {
+-        self.config
++    fn snapshot(&self) -> Result<Config> {
++        let cfg = self
++            .config
+             .try_read()
+-            .map(|c| c.clone())
+-            .unwrap_or_default()
++            .context("configuracion no disponible; solicitud denegada")?
++            .clone();
++        cfg.ai.validate_provider()?;
++        Ok(cfg)
+     }
+ 
+     /// Completion simple sin tools (F5: resúmenes). No streamea al exterior:
+@@ -155,6 +159,7 @@ impl AiService {
+         user: &str,
+         max_tokens: u32,
+     ) -> Result<String> {
++        let cfg = self.snapshot()?;
+         let handle = self.clone_handle()?;
+         let messages = vec![
+             Message::system(system.to_string()),
+@@ -163,7 +168,7 @@ impl AiService {
+         let (tx, mut rx) = mpsc::channel::<StreamEvent>(64);
+         let task = tokio::spawn(async move {
+             handle
+-                .call_once(&messages, &[], Some(max_tokens), &tx)
++                .call_once(&cfg, &messages, &[], Some(max_tokens), &tx)
+                 .await
+         });
+         let mut out = String::new();
+@@ -240,12 +245,12 @@ impl AiService {
+     /// `ToolCall` acumulados.
+     async fn call_once(
+         &self,
++        cfg: &Config,
+         messages: &[Message],
+         tools: &[Tool],
+         max_tokens: Option<u32>,
+         tx: &mpsc::Sender<StreamEvent>,
+     ) -> Result<String> {
+-        let cfg = self.snapshot();
+         let provider_id = cfg.ai.provider_id().to_string();
+         let provider_name = crate::models::AiConfig::provider_name(&provider_id);
+         let api_key = cfg.ai.effective_api_key();
+@@ -402,7 +407,7 @@ impl AiService {
+         session_id: Option<String>,
+         tx: mpsc::Sender<StreamEvent>,
+     ) -> Result<AgentOutcome> {
+-        let cfg = self.snapshot();
++        let cfg = self.snapshot()?;
+         let mut activity = self.activity.begin(&cfg.ai.model, !policy.interactive);
+         let max_iter = if cfg.ai.max_tool_iterations == 0 {
+             MAX_ITERATIONS_DEFAULT
+@@ -426,8 +431,11 @@ impl AiService {
+             let svc_handle = self.clone_handle()?;
+             let msgs = messages.clone();
+             let tools_c = tools.clone();
++            let request_cfg = cfg.clone();
+             let call_task = tokio::spawn(async move {
+-                svc_handle.call_once(&msgs, &tools_c, None, &inner_tx).await
++                svc_handle
++                    .call_once(&request_cfg, &msgs, &tools_c, None, &inner_tx)
++                    .await
+             });
+ 
+             // Procesar eventos: recoger texto y tool_calls
+@@ -699,6 +707,39 @@ fn collect_tool_calls(acc: &mut HashMap<usize, (String, String, String)>) -> Vec
+ mod tests {
+     use super::*;
+ 
++    #[tokio::test]
++    async fn f1a_ai_contention_fails_before_any_request() {
++        let mut cfg = Config::default();
++        cfg.ai.provider = "custom".into();
++        cfg.ai.base_url = "http://synthetic.invalid".into();
++        cfg.ai.model = "synthetic-model".into();
++        let config = Arc::new(RwLock::new(cfg));
++        let service = AiService::new(config.clone()).await.unwrap();
++        let snapshot = service.snapshot().unwrap();
++        assert_eq!(snapshot.ai.provider, "custom");
++        let guard = config.write().await;
++        assert!(service.snapshot().is_err());
++        assert!(AiService::new(config.clone()).await.is_err());
++        let error = service
++            .simple_completion("synthetic", "fixture", 1)
++            .await
++            .unwrap_err();
++        assert!(error.to_string().contains("configuracion no disponible"));
++        drop(guard);
++        config.write().await.ai.provider = "groq".into();
++        assert_eq!(snapshot.ai.provider, "custom");
++        assert_eq!(service.snapshot().unwrap().ai.provider, "groq");
++    }
++
++    #[tokio::test]
++    async fn f1a_unknown_provider_never_falls_back_to_openrouter() {
++        let config = Arc::new(RwLock::new(Config::default()));
++        let service = AiService::new(config.clone()).await.unwrap();
++        config.write().await.ai.provider = "corrupt-fixture".into();
++        assert!(service.snapshot().is_err());
++        assert!(AiService::new(config).await.is_err());
++    }
++
+     #[test]
+     fn parse_retry_after_extrae_el_delay_de_groq() {
+         let body = r#"{"error":{"message":"Rate limit reached for model `x` ... Please try again in 6.8475s. Need more tokens?"}}"#;
+diff --git a/src/backend/mod.rs b/src/backend/mod.rs
+index 84d1f82c55651a2ae61242134d59ffab670b02e1..bd3ecedc4b1d02fb53ce737291e8f81d8c731778 100644
+--- a/src/backend/mod.rs
++++ b/src/backend/mod.rs
+@@ -14,6 +14,7 @@ pub mod hotword;
+ pub mod http_server;
+ pub mod kde_integration;
+ pub mod model_downloader;
++mod safe_fs;
+ pub mod session_manager;
+ pub mod speech_service;
+ pub mod stt;
+diff --git a/src/backend/safe_fs.rs b/src/backend/safe_fs.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..2f4a89e035d002a41c60bd987e3a328b73b01a94
+--- /dev/null
++++ b/src/backend/safe_fs.rs
+@@ -0,0 +1,364 @@
++//! Acceso Linux anclado a la raíz autorizada. No hay fallback por pathname.
++use anyhow::{bail, Context, Result};
++use rustix::fs::{self, AtFlags, Mode, OFlags, RenameFlags, ResolveFlags, CWD};
++use std::ffi::OsString;
++use std::fs::File;
++use std::io::{Read, Write};
++use std::os::unix::ffi::OsStrExt;
++use std::os::unix::fs::MetadataExt;
++use std::path::{Component, Path, PathBuf};
++
++use crate::models::Config;
++
++const RESOLVE: ResolveFlags = ResolveFlags::BENEATH
++    .union(ResolveFlags::NO_SYMLINKS)
++    .union(ResolveFlags::NO_MAGICLINKS)
++    .union(ResolveFlags::NO_XDEV);
++
++pub(super) struct SafePath {
++    root: File,
++    relative: PathBuf,
++    pub display: PathBuf,
++}
++
++impl SafePath {
++    pub fn resolve(cfg: &Config, path: &str) -> Result<Self> {
++        if !cfg.tools.fs_enabled() {
++            bail!("Acceso al sistema de archivos deshabilitado");
++        }
++        let home = dirs::home_dir().context("HOME no disponible; acceso denegado")?;
++        let display = checked_absolute(&super::tool_executor::expand_home(path, &home))?;
++        for root in &cfg.tools.allowed_paths {
++            let root_path = checked_absolute(&super::tool_executor::expand_home(root, &home))?;
++            if let Ok(relative) = display.strip_prefix(&root_path) {
++                // La raíz también se abre sin symlinks, incluso en sus ancestros.
++                // ENOSYS/EINVAL/EPERM se propagan: nunca open/canonicalize de fallback.
++                let root = fs::openat2(
++                    CWD,
++                    &root_path,
++                    OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
++                    Mode::empty(),
++                    ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_MAGICLINKS,
++                )
++                .context("abriendo raíz autorizada con openat2")?;
++                return Ok(Self {
++                    root: root.into(),
++                    relative: relative.into(),
++                    display,
++                });
++            }
++        }
++        bail!("Path no permitido (allowed_paths): {}", display.display())
++    }
++
++    pub fn snapshot(&self) -> Result<PathBuf> {
++        let bytes = self.read()?;
++        let (directory, root) = private_workspace()?;
++        let name = self.relative.file_name().context("archivo sin nombre")?;
++        let snapshot = Self {
++            root,
++            relative: name.into(),
++            display: directory.join(name),
++        };
++        snapshot.create(&bytes)?;
++        Ok(snapshot.display)
++    }
++
++    pub fn find(&self, query: &str) -> Result<Vec<PathBuf>> {
++        let mut stack = vec![(
++            self.open(OFlags::RDONLY | OFlags::DIRECTORY)?,
++            self.display.clone(),
++            0,
++        )];
++        let mut results = Vec::new();
++        let mut visited = 0;
++        while let Some((dir, display, depth)) = stack.pop() {
++            if depth > 6 || visited >= 2000 || results.len() >= 20 {
++                continue;
++            }
++            for entry in fs::Dir::read_from(&dir)? {
++                let entry = entry?;
++                let name = std::ffi::OsStr::from_bytes(entry.file_name().to_bytes());
++                if name == "." || name == ".." {
++                    continue;
++                }
++                visited += 1;
++                if visited > 2000 || results.len() >= 20 {
++                    break;
++                }
++                // O_PATH sin O_NOFOLLOW: NO_SYMLINKS rechaza incluso el último link.
++                let fd = match fs::openat2(
++                    &dir,
++                    name,
++                    OFlags::PATH | OFlags::CLOEXEC,
++                    Mode::empty(),
++                    RESOLVE,
++                ) {
++                    Ok(fd) => File::from(fd),
++                    Err(_) => continue,
++                };
++                let metadata = fd.metadata()?;
++                let lower = name.to_string_lossy().to_lowercase();
++                if metadata.is_dir()
++                    && depth < 6
++                    && !lower.starts_with('.')
++                    && !matches!(lower.as_str(), "node_modules" | "target")
++                {
++                    // Reabrir desde el descriptor fijado, nunca desde display.
++                    let child = fs::openat2(
++                        &fd,
++                        ".",
++                        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
++                        Mode::empty(),
++                        RESOLVE,
++                    )?;
++                    stack.push((child.into(), display.join(name), depth + 1));
++                }
++                if (metadata.is_dir() || (metadata.is_file() && metadata.nlink() == 1))
++                    && lower.contains(query)
++                {
++                    results.push(display.join(name));
++                }
++            }
++        }
++        results.sort();
++        Ok(results)
++    }
++
++    fn open(&self, flags: OFlags) -> Result<File> {
++        let path = if self.relative.as_os_str().is_empty() {
++            Path::new(".")
++        } else {
++            &self.relative
++        };
++        Ok(fs::openat2(
++            &self.root,
++            path,
++            flags | OFlags::CLOEXEC,
++            Mode::empty(),
++            RESOLVE,
++        )
++        .context("resolviendo archivo autorizado con openat2")?
++        .into())
++    }
++
++    pub fn read(&self) -> Result<Vec<u8>> {
++        let mut file = self.open(OFlags::RDONLY | OFlags::NONBLOCK)?;
++        check_regular(&file)?;
++        let mut bytes = Vec::new();
++        file.read_to_end(&mut bytes)
++            .context("leyendo descriptor autorizado")?;
++        Ok(bytes)
++    }
++
++    pub fn is_dir(&self) -> Result<bool> {
++        match self.open_optional()? {
++            Some(file) => Ok(file.metadata()?.is_dir()),
++            None => Ok(false),
++        }
++    }
++
++    fn open_optional(&self) -> Result<Option<File>> {
++        let path = if self.relative.as_os_str().is_empty() {
++            Path::new(".")
++        } else {
++            &self.relative
++        };
++        match fs::openat2(
++            &self.root,
++            path,
++            OFlags::PATH | OFlags::CLOEXEC,
++            Mode::empty(),
++            RESOLVE,
++        ) {
++            Ok(fd) => Ok(Some(fd.into())),
++            Err(rustix::io::Errno::NOENT) => Ok(None),
++            Err(e) => Err(e).context("destino inseguro o inaccesible"),
++        }
++    }
++
++    fn check_destination(&self, overwrite: bool) -> Result<()> {
++        if let Some(file) = self.open_optional()? {
++            check_regular(&file)?;
++            if !overwrite {
++                bail!("El archivo ya existe: {}", self.display.display());
++            }
++        }
++        Ok(())
++    }
++
++    fn child(&self, name: &std::ffi::OsStr) -> Result<Self> {
++        Ok(Self {
++            root: self.root.try_clone()?,
++            relative: self.relative.join(name),
++            display: self.display.join(name),
++        })
++    }
++
++    fn backup(&self) -> Result<Self> {
++        let relative = self.relative.with_extension("bak");
++        if relative == self.relative {
++            bail!("El backup coincide con el archivo principal");
++        }
++        Ok(Self {
++            root: self.root.try_clone()?,
++            relative,
++            display: self.display.with_extension("bak"),
++        })
++    }
++
++    // Todos los componentes se resuelven con openat2; mkdirat recibe sólo un basename.
++    fn parent(&self, create: bool) -> Result<(File, OsString)> {
++        let name = self
++            .relative
++            .file_name()
++            .context("No se puede escribir la raíz autorizada")?
++            .to_os_string();
++        let mut dir = self.root.try_clone()?;
++        for component in self
++            .relative
++            .parent()
++            .context("archivo sin padre")?
++            .components()
++        {
++            let Component::Normal(name) = component else {
++                bail!("Componente inseguro");
++            };
++            let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
++            let fd = match fs::openat2(&dir, name, flags, Mode::empty(), RESOLVE) {
++                Ok(fd) => fd,
++                Err(rustix::io::Errno::NOENT) if create => {
++                    match fs::mkdirat(&dir, name, Mode::RUSR | Mode::WUSR | Mode::XUSR) {
++                        Ok(()) | Err(rustix::io::Errno::EXIST) => {}
++                        Err(e) => return Err(e).context("creando directorio autorizado"),
++                    }
++                    fs::openat2(&dir, name, flags, Mode::empty(), RESOLVE)
++                        .context("abriendo directorio creado")?
++                }
++                Err(e) => return Err(e).context("abriendo directorio autorizado"),
++            };
++            dir = fd.into();
++        }
++        Ok((dir, name))
++    }
++
++    pub fn create(&self, content: &[u8]) -> Result<()> {
++        self.check_destination(false)?;
++        self.replace(content, false, true)
++    }
++
++    pub fn edit(&self, mode: &str, content: &str) -> Result<()> {
++        if !matches!(mode, "overwrite" | "append") {
++            bail!("Modo no soportado: {mode}");
++        }
++        // Leer y autorizar ambos objetos antes de cualquier escritura.
++        let original = self.read()?;
++        if mode == "overwrite" {
++            let backup = self.backup()?;
++            backup.check_destination(true)?;
++            backup
++                .replace(&original, true, false)
++                .context("backup obligatorio")?;
++            self.replace(content.as_bytes(), true, false)
++        } else {
++            let mut updated =
++                String::from_utf8(original).context("append requiere UTF-8 válido")?;
++            updated.push_str(content);
++            self.replace(updated.as_bytes(), true, false)
++        }
++    }
++
++    pub fn copy_to(&self, destination: Self, overwrite: bool) -> Result<PathBuf> {
++        let bytes = self.read()?;
++        let destination = if destination.is_dir()? {
++            destination.child(self.relative.file_name().context("origen sin nombre")?)?
++        } else {
++            destination
++        };
++        if self.display == destination.display {
++            bail!("Origen y destino coinciden");
++        }
++        destination.check_destination(overwrite)?;
++        destination.replace(&bytes, overwrite, true)?;
++        Ok(destination.display)
++    }
++
++    fn replace(&self, content: &[u8], overwrite: bool, create_parents: bool) -> Result<()> {
++        let (parent, name) = self.parent(create_parents)?;
++        let temp = format!(".kda-{}", uuid::Uuid::new_v4());
++        let fd = fs::openat2(
++            &parent,
++            &temp,
++            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::CLOEXEC,
++            Mode::RUSR | Mode::WUSR,
++            RESOLVE,
++        )
++        .context("creando temporal privado")?;
++        let mut file = File::from(fd);
++        let result = (|| -> Result<()> {
++            file.write_all(content)?;
++            file.sync_all()?;
++            // renameat2 sólo recibe basenames y nunca sigue el destino. El modo
++            // NOREPLACE mantiene creación exclusiva incluso si aparece un link.
++            fs::renameat_with(
++                &parent,
++                &temp,
++                &parent,
++                &name,
++                if overwrite {
++                    RenameFlags::empty()
++                } else {
++                    RenameFlags::NOREPLACE
++                },
++            )
++            .context("publicando archivo autorizado")?;
++            Ok(())
++        })();
++        if result.is_err() {
++            let _ = fs::unlinkat(&parent, &temp, AtFlags::empty());
++        }
++        result
++    }
++}
++
++fn check_regular(file: &File) -> Result<()> {
++    let metadata = file.metadata()?;
++    // También se niegan hardlinks: pueden aliasar datos fuera de la allowlist.
++    if !metadata.is_file() || metadata.nlink() != 1 {
++        bail!("Sólo archivos regulares sin hardlinks están permitidos");
++    }
++    Ok(())
++}
++
++fn checked_absolute(path: &str) -> Result<PathBuf> {
++    if path.trim().is_empty() || path.contains('\0') || path.len() > 4096 {
++        bail!("Path inválido");
++    }
++    let path = PathBuf::from(path);
++    if !path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) {
++        bail!("Path no permitido: se requiere ruta absoluta sin '..'");
++    }
++    Ok(path)
++}
++
++// Cache de vistas: nombre impredecible y 0700 desde mkdirat; sin fallback compartido.
++pub(super) fn private_workspace() -> Result<(PathBuf, File)> {
++    let base = std::env::temp_dir();
++    let root = fs::openat2(
++        CWD,
++        &base,
++        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
++        Mode::empty(),
++        ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_MAGICLINKS,
++    )?;
++    let name = format!("kda-view-{}", uuid::Uuid::new_v4());
++    fs::mkdirat(&root, &name, Mode::RUSR | Mode::WUSR | Mode::XUSR)?;
++    let dir = fs::openat2(
++        &root,
++        &name,
++        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
++        Mode::empty(),
++        RESOLVE,
++    )?;
++    Ok((base.join(name), dir.into()))
++}
+diff --git a/src/backend/tool_executor.rs b/src/backend/tool_executor.rs
+index 637c54a64645e202be259bd77bd860bdc41fcd75..1eb0fe3bbcc1c3816526d3a135067d07a571740a 100644
+--- a/src/backend/tool_executor.rs
++++ b/src/backend/tool_executor.rs
+@@ -15,6 +15,7 @@ use std::process::{Command, Stdio};
+ use tokio::fs;
+ 
+ use crate::backend::document_suite;
++use crate::backend::safe_fs::SafePath;
+ use crate::backend::session_manager::SessionManager;
+ use crate::models::{Config, ToolCall, ToolResult};
+ 
+@@ -78,31 +79,9 @@ impl ToolExecutor {
+     pub async fn execute(&self, tool_call: &ToolCall, ctx: &ToolCtx) -> Result<ToolResult> {
+         let id = tool_call.id.clone();
+         let t0 = std::time::Instant::now();
+-        let result = match tool_call.name.as_str() {
+-            "open_app" => self.open_app(tool_call).await,
+-            "create_file" => self.create_file(tool_call).await,
+-            "edit_file" => self.edit_file(tool_call).await,
+-            "read_file" => self.read_file(tool_call).await,
+-            "web_search" => self.web_search(tool_call).await,
+-            "show_image" => self.show_image(tool_call).await,
+-            "find_file" => self.find_file(tool_call).await,
+-            "find_document" => self.find_document(tool_call).await,
+-            "preview_document" => self.preview_document(tool_call).await,
+-            "open_file" => self.open_file(tool_call).await,
+-            "copy_file" => self.copy_file(tool_call).await,
+-            "open_url" => self.open_url(tool_call).await,
+-            "list_open_apps" => self.list_open_apps(tool_call).await,
+-            "focus_app" => self.focus_app(tool_call).await,
+-            "close_app" => self.close_app(tool_call).await,
+-            "system_info" => self.system_info(tool_call).await,
+-            "notify" => self.notify(tool_call).await,
+-            "media" => self.media(tool_call).await,
+-            "volume" => self.volume(tool_call).await,
+-            "brightness" => self.brightness(tool_call).await,
+-            "network_status" => self.network_status(tool_call).await,
+-            "remind_in" => self.remind_in(tool_call).await,
+-            "kdeconnect" => self.kdeconnect(tool_call).await,
+-            other => Err(anyhow!("Herramienta desconocida: {other}")),
++        let result = match self.get_config_snapshot() {
++            Ok(cfg) => self.execute_with_config(tool_call, &cfg).await,
++            Err(e) => Err(e),
+         };
+         let ms = t0.elapsed().as_millis() as u64;
+ 
+@@ -121,6 +100,36 @@ impl ToolExecutor {
+         final_res
+     }
+ 
++    // Una sola versión autoriza el flag y todas las rutas de la operación.
++    async fn execute_with_config(&self, tool_call: &ToolCall, cfg: &Config) -> Result<ToolResult> {
++        match tool_call.name.as_str() {
++            "open_app" => self.open_app(tool_call, cfg).await,
++            "create_file" => self.create_file(tool_call, cfg).await,
++            "edit_file" => self.edit_file(tool_call, cfg).await,
++            "read_file" => self.read_file(tool_call, cfg).await,
++            "web_search" => self.web_search(tool_call, cfg).await,
++            "show_image" => self.show_image(tool_call, cfg).await,
++            "find_file" => self.find_file(tool_call, cfg).await,
++            "find_document" => self.find_document(tool_call, cfg).await,
++            "preview_document" => self.preview_document(tool_call, cfg).await,
++            "open_file" => self.open_file(tool_call, cfg).await,
++            "copy_file" => self.copy_file(tool_call, cfg).await,
++            "open_url" => self.open_url(tool_call, cfg).await,
++            "list_open_apps" => self.list_open_apps(tool_call, cfg).await,
++            "focus_app" => self.focus_app(tool_call, cfg).await,
++            "close_app" => self.close_app(tool_call, cfg).await,
++            "system_info" => self.system_info(tool_call, cfg).await,
++            "notify" => self.notify(tool_call, cfg).await,
++            "media" => self.media(tool_call, cfg).await,
++            "volume" => self.volume(tool_call, cfg).await,
++            "brightness" => self.brightness(tool_call, cfg).await,
++            "network_status" => self.network_status(tool_call, cfg).await,
++            "remind_in" => self.remind_in(tool_call, cfg).await,
++            "kdeconnect" => self.kdeconnect(tool_call, cfg).await,
++            other => Err(anyhow!("Herramienta desconocida: {other}")),
++        }
++    }
++
+     /// Registra una denegación del usuario (F4-1/F4-3): no se ejecutó nada.
+     pub fn record_denial(&self, tool_call: &ToolCall, session_id: Option<String>) {
+         let ctx = ToolCtx {
+@@ -169,90 +178,15 @@ impl ToolExecutor {
+             .filter(|s| !s.is_empty())
+     }
+ 
+-    fn get_config_snapshot(&self) -> Config {
++    fn get_config_snapshot(&self) -> Result<Config> {
+         self.config
+             .try_read()
+             .map(|c| c.clone())
+-            .unwrap_or_default()
+-    }
+-
+-    /// Valida que un path este dentro de los paths permitidos.
+-    /// Expande `~`, `$HOME`, canonicaliza y deniega symlinks que escapen.
+-    fn validate_path(&self, path: &str) -> Result<PathBuf> {
+-        let cfg = self.get_config_snapshot();
+-        if !cfg.tools.fs_enabled() {
+-            bail!("Acceso al sistema de archivos deshabilitado en la configuracion");
+-        }
+-        if path.trim().is_empty() {
+-            bail!("Path vacío no permitido");
+-        }
+-
+-        // Expandir ~ y $HOME en el path pedido.
+-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+-        let expanded_str = expand_home(path, &home);
+-        let path_buf = PathBuf::from(&expanded_str);
+-
+-        // Rechazar NUL y paths absurdamente largos.
+-        if expanded_str.contains('\0') || expanded_str.len() > 4096 {
+-            bail!("Path inválido");
+-        }
+-
+-        let canonical = if path_buf.exists() {
+-            std::fs::canonicalize(&path_buf).context("resolviendo path")?
+-        } else {
+-            // Para creación: canonicalizar el ancestro existente más cercano
+-            // y unir el resto sin permitir `..` que escape.
+-            let mut cur = path_buf.as_path();
+-            let mut suffix: Vec<std::ffi::OsString> = Vec::new();
+-            while !cur.exists() {
+-                match (cur.file_name(), cur.parent()) {
+-                    (Some(name), Some(parent)) => {
+-                        if name == ".." {
+-                            bail!("Path con '..' fuera de zona permitida");
+-                        }
+-                        suffix.push(name.to_os_string());
+-                        cur = parent;
+-                    }
+-                    _ => break,
+-                }
+-            }
+-            let base = if cur.as_os_str().is_empty() {
+-                PathBuf::from("/")
+-            } else if cur.exists() {
+-                std::fs::canonicalize(cur).context("resolviendo padre")?
+-            } else {
+-                PathBuf::from(cur)
+-            };
+-            let mut out = base;
+-            for comp in suffix.iter().rev() {
+-                out.push(comp);
+-            }
+-            out
+-        };
+-
+-        // Expandir ~/$HOME en allowed_paths y canonicalizar lo que exista.
+-        for allowed in &cfg.tools.allowed_paths {
+-            let allowed_expanded_str = expand_home(allowed, &home);
+-            let allowed_path = PathBuf::from(&allowed_expanded_str);
+-            let allowed_canon = if allowed_path.exists() {
+-                std::fs::canonicalize(&allowed_path).unwrap_or(allowed_path)
+-            } else {
+-                allowed_path
+-            };
+-            if canonical.starts_with(&allowed_canon) {
+-                return Ok(canonical);
+-            }
+-        }
+-
+-        bail!(format!(
+-            "Path no permitido: {} (debe estar dentro de allowed_paths)",
+-            canonical.display()
+-        ))
++            .context("configuracion no disponible; operacion denegada")
+     }
+ 
+     // === open_app ===
+-    async fn open_app(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn open_app(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.open_app {
+             bail!("open_app deshabilitado en configuracion");
+         }
+@@ -280,86 +214,51 @@ impl ToolExecutor {
+     }
+ 
+     // === create_file ===
+-    async fn create_file(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn create_file(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.create_file {
+             bail!("create_file deshabilitado en configuracion");
+         }
+         let path = Self::arg_string(&tc.arguments, "path")?;
+         let content = Self::arg_string(&tc.arguments, "content")?;
+ 
+-        let validated = self.validate_path(path)?;
+-        if validated.exists() {
+-            bail!(format!("El archivo ya existe: {}", validated.display()));
+-        }
+-        if let Some(parent) = validated.parent() {
+-            fs::create_dir_all(parent)
+-                .await
+-                .context("creando directorios padre")?;
+-        }
+-        fs::write(&validated, content)
+-            .await
+-            .context("escribiendo archivo")?;
++        let validated = SafePath::resolve(cfg, path)?;
++        let display = validated.display.clone();
++        let content = content.as_bytes().to_vec();
++        tokio::task::spawn_blocking(move || validated.create(&content)).await??;
+ 
+         Ok(ToolResult::success(
+             tc.id.clone(),
+-            format!("Archivo creado: {}", validated.display()),
++            format!("Archivo creado: {}", display.display()),
+         ))
+     }
+ 
+     // === edit_file ===
+-    async fn edit_file(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn edit_file(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.edit_file {
+             bail!("edit_file deshabilitado en configuracion");
+         }
+         let raw = serde_json::to_string(&tc.arguments)?;
+         let args: EditArgs = serde_json::from_str(&raw)?;
+ 
+-        let validated = self.validate_path(&args.path)?;
+-        if !validated.exists() {
+-            bail!(format!("El archivo no existe: {}", validated.display()));
+-        }
+-
+-        let final_content = match args.mode.as_str() {
+-            "overwrite" => args.content,
+-            "append" => {
+-                let existing = fs::read_to_string(&validated).await.unwrap_or_default();
+-                format!("{existing}{}", args.content)
+-            }
+-            other => bail!(format!("Modo no soportado: {other}")),
+-        };
+-
+-        // Backup antes de overwrite (permite deshacer desde el sistema).
+-        if args.mode == "overwrite" {
+-            let bak = validated.with_extension("bak");
+-            // No fallar si el backup falla; solo avisar.
+-            if let Err(e) = fs::copy(&validated, &bak).await {
+-                log::warn!("No se pudo crear backup de {}: {e}", validated.display());
+-            }
+-        }
+-        fs::write(&validated, final_content).await?;
++        let validated = SafePath::resolve(cfg, &args.path)?;
++        let display = validated.display.clone();
++        let mode = args.mode.clone();
++        tokio::task::spawn_blocking(move || validated.edit(&args.mode, &args.content)).await??;
+         Ok(ToolResult::success(
+             tc.id.clone(),
+-            format!(
+-                "Archivo editado: {} (mode={})",
+-                validated.display(),
+-                args.mode
+-            ),
++            format!("Archivo editado: {} (mode={})", display.display(), mode),
+         ))
+     }
+ 
+     // === read_file ===
+-    async fn read_file(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn read_file(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.read_file {
+             bail!("read_file deshabilitado en configuracion");
+         }
+         let path = Self::arg_string(&tc.arguments, "path")?;
+-        let validated = self.validate_path(path)?;
+-        let content = fs::read_to_string(&validated)
+-            .await
+-            .with_context(|| format!("leyendo {}", validated.display()))?;
++        let validated = SafePath::resolve(cfg, path)?;
++        let bytes = tokio::task::spawn_blocking(move || validated.read()).await??;
++        let content = String::from_utf8(bytes).context("archivo no es UTF-8 válido")?;
+ 
+         // Limitar a ~32k chars (no bytes) para no romper UTF-8 ni saturar contexto.
+         const MAX_CHARS: usize = 32_000;
+@@ -374,8 +273,7 @@ impl ToolExecutor {
+     }
+ 
+     // === web_search (DuckDuckGo Lite) ===
+-    async fn web_search(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn web_search(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.web_search {
+             bail!("web_search deshabilitado en configuracion");
+         }
+@@ -431,8 +329,7 @@ impl ToolExecutor {
+     }
+ 
+     // === show_image ===
+-    async fn show_image(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn show_image(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.show_image {
+             bail!("show_image deshabilitado en configuracion");
+         }
+@@ -446,10 +343,7 @@ impl ToolExecutor {
+         let local_path = if source.starts_with("http://") || source.starts_with("https://") {
+             // Descargar a cache con límites (10MB, timeout 15s, solo imágenes).
+             const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
+-            let cache_dir = dirs::cache_dir()
+-                .ok_or_else(|| anyhow!("sin cache_dir"))?
+-                .join("kde-assistant/images");
+-            fs::create_dir_all(&cache_dir).await?;
++            let cache_dir = crate::backend::safe_fs::private_workspace()?.0;
+ 
+             let ext = sanitize_image_ext(source);
+             let file_name = format!("{}.{}", chrono::Utc::now().timestamp_millis(), ext);
+@@ -482,17 +376,13 @@ impl ToolExecutor {
+             }
+             fs::write(&dest, &bytes).await?;
+             dest.to_string_lossy().to_string()
+-        } else if let Some(stripped) = source.strip_prefix("file://") {
+-            // file:// también debe respetar allowed_paths (antes era bypass).
+-            if stripped.trim().is_empty() {
+-                bail!("file:// vacío no permitido");
+-            }
+-            let validated = self.validate_path(stripped)?;
+-            validated.to_string_lossy().to_string()
+         } else {
+-            // Path local
+-            let validated = self.validate_path(source)?;
+-            validated.to_string_lossy().to_string()
++            let path = source.strip_prefix("file://").unwrap_or(source);
++            let validated = SafePath::resolve(cfg, path)?;
++            tokio::task::spawn_blocking(move || validated.snapshot())
++                .await??
++                .to_string_lossy()
++                .to_string()
+         };
+ 
+         let msg = if caption.is_empty() {
+@@ -504,8 +394,7 @@ impl ToolExecutor {
+     }
+ 
+     // === find_file (F2-2) ===
+-    async fn find_file(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn find_file(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.find_file {
+             bail!("find_file deshabilitado en configuracion");
+         }
+@@ -513,31 +402,13 @@ impl ToolExecutor {
+         if query.trim().is_empty() {
+             bail!("Argumento 'query' vacío");
+         }
+-        // Directorio base opcional (por defecto, todos los allowed_paths).
+-        let base: Option<PathBuf> = match tc.arguments.get("dir").and_then(|v| v.as_str()) {
+-            Some(d) if !d.trim().is_empty() => Some(self.validate_path(d)?),
+-            _ => None,
+-        };
+-        let roots: Vec<PathBuf> = match base {
+-            Some(b) => vec![b],
+-            None => {
+-                let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+-                cfg.tools
+-                    .allowed_paths
+-                    .iter()
+-                    .map(|a| PathBuf::from(expand_home(a, &home)))
+-                    .filter(|p| p.exists())
+-                    .collect()
+-            }
+-        };
+-        if roots.is_empty() {
+-            bail!("No hay directorios permitidos para buscar");
+-        }
+-        let q = query.to_lowercase();
+-        // Walk bloqueante en spawn_blocking (I/O síncrono).
+-        let results = tokio::task::spawn_blocking(move || find_files_sync(&roots, &q))
+-            .await
+-            .context("búsqueda de archivos")??;
++        let results = search_authorized(
++            cfg,
++            Self::opt_arg_string(&tc.arguments, "dir"),
++            query,
++            false,
++        )
++        .await?;
+         if results.is_empty() {
+             return Ok(ToolResult::success(
+                 tc.id.clone(),
+@@ -552,8 +423,7 @@ impl ToolExecutor {
+     }
+ 
+     // === find_document ===
+-    async fn find_document(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn find_document(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.find_document {
+             bail!("find_document deshabilitado en configuracion");
+         }
+@@ -561,18 +431,8 @@ impl ToolExecutor {
+         if query.trim().is_empty() {
+             bail!("Argumento 'query' vacío");
+         }
+-        let base: Option<PathBuf> = match Self::opt_arg_string(&tc.arguments, "dir") {
+-            Some(d) => Some(self.validate_path(d)?),
+-            None => None,
+-        };
+-        let roots = allowed_roots(&cfg, base);
+-        if roots.is_empty() {
+-            bail!("No hay directorios permitidos para buscar documentos");
+-        }
+-        let q = query.to_lowercase();
+-        let results = tokio::task::spawn_blocking(move || find_documents_sync(&roots, &q))
+-            .await
+-            .context("búsqueda de documentos")??;
++        let results =
++            search_authorized(cfg, Self::opt_arg_string(&tc.arguments, "dir"), query, true).await?;
+         if results.is_empty() {
+             return Ok(ToolResult::success(
+                 tc.id.clone(),
+@@ -587,31 +447,29 @@ impl ToolExecutor {
+     }
+ 
+     // === preview_document ===
+-    async fn preview_document(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn preview_document(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.preview_document {
+             bail!("preview_document deshabilitado en configuracion");
+         }
+         let path = Self::arg_string(&tc.arguments, "path")?;
+-        let validated = self.validate_path(path)?;
+-        if !validated.exists() {
+-            bail!(format!("No existe: {}", validated.display()));
+-        }
+-        if validated.is_dir() {
+-            bail!("preview_document necesita un archivo, no un directorio");
+-        }
++        let validated = SafePath::resolve(cfg, path)?;
++        let display = validated.display.clone();
+         let page = tc
+             .arguments
+             .get("page")
+             .and_then(|v| v.as_u64())
+             .unwrap_or(1)
+             .clamp(1, 999) as u32;
+-        let preview_path = preview_document_sync(&validated, page)?;
++        let preview_path = tokio::task::spawn_blocking(move || {
++            let snapshot = validated.snapshot()?;
++            preview_document_sync(&snapshot, page)
++        })
++        .await??;
+         Ok(ToolResult::success(
+             tc.id.clone(),
+             format!(
+                 "Vista previa de {}{}",
+-                validated.display(),
++                display.display(),
+                 if page > 1 {
+                     format!(" (página {page})")
+                 } else {
+@@ -623,66 +481,16 @@ impl ToolExecutor {
+     }
+ 
+     // === open_file (F2-2) ===
+-    async fn open_file(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn open_file(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.open_file {
+             bail!("open_file deshabilitado en configuracion");
+         }
+-        let path = Self::arg_string(&tc.arguments, "path")?;
+-        let validated = self.validate_path(path)?;
+-        if !validated.exists() {
+-            bail!(format!("No existe: {}", validated.display()));
+-        }
+-        let reveal = tc
+-            .arguments
+-            .get("reveal")
+-            .and_then(|v| v.as_bool())
+-            .unwrap_or(false);
+-        // REGLA: nunca sh -c, siempre Command con args.
+-        if reveal {
+-            // Mostrar en Dolphin (seleccionado); fallback a abrir el padre.
+-            match Command::new("dolphin")
+-                .arg("--select")
+-                .arg(&validated)
+-                .spawn()
+-            {
+-                Ok(_) => Ok(ToolResult::success(
+-                    tc.id.clone(),
+-                    format!("Mostrando en Dolphin: {}", validated.display()),
+-                )),
+-                Err(_) => {
+-                    let parent = validated
+-                        .parent()
+-                        .map(|p| p.to_path_buf())
+-                        .unwrap_or(validated.clone());
+-                    Command::new("xdg-open")
+-                        .arg(&parent)
+-                        .spawn()
+-                        .with_context(|| "abriendo carpeta padre")?;
+-                    Ok(ToolResult::success(
+-                        tc.id.clone(),
+-                        format!(
+-                            "Dolphin no disponible; carpeta abierta: {}",
+-                            parent.display()
+-                        ),
+-                    ))
+-                }
+-            }
+-        } else {
+-            Command::new("xdg-open")
+-                .arg(&validated)
+-                .spawn()
+-                .with_context(|| format!("abriendo {}", validated.display()))?;
+-            Ok(ToolResult::success(
+-                tc.id.clone(),
+-                format!("Abierto: {}", validated.display()),
+-            ))
+-        }
++        let _ = tc;
++        bail!("open_file bloqueado hasta F2: delegación por pathname sin capacidad segura")
+     }
+ 
+     // === copy_file ===
+-    async fn copy_file(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn copy_file(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.copy_file {
+             bail!("copy_file deshabilitado en configuracion");
+         }
+@@ -693,44 +501,23 @@ impl ToolExecutor {
+             .get("overwrite")
+             .and_then(|v| v.as_bool())
+             .unwrap_or(false);
+-        let src = self.validate_path(source)?;
+-        let mut dst = self.validate_path(destination)?;
+-        if !src.exists() {
+-            bail!("No existe el origen: {}", src.display());
+-        }
+-        if src.is_dir() {
+-            bail!("copy_file copia archivos, no directorios");
+-        }
+-        if dst.exists() && dst.is_dir() {
+-            let name = src
+-                .file_name()
+-                .context("origen sin nombre de archivo")?
+-                .to_os_string();
+-            dst.push(name);
+-        }
+-        if dst.exists() && !overwrite {
+-            bail!(
+-                "El destino ya existe: {}. Usa overwrite=true si quieres reemplazarlo.",
+-                dst.display()
+-            );
+-        }
+-        if let Some(parent) = dst.parent() {
+-            fs::create_dir_all(parent)
+-                .await
+-                .with_context(|| format!("creando carpeta destino {}", parent.display()))?;
+-        }
+-        fs::copy(&src, &dst)
+-            .await
+-            .with_context(|| format!("copiando {} a {}", src.display(), dst.display()))?;
++        let src = SafePath::resolve(cfg, source)?;
++        let dst = SafePath::resolve(cfg, destination)?;
++        let display = src.display.clone();
++        let destination =
++            tokio::task::spawn_blocking(move || src.copy_to(dst, overwrite)).await??;
+         Ok(ToolResult::success(
+             tc.id.clone(),
+-            format!("Copiado: {} -> {}", src.display(), dst.display()),
++            format!(
++                "Copiado: {} -> {}",
++                display.display(),
++                destination.display()
++            ),
+         ))
+     }
+ 
+     // === open_url (F2-2) ===
+-    async fn open_url(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn open_url(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.open_url {
+             bail!("open_url deshabilitado en configuracion");
+         }
+@@ -757,8 +544,7 @@ impl ToolExecutor {
+     }
+ 
+     // === list_open_apps ===
+-    async fn list_open_apps(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn list_open_apps(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.list_open_apps {
+             bail!("list_open_apps deshabilitado en configuracion");
+         }
+@@ -785,8 +571,7 @@ impl ToolExecutor {
+     }
+ 
+     // === focus_app ===
+-    async fn focus_app(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn focus_app(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.focus_app {
+             bail!("focus_app deshabilitado en configuracion");
+         }
+@@ -802,8 +587,7 @@ impl ToolExecutor {
+     }
+ 
+     // === close_app ===
+-    async fn close_app(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn close_app(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.close_app {
+             bail!("close_app deshabilitado en configuracion");
+         }
+@@ -846,8 +630,7 @@ impl ToolExecutor {
+     }
+ 
+     // === system_info (F2-3, solo lectura) ===
+-    async fn system_info(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn system_info(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.system_info {
+             bail!("system_info deshabilitado en configuracion");
+         }
+@@ -858,8 +641,7 @@ impl ToolExecutor {
+     }
+ 
+     // === notify (F2-3) ===
+-    async fn notify(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn notify(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.notify {
+             bail!("notify deshabilitado en configuracion");
+         }
+@@ -902,8 +684,7 @@ impl ToolExecutor {
+     }
+ 
+     // === media (F4-2, playerctl) ===
+-    async fn media(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn media(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.media {
+             bail!("media deshabilitado en configuracion");
+         }
+@@ -934,8 +715,7 @@ impl ToolExecutor {
+     }
+ 
+     // === volume (F4-2, wpctl con fallback pactl) ===
+-    async fn volume(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn volume(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.volume {
+             bail!("volume deshabilitado en configuracion");
+         }
+@@ -991,8 +771,7 @@ impl ToolExecutor {
+     }
+ 
+     // === brightness (F4-2, brightnessctl) ===
+-    async fn brightness(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn brightness(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.brightness {
+             bail!("brightness deshabilitado en configuracion");
+         }
+@@ -1030,8 +809,7 @@ impl ToolExecutor {
+     }
+ 
+     // === network_status (F4-2, solo lectura) ===
+-    async fn network_status(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn network_status(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.network_status {
+             bail!("network_status deshabilitado en configuracion");
+         }
+@@ -1078,8 +856,7 @@ impl ToolExecutor {
+     }
+ 
+     // === kdeconnect (F6) ===
+-    async fn kdeconnect(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn kdeconnect(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.kdeconnect {
+             bail!("kdeconnect deshabilitado en configuracion");
+         }
+@@ -1140,27 +917,7 @@ impl ToolExecutor {
+                 ))
+             }
+             "share_file" | "compartir_archivo" => {
+-                let dev = device.ok_or_else(|| anyhow!("Falta 'device' (id del móvil)"))?;
+-                let path = Self::arg_string(&tc.arguments, "path")?;
+-                let validated = self.validate_path(path)?;
+-                if !validated.exists() {
+-                    bail!(format!("No existe: {}", validated.display()));
+-                }
+-                run_cmd(
+-                    &[
+-                        "kdeconnect-cli",
+-                        "-d",
+-                        dev,
+-                        "--share",
+-                        &validated.to_string_lossy(),
+-                    ],
+-                    20,
+-                )
+-                .await?;
+-                Ok(ToolResult::success(
+-                    tc.id.clone(),
+-                    format!("Archivo compartido con {dev}: {}", validated.display()),
+-                ))
++                bail!("kdeconnect share_file bloqueado hasta F2: delegación por pathname")
+             }
+             "sms" => {
+                 let dev = device.ok_or_else(|| anyhow!("Falta 'device' (id del móvil)"))?;
+@@ -1202,8 +959,7 @@ impl ToolExecutor {
+     }
+ 
+     // === remind_in (F4-2, persistente en F6) ===
+-    async fn remind_in(&self, tc: &ToolCall) -> Result<ToolResult> {
+-        let cfg = self.get_config_snapshot();
++    async fn remind_in(&self, tc: &ToolCall, cfg: &Config) -> Result<ToolResult> {
+         if !cfg.tools.remind_in {
+             bail!("remind_in deshabilitado en configuracion");
+         }
+@@ -1760,24 +1516,45 @@ fn battery_summary() -> Option<String> {
+     None
+ }
+ 
+-fn allowed_roots(cfg: &Config, base: Option<PathBuf>) -> Vec<PathBuf> {
+-    match base {
+-        Some(b) => vec![b],
+-        None => {
+-            let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+-            cfg.tools
+-                .allowed_paths
+-                .iter()
+-                .map(|a| PathBuf::from(expand_home(a, &home)))
+-                .filter(|p| p.exists())
+-                .collect()
+-        }
+-    }
++async fn search_authorized(
++    cfg: &Config,
++    base: Option<&str>,
++    query: &str,
++    documents: bool,
++) -> Result<Vec<PathBuf>> {
++    let paths = match base {
++        Some(path) => vec![SafePath::resolve(cfg, path)?],
++        None => cfg
++            .tools
++            .allowed_paths
++            .iter()
++            .map(|path| SafePath::resolve(cfg, path))
++            .collect::<Result<Vec<_>>>()?,
++    };
++    if paths.is_empty() {
++        bail!("No hay directorios permitidos para buscar");
++    }
++    let query = query.to_lowercase();
++    tokio::task::spawn_blocking(move || {
++        let mut found = Vec::new();
++        for path in paths {
++            found.extend(path.find(&query)?);
++        }
++        if documents {
++            found.retain(|path| is_document_like(path));
++        }
++        found.sort();
++        found.dedup();
++        found.truncate(20);
++        Ok(found)
++    })
++    .await?
+ }
+ 
+ /// Búsqueda síncrona de archivos por subcadena (case-insensitive).
+ /// Límites: profundidad 6, 2000 entradas visitadas, 20 resultados.
+ /// Salta `.git`, `node_modules`, `target` y directorios ocultos.
++#[cfg(test)]
+ fn find_files_sync(roots: &[PathBuf], query_lower: &str) -> Result<Vec<PathBuf>> {
+     const MAX_DEPTH: usize = 6;
+     const MAX_VISITED: usize = 2000;
+@@ -1819,6 +1596,7 @@ fn find_files_sync(roots: &[PathBuf], query_lower: &str) -> Result<Vec<PathBuf>>
+     Ok(results)
+ }
+ 
++#[cfg(test)]
+ fn find_documents_sync(roots: &[PathBuf], query_lower: &str) -> Result<Vec<PathBuf>> {
+     let docs = find_files_sync(roots, query_lower)?;
+     Ok(docs
+@@ -1906,21 +1684,7 @@ fn render_pdf_preview(path: &Path, page: u32, cache_dir: &Path, stem: &str) -> R
+ }
+ 
+ fn writable_preview_cache_dir() -> Result<PathBuf> {
+-    let preferred = dirs::cache_dir()
+-        .unwrap_or_else(std::env::temp_dir)
+-        .join("kde-assistant/previews");
+-    match std::fs::create_dir_all(&preferred) {
+-        Ok(_) => Ok(preferred),
+-        Err(e) => {
+-            log::warn!(
+-                "No se pudo usar cache de previews en {}: {e}",
+-                preferred.display()
+-            );
+-            let fallback = std::env::temp_dir().join("kde-assistant/previews");
+-            std::fs::create_dir_all(&fallback)?;
+-            Ok(fallback)
+-        }
+-    }
++    Ok(crate::backend::safe_fs::private_workspace()?.0)
+ }
+ 
+ fn render_text_preview(path: &Path, cache_dir: &Path, stem: &str) -> Result<PathBuf> {
+@@ -2090,7 +1854,7 @@ fn xml_escape(s: &str) -> String {
+ }
+ 
+ /// Expande `~`, `~/` y `$HOME`/`~user` básico al home real.
+-fn expand_home(input: &str, home: &Path) -> String {
++pub(super) fn expand_home(input: &str, home: &Path) -> String {
+     if input == "~" {
+         return home.to_string_lossy().to_string();
+     }
+@@ -2591,6 +2355,43 @@ mod tests {
+         }
+     }
+ 
++    #[tokio::test]
++    async fn f1a_snapshot_stays_coherent_after_config_update() {
++        use std::os::unix::fs::DirBuilderExt;
++        let root = std::env::temp_dir().join(format!("kda-snapshot-{}", uuid::Uuid::new_v4()));
++        std::fs::DirBuilder::new()
++            .mode(0o700)
++            .create(&root)
++            .unwrap();
++        let mut cfg = Config::default();
++        cfg.tools.allowed_paths = vec![root.display().to_string()];
++        let shared = Arc::new(RwLock::new(cfg));
++        let executor = ToolExecutor::new(shared.clone());
++        let snapshot = executor.get_config_snapshot().unwrap();
++        let mut guard = shared.write().await;
++        guard.tools.create_file = false;
++        guard.tools.allowed_paths.clear();
++        let call = tc("create_file", serde_json::from_value(serde_json::json!({"path": root.join("fixture.txt"), "content": "snapshot fixture"})).unwrap());
++        let result = executor
++            .execute_with_config(&call, &snapshot)
++            .await
++            .unwrap();
++        assert!(result.success);
++        assert_eq!(
++            std::fs::read_to_string(root.join("fixture.txt")).unwrap(),
++            "snapshot fixture"
++        );
++        drop(guard);
++        assert!(
++            !executor
++                .execute(&call, &ToolCtx::auto(None))
++                .await
++                .unwrap()
++                .success
++        );
++        std::fs::remove_dir_all(root).unwrap();
++    }
++
+     #[test]
+     fn resolve_common_aliases() {
+         assert!(resolve_app("firefox").is_some());
+diff --git a/src/models/config.rs b/src/models/config.rs
+index 993e69ff9d69c9a9c601fe3bc846ed815b5b5e7c..b85304f89ba349c81a1c384b59c556f4a5758e7e 100644
+--- a/src/models/config.rs
++++ b/src/models/config.rs
+@@ -1,6 +1,6 @@
+ //! Configuracion persistida en ~/.config/kde-assistant/config.json
+ 
+-use anyhow::Result;
++use anyhow::{Context, Result};
+ use serde::{Deserialize, Serialize};
+ use std::collections::HashMap;
+ use std::path::PathBuf;
+@@ -31,7 +31,6 @@ pub struct AiConfig {
+     /// Proveedor: "openrouter" | "groq" | "openai" | "custom".
+     /// Solo afecta a headers extra y a la variable de entorno de fallback.
+     /// La URL siempre sale de `base_url`.
+-    #[serde(default = "default_provider")]
+     pub provider: String,
+     pub base_url: String,
+     #[serde(default)]
+@@ -54,7 +53,7 @@ pub struct AiConfig {
+     pub max_tokens: u32,
+     #[serde(default = "default_system_prompt")]
+     pub system_prompt: String,
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub enable_tool_calling: bool,
+     #[serde(default = "default_max_iterations")]
+     pub max_tool_iterations: u32,
+@@ -81,6 +80,33 @@ fn default_max_iterations() -> u32 {
+ }
+ 
+ impl AiConfig {
++    pub(crate) fn validate_provider(&self) -> Result<()> {
++        if !matches!(
++            self.provider.trim().to_lowercase().as_str(),
++            "openrouter"
++                | "groq"
++                | "openai"
++                | "deepseek"
++                | "mistral"
++                | "xai"
++                | "grok"
++                | "together"
++                | "togetherai"
++                | "fireworks"
++                | "fireworksai"
++                | "cerebras"
++                | "sambanova"
++                | "lmstudio"
++                | "lm-studio"
++                | "ollama"
++                | "custom"
++                | "personalizado"
++        ) {
++            anyhow::bail!("Proveedor inválido; solicitud denegada");
++        }
++        Ok(())
++    }
++
+     /// Normaliza el proveedor ("", mayusculas, etc.) a un id conocido.
+     pub fn provider_id(&self) -> &str {
+         Self::normalize_provider_id(&self.provider)
+@@ -354,71 +380,71 @@ fn default_window_h() -> u32 {
+ 
+ #[derive(Debug, Clone, Serialize, Deserialize)]
+ pub struct ToolsConfig {
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub open_app: bool,
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub create_file: bool,
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub edit_file: bool,
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub read_file: bool,
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub web_search: bool,
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub show_image: bool,
+     /// F2-2: buscar archivos por nombre (solo dentro de allowed_paths).
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub find_file: bool,
+     /// F2-2: abrir archivos/carpetas con la app por defecto (xdg-open).
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub open_file: bool,
+     /// Copiar archivos/documentos dentro de allowed_paths.
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub copy_file: bool,
+     /// F2-2: abrir URLs https? en el navegador (xdg-open).
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub open_url: bool,
+     /// Control de ventanas/apps: listar, enfocar y cerrar.
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub list_open_apps: bool,
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub focus_app: bool,
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub close_app: bool,
+     /// Buscar/previsualizar documentos dentro de allowed_paths.
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub find_document: bool,
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub preview_document: bool,
+     /// F2-3: información del sistema (solo lectura: OS, CPU, RAM, disco, batería).
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub system_info: bool,
+     /// F2-3: enviar notificaciones nativas KDE.
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub notify: bool,
+     /// F4-1: pedir confirmación para tools 🟡 (las 🔴 siempre preguntan).
+     /// En false, las 🟡 se ejecutan solas (modo potencia).
+     #[serde(default = "default_true")]
+     pub confirm_sensitive: bool,
+     /// F4-2: control multimedia (playerctl).
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub media: bool,
+     /// F4-2: volumen (wpctl/pactl).
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub volume: bool,
+     /// F4-2: brillo (brightnessctl).
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub brightness: bool,
+     /// F4-2: estado de red (nmcli/bluetoothctl, solo lectura).
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub network_status: bool,
+     /// F4-2: recordatorios en memoria.
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub remind_in: bool,
+     /// F6: KDE Connect (kdeconnect-cli).
+-    #[serde(default = "default_true")]
++    #[serde(default)]
+     pub kdeconnect: bool,
+-    #[serde(default = "default_allowed_paths")]
++    #[serde(default)]
+     pub allowed_paths: Vec<String>,
+ }
+ 
+@@ -556,24 +582,12 @@ impl Config {
+         &self.speech
+     }
+ 
+-    /// Carga la configuracion desde ~/.config/kde-assistant/config.json
+-    /// Si no existe, crea una con valores por defecto.
+-    /// Tolerante a campos faltantes: rellena con defaults via serde.
++    /// Ausencia/corrupción bloquea el arranque antes de inicializar capacidades.
++    /// Los defaults explícitos siguen disponibles para crear configuración;
++    /// no son una política de recuperación de errores.
+     pub async fn load() -> Result<Self> {
+         let path = Self::config_path()?;
+-
+-        if !path.exists() {
+-            log::info!("No existe config.json, creando uno por defecto");
+-            let config = Self::default();
+-            config.save().await?;
+-            return Ok(config);
+-        }
+-
+-        let content = tokio::fs::read_to_string(&path).await?;
+-        let mut config: Config = serde_json::from_str(&content).unwrap_or_else(|e| {
+-            log::warn!("Error parseando config.json: {e}. Usando defaults.");
+-            Self::default()
+-        });
++        let mut config = Self::load_from(&path).await?;
+         // Migra modelos retirados por el proveedor (ej. Groq apagó los llama
+         // el 16/08/2026: sin esto todo el chat da 404 para siempre).
+         if let Some(replacement) = retired_model_replacement(&config.ai.provider, &config.ai.model)
+@@ -592,6 +606,16 @@ impl Config {
+         Ok(config)
+     }
+ 
++    async fn load_from(path: &std::path::Path) -> Result<Self> {
++        let content = tokio::fs::read_to_string(path)
++            .await
++            .context("configuracion ausente o ilegible; capacidades bloqueadas")?;
++        let config: Self = serde_json::from_str(&content)
++            .context("configuracion inválida; capacidades bloqueadas")?;
++        config.ai.validate_provider()?;
++        Ok(config)
++    }
++
+     pub async fn save(&self) -> Result<()> {
+         let path = Self::config_path()?;
+         if let Some(parent) = path.parent() {
+@@ -728,6 +752,50 @@ pub fn retired_model_replacement(provider: &str, model: &str) -> Option<&'static
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn f1a_missing_security_fields_do_not_enable_capabilities() {
++        let mut value = serde_json::to_value(Config::default()).unwrap();
++        value["ai"]
++            .as_object_mut()
++            .unwrap()
++            .remove("enable_tool_calling");
++        value["tools"] = serde_json::json!({});
++        let cfg: Config = serde_json::from_value(value).unwrap();
++        assert!(!cfg.ai.enable_tool_calling);
++        assert!(!cfg.tools.fs_enabled());
++        assert!(cfg.tools.allowed_paths.is_empty());
++        assert!(cfg.tools.confirm_sensitive);
++        // Ignorar un campo mal escrito tampoco habilita la capacidad real.
++        let cfg: ToolsConfig =
++            serde_json::from_value(serde_json::json!({"readFile": true})).unwrap();
++        assert!(!cfg.read_file);
++    }
++
++    #[tokio::test]
++    async fn f1a_absent_corrupt_and_invalid_config_are_errors() {
++        use std::os::unix::fs::DirBuilderExt;
++        let base = std::env::temp_dir().join(format!("kda-config-{}", uuid::Uuid::new_v4()));
++        std::fs::DirBuilder::new()
++            .mode(0o700)
++            .create(&base)
++            .unwrap();
++        let path = base.join("config.json");
++        assert!(Config::load_from(&path).await.is_err());
++        assert!(!path.exists());
++        for content in ["{invalid", "{}", r#"{"tools":{"read_file":"false"}}"#] {
++            std::fs::write(&path, content).unwrap();
++            assert!(Config::load_from(&path).await.is_err());
++            assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
++        }
++        let mut cfg = Config::default();
++        cfg.tools.read_file = false;
++        cfg.tools.allowed_paths.clear();
++        std::fs::write(&path, serde_json::to_vec(&cfg).unwrap()).unwrap();
++        let loaded = Config::load_from(&path).await.unwrap();
++        assert!(!loaded.tools.read_file && loaded.tools.allowed_paths.is_empty());
++        std::fs::remove_dir_all(base).unwrap();
++    }
++
+     #[test]
+     fn migrates_retired_groq_models() {
+         assert_eq!(
+diff --git a/tests/f1a_security.rs b/tests/f1a_security.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..4a139644d6d34a974c1af65891e23f7498d34043
+--- /dev/null
++++ b/tests/f1a_security.rs
+@@ -0,0 +1,585 @@
++//! Regresiones F1A: sólo fixtures sintéticos en directorios temporales privados.
++use kde_assistant_lib::{
++    backend::tool_executor::{ToolCtx, ToolExecutor},
++    models::{Config, ToolCall, ToolResult},
++};
++use std::os::unix::fs::{symlink, DirBuilderExt};
++use std::{
++    path::{Path, PathBuf},
++    sync::Arc,
++};
++use tokio::sync::RwLock;
++
++struct Fixture {
++    base: PathBuf,
++    allowed: PathBuf,
++    outside: PathBuf,
++    config: Arc<RwLock<Config>>,
++    executor: ToolExecutor,
++}
++impl Fixture {
++    fn new() -> Self {
++        let base = std::env::temp_dir().join(format!("kda-f1a-{}", uuid::Uuid::new_v4()));
++        std::fs::DirBuilder::new()
++            .mode(0o700)
++            .create(&base)
++            .unwrap();
++        let allowed = base.join("allowed");
++        let outside = base.join("outside");
++        std::fs::create_dir(&allowed).unwrap();
++        std::fs::create_dir(&outside).unwrap();
++        let mut config = Config::default();
++        config.tools.allowed_paths = vec![allowed.display().to_string()];
++        let config = Arc::new(RwLock::new(config));
++        let executor = ToolExecutor::new(config.clone());
++        Self {
++            base,
++            allowed,
++            outside,
++            config,
++            executor,
++        }
++    }
++    async fn run(&self, name: &str, args: serde_json::Value) -> ToolResult {
++        self.executor
++            .execute(&call(name, args), &ToolCtx::auto(None))
++            .await
++            .unwrap()
++    }
++}
++impl Drop for Fixture {
++    fn drop(&mut self) {
++        std::fs::remove_dir_all(&self.base).unwrap();
++    }
++}
++fn call(name: &str, args: serde_json::Value) -> ToolCall {
++    ToolCall {
++        id: "f1a-fixture".into(),
++        name: name.into(),
++        arguments: serde_json::from_value(args).unwrap(),
++    }
++}
++fn text(path: &Path) -> String {
++    std::fs::read_to_string(path).unwrap()
++}
++
++#[tokio::test]
++async fn disabled_tool_with_and_without_write_lock() {
++    let f = Fixture::new();
++    f.config.write().await.tools.notify = false;
++    let r = f.run("notify", serde_json::json!({})).await;
++    assert!(
++        !r.success && r.content.contains("deshabilitado"),
++        "{}",
++        r.content
++    );
++    let guard = f.config.write().await;
++    let r = f.run("notify", serde_json::json!({})).await;
++    drop(guard);
++    assert!(
++        !r.success
++            && (r.content.contains("deshabilitado")
++                || r.content.contains("configuracion no disponible")),
++        "{}",
++        r.content
++    );
++}
++
++#[tokio::test]
++async fn dangling_symlink_creation_has_no_outside_effect() {
++    let f = Fixture::new();
++    let outside = f.outside.join("new.txt");
++    let path = f.allowed.join("dangling.txt");
++    symlink(&outside, &path).unwrap();
++    let r = f
++        .run(
++            "create_file",
++            serde_json::json!({"path": path, "content": "fixture"}),
++        )
++        .await;
++    assert!(
++        !outside.exists(),
++        "creó archivo exterior: success={}",
++        r.success
++    );
++    assert!(!r.success);
++}
++
++#[tokio::test]
++async fn copy_derived_destination_symlink_has_no_outside_effect() {
++    let f = Fixture::new();
++    let source = f.allowed.join("source.txt");
++    let dest = f.allowed.join("dest");
++    let outside = f.outside.join("victim.txt");
++    std::fs::write(&source, "copy fixture").unwrap();
++    std::fs::write(&outside, "original").unwrap();
++    std::fs::create_dir(&dest).unwrap();
++    symlink(&outside, dest.join("source.txt")).unwrap();
++    let r = f
++        .run(
++            "copy_file",
++            serde_json::json!({"source": source, "destination": dest, "overwrite": true}),
++        )
++        .await;
++    assert_eq!(text(&outside), "original", "success={}", r.success);
++    assert!(!r.success);
++}
++
++#[tokio::test]
++async fn malicious_backup_symlink_leaves_main_and_outside_unchanged() {
++    let f = Fixture::new();
++    let path = f.allowed.join("edit.txt");
++    let outside = f.outside.join("victim.txt");
++    std::fs::write(&path, "main original").unwrap();
++    std::fs::write(&outside, "outside original").unwrap();
++    symlink(&outside, path.with_extension("bak")).unwrap();
++    let r = f
++        .run(
++            "edit_file",
++            serde_json::json!({"path": path, "mode": "overwrite", "content": "changed"}),
++        )
++        .await;
++    assert_eq!(text(&outside), "outside original", "success={}", r.success);
++    assert_eq!(text(&path), "main original");
++    assert!(!r.success);
++}
++
++#[tokio::test]
++async fn all_public_tool_dispatches_respect_disabled_flags_and_contention() {
++    let f = Fixture::new();
++    let mut value = serde_json::to_value(Config::default()).unwrap();
++    value["tools"] = serde_json::json!({});
++    *f.config.write().await = serde_json::from_value(value).unwrap();
++    for tool in kde_assistant_lib::backend::tool_registry::all_tools() {
++        let r = f.run(&tool.function.name, serde_json::json!({})).await;
++        assert!(
++            !r.success && r.content.contains("deshabilitado"),
++            "{}: {}",
++            tool.function.name,
++            r.content
++        );
++        let guard = f.config.write().await;
++        let r = f.run(&tool.function.name, serde_json::json!({})).await;
++        drop(guard);
++        assert!(
++            !r.success && r.content.contains("configuracion no disponible"),
++            "{}: {}",
++            tool.function.name,
++            r.content
++        );
++    }
++    assert_eq!(std::fs::read_dir(&f.allowed).unwrap().count(), 0);
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn concurrent_updates_never_mix_tool_flag_and_custom_allowlist() {
++    let f = Fixture::new();
++    let mut enabled = f.config.read().await.clone();
++    enabled.tools.allowed_paths = vec![f.allowed.display().to_string()];
++    let mut disabled = enabled.clone();
++    disabled.tools.create_file = false;
++    disabled.tools.allowed_paths = vec![f.outside.display().to_string()];
++    let config = f.config.clone();
++    let barrier = Arc::new(tokio::sync::Barrier::new(2));
++    let writer_barrier = barrier.clone();
++    let writer = tokio::spawn(async move {
++        writer_barrier.wait().await;
++        for _ in 0..500 {
++            *config.write().await = disabled.clone();
++            tokio::task::yield_now().await;
++            *config.write().await = enabled.clone();
++            tokio::task::yield_now().await;
++        }
++    });
++    barrier.wait().await;
++    for i in 0..500 {
++        // A permite la herramienta pero prohíbe la ruta; B permite la ruta pero
++        // deshabilita la herramienta. Ninguna versión autoriza esta escritura.
++        let r = f.run("create_file", serde_json::json!({"path": f.outside.join(format!("{i}.txt")), "content": "fixture"})).await;
++        assert!(!r.success, "mezcló versiones: {}", r.content);
++        tokio::task::yield_now().await;
++    }
++    writer.await.unwrap();
++    assert_eq!(std::fs::read_dir(&f.outside).unwrap().count(), 0);
++}
++
++#[tokio::test]
++async fn legitimate_create_read_edit_and_copy() {
++    let f = Fixture::new();
++    let path = f.allowed.join("nested/deeper/file.txt");
++    let r = f
++        .run(
++            "create_file",
++            serde_json::json!({"path": path, "content": "original"}),
++        )
++        .await;
++    assert!(r.success, "{}", r.content);
++    let r = f.run("read_file", serde_json::json!({"path": path})).await;
++    assert!(r.success && r.content == "original");
++    let r = f
++        .run(
++            "edit_file",
++            serde_json::json!({"path": path, "mode": "append", "content": " appended"}),
++        )
++        .await;
++    assert!(r.success, "{}", r.content);
++    let r = f
++        .run(
++            "edit_file",
++            serde_json::json!({"path": path, "mode": "overwrite", "content": "updated"}),
++        )
++        .await;
++    assert!(r.success, "{}", r.content);
++    assert_eq!(text(&path.with_extension("bak")), "original appended");
++    let destination = f.allowed.join("new/deep/copy.txt");
++    let r = f
++        .run(
++            "copy_file",
++            serde_json::json!({"source": path, "destination": destination}),
++        )
++        .await;
++    assert!(r.success, "{}", r.content);
++    assert_eq!(text(&destination), "updated");
++    let r = f
++        .run(
++            "copy_file",
++            serde_json::json!({"source": path, "destination": destination}),
++        )
++        .await;
++    assert!(!r.success);
++    let r = f
++        .run(
++            "copy_file",
++            serde_json::json!({"source": path, "destination": destination, "overwrite": true}),
++        )
++        .await;
++    assert!(r.success, "{}", r.content);
++    std::fs::create_dir(f.allowed.join("dest")).unwrap();
++    let r = f
++        .run(
++            "copy_file",
++            serde_json::json!({"source": path, "destination": f.allowed.join("dest")}),
++        )
++        .await;
++    assert!(r.success, "{}", r.content);
++    assert_eq!(text(&f.allowed.join("dest/file.txt")), "updated");
++    let r = f
++        .run(
++            "find_file",
++            serde_json::json!({"query": "file", "dir": f.allowed}),
++        )
++        .await;
++    assert!(r.success && r.content.contains("file.txt"), "{}", r.content);
++}
++
++#[tokio::test]
++async fn outside_operations_and_invalid_edit_have_no_effects() {
++    let f = Fixture::new();
++    let path = f.outside.join("victim.txt");
++    let inside = f.allowed.join("source.txt");
++    std::fs::write(&path, "outside").unwrap();
++    std::fs::write(&inside, "inside").unwrap();
++    for (name, args) in [
++        (
++            "create_file",
++            serde_json::json!({"path": f.outside.join("nested/new.txt"), "content": "new"}),
++        ),
++        ("read_file", serde_json::json!({"path": path})),
++        (
++            "edit_file",
++            serde_json::json!({"path": path, "mode": "overwrite", "content": "changed"}),
++        ),
++        (
++            "copy_file",
++            serde_json::json!({"source": inside, "destination": path, "overwrite": true}),
++        ),
++        (
++            "copy_file",
++            serde_json::json!({"source": path, "destination": f.allowed.join("copy.txt")}),
++        ),
++        (
++            "edit_file",
++            serde_json::json!({"path": inside, "mode": "invalid", "content": "changed"}),
++        ),
++        (
++            "create_file",
++            serde_json::json!({"path": f.allowed.join("../outside/new.txt"), "content": "changed"}),
++        ),
++    ] {
++        let r = f.run(name, args).await;
++        assert!(!r.success, "{name}: {}", r.content);
++    }
++    assert_eq!(text(&path), "outside");
++    assert_eq!(text(&inside), "inside");
++    assert!(!f.outside.join("nested").exists());
++    assert!(!inside.with_extension("bak").exists());
++    assert!(!f.allowed.join("copy.txt").exists());
++}
++
++#[tokio::test]
++async fn intermediate_symlinks_empty_allowlist_and_hardlinks_are_denied() {
++    let f = Fixture::new();
++    let victim = f.outside.join("victim.txt");
++    std::fs::write(&victim, "original").unwrap();
++    symlink(&f.outside, f.allowed.join("escape")).unwrap();
++    std::fs::hard_link(&victim, f.allowed.join("hard.txt")).unwrap();
++    for path in [
++        f.allowed.join("escape/victim.txt"),
++        f.allowed.join("hard.txt"),
++    ] {
++        for (name, args) in [
++            ("read_file", serde_json::json!({"path": path})),
++            (
++                "edit_file",
++                serde_json::json!({"path": path, "mode": "append", "content": "changed"}),
++            ),
++        ] {
++            assert!(!f.run(name, args).await.success);
++        }
++    }
++    assert!(
++        !f.run(
++            "create_file",
++            serde_json::json!({"path": f.allowed.join("escape/new.txt"), "content": "changed"})
++        )
++        .await
++        .success
++    );
++    f.config.write().await.tools.allowed_paths.clear();
++    assert!(
++        !f.run(
++            "create_file",
++            serde_json::json!({"path": f.allowed.join("new.txt"), "content": "changed"})
++        )
++        .await
++        .success
++    );
++    assert_eq!(text(&victim), "original");
++    assert!(!f.outside.join("new.txt").exists());
++    assert!(!f.allowed.join("new.txt").exists());
++}
++
++#[tokio::test]
++async fn disabled_llm_catalog_preserves_explicit_manual_file_flag() {
++    let f = Fixture::new();
++    f.config.write().await.ai.enable_tool_calling = false;
++    let path = f.allowed.join("manual.txt");
++    let r = f
++        .run(
++            "create_file",
++            serde_json::json!({"path": path, "content": "manual fixture"}),
++        )
++        .await;
++    assert!(r.success, "{}", r.content);
++    f.config.write().await.tools.create_file = false;
++    let r = f
++        .run(
++            "create_file",
++            serde_json::json!({"path": f.allowed.join("denied.txt"), "content": "fixture"}),
++        )
++        .await;
++    assert!(!r.success);
++    assert!(!f.allowed.join("denied.txt").exists());
++}
++
++#[tokio::test]
++async fn pathname_delegation_is_contained_until_f2() {
++    let f = Fixture::new();
++    let path = f.allowed.join("file.txt");
++    std::fs::write(&path, "fixture").unwrap();
++    for (name, args) in [
++        ("open_file", serde_json::json!({"path": path})),
++        (
++            "kdeconnect",
++            serde_json::json!({"action": "share_file", "path": path, "device": "synthetic"}),
++        ),
++    ] {
++        let r = f.run(name, args).await;
++        assert!(!r.success && r.content.contains("F2"), "{}", r.content);
++    }
++    assert_eq!(text(&path), "fixture");
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn concurrent_symlink_replacement_never_writes_outside() {
++    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
++    let f = Fixture::new();
++    let source = f.allowed.join("source.txt");
++    let edit = f.allowed.join("edit.txt");
++    let create = f.allowed.join("race-create.txt");
++    let dest = f.allowed.join("dest");
++    std::fs::create_dir(&dest).unwrap();
++    std::fs::write(&source, "synthetic source").unwrap();
++    std::fs::write(&edit, "synthetic edit").unwrap();
++    let victim = f.outside.join("victim.txt");
++    let absent = f.outside.join("absent.txt");
++    std::fs::write(&victim, "untouched").unwrap();
++    let targets = vec![
++        (create.clone(), absent.clone()),
++        (dest.join("source.txt"), victim.clone()),
++        (edit.with_extension("bak"), victim.clone()),
++        (edit.clone(), victim.clone()),
++    ];
++    let stop = Arc::new(AtomicBool::new(false));
++    let cycles = Arc::new(AtomicUsize::new(0));
++    let ready = Arc::new(std::sync::Barrier::new(2));
++    let attacker_stop = stop.clone();
++    let attacker_cycles = cycles.clone();
++    let attacker_ready = ready.clone();
++    let attacker = std::thread::spawn(move || {
++        attacker_ready.wait();
++        while !attacker_stop.load(Ordering::Acquire) {
++            for (link, outside) in &targets {
++                let _ = std::fs::remove_file(link);
++                let _ = symlink(outside, link);
++                std::thread::yield_now();
++                let _ = std::fs::remove_file(link);
++                let _ = std::fs::OpenOptions::new()
++                    .write(true)
++                    .create_new(true)
++                    .open(link);
++            }
++            attacker_cycles.fetch_add(1, Ordering::Release);
++        }
++    });
++    ready.wait();
++    for _ in 0..150 {
++        // Éxito o rechazo son válidos; nunca una escritura a través del link.
++        let _ = f
++            .run(
++                "create_file",
++                serde_json::json!({"path": create, "content": "created"}),
++            )
++            .await;
++        let _ = f
++            .run(
++                "copy_file",
++                serde_json::json!({"source": source, "destination": dest, "overwrite": true}),
++            )
++            .await;
++        let _ = f
++            .run(
++                "edit_file",
++                serde_json::json!({"path": edit, "mode": "overwrite", "content": "edited"}),
++            )
++            .await;
++    }
++    stop.store(true, Ordering::Release);
++    attacker.join().unwrap();
++    assert!(cycles.load(Ordering::Acquire) > 0);
++    assert_eq!(text(&victim), "untouched");
++    assert!(!absent.exists());
++}
++
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn concurrent_parent_directory_symlinks_do_not_escape() {
++    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
++    let f = Fixture::new();
++    let directory = f.allowed.join("race-dir");
++    let parked = f.allowed.join("parked");
++    std::fs::create_dir(&directory).unwrap();
++    std::fs::write(directory.join("secret.txt"), "inside fixture").unwrap();
++    std::fs::write(f.outside.join("secret.txt"), "outside fixture").unwrap();
++    let stop = Arc::new(AtomicBool::new(false));
++    let cycles = Arc::new(AtomicUsize::new(0));
++    let attacker_stop = stop.clone();
++    let attacker_cycles = cycles.clone();
++    let outside = f.outside.clone();
++    let attacker_dir = directory.clone();
++    let attacker = std::thread::spawn(move || {
++        use rustix::fs::{renameat_with, RenameFlags, CWD};
++        symlink(&outside, &parked).unwrap();
++        while !attacker_stop.load(Ordering::Acquire) {
++            // EXCHANGE mantiene ambas entradas presentes: directorio <-> link.
++            renameat_with(CWD, &attacker_dir, CWD, &parked, RenameFlags::EXCHANGE).unwrap();
++            std::thread::yield_now();
++            renameat_with(CWD, &attacker_dir, CWD, &parked, RenameFlags::EXCHANGE).unwrap();
++            attacker_cycles.fetch_add(1, Ordering::Release);
++        }
++    });
++    let mut bad_read = false;
++    for i in 0..150 {
++        let _ = f.run("create_file", serde_json::json!({"path": directory.join(format!("new-{i}.txt")), "content": "created"})).await;
++        let r = f
++            .run(
++                "read_file",
++                serde_json::json!({"path": directory.join("secret.txt")}),
++            )
++            .await;
++        bad_read |= r.success && r.content != "inside fixture";
++    }
++    stop.store(true, Ordering::Release);
++    attacker.join().unwrap();
++    assert!(cycles.load(Ordering::Acquire) > 0);
++    assert!(!bad_read);
++    assert_eq!(std::fs::read_dir(&f.outside).unwrap().count(), 1);
++    assert_eq!(text(&f.outside.join("secret.txt")), "outside fixture");
++}
++
++#[tokio::test]
++async fn failed_append_decode_and_backup_collision_preserve_main() {
++    let f = Fixture::new();
++    let path = f.allowed.join("binary.txt");
++    std::fs::write(&path, [0xff, 0xfe]).unwrap();
++    let r = f
++        .run(
++            "edit_file",
++            serde_json::json!({"path": path, "mode": "append", "content": "changed"}),
++        )
++        .await;
++    assert!(!r.success);
++    assert_eq!(std::fs::read(&path).unwrap(), [0xff, 0xfe]);
++    let path = f.allowed.join("main.bak");
++    std::fs::write(&path, "original").unwrap();
++    let r = f
++        .run(
++            "edit_file",
++            serde_json::json!({"path": path, "mode": "overwrite", "content": "changed"}),
++        )
++        .await;
++    assert!(!r.success);
++    assert_eq!(text(&path), "original");
++}
++
++// Se reejecuta aisladamente bajo seccomp para comprobar ENOSYS sin introducir
++// inyección de fallos ni fallbacks en el código de producción.
++#[tokio::test]
++async fn unavailable_kernel_primitives_fail_closed() {
++    let f = Fixture::new();
++    let path = f.allowed.join("main.txt");
++    let created = f.allowed.join("created.txt");
++    let copied = f.allowed.join("copied.txt");
++    std::fs::write(&path, "original").unwrap();
++    let denial = std::env::var("KDA_F1A_TEST_DENY_SYSCALL").unwrap_or_default();
++    let create = f
++        .run(
++            "create_file",
++            serde_json::json!({"path": created, "content": "new"}),
++        )
++        .await;
++    let copy = f
++        .run(
++            "copy_file",
++            serde_json::json!({"source": path, "destination": copied}),
++        )
++        .await;
++    let read = f.run("read_file", serde_json::json!({"path": path})).await;
++    let edit = f
++        .run(
++            "edit_file",
++            serde_json::json!({"path": path, "mode": "overwrite", "content": "edited"}),
++        )
++        .await;
++    if denial.is_empty() {
++        assert!(create.success && copy.success && read.success && edit.success);
++        assert_eq!(text(&path), "edited");
++    } else {
++        assert!(matches!(denial.as_str(), "openat2" | "renameat2"));
++        assert!(!create.success && !copy.success && !edit.success);
++        assert_eq!(read.success, denial == "renameat2");
++        assert!(!created.exists() && !copied.exists() && !path.with_extension("bak").exists());
++        assert_eq!(text(&path), "original");
++        assert_eq!(std::fs::read_dir(&f.allowed).unwrap().count(), 1);
++        assert_eq!(std::fs::read_dir(&f.outside).unwrap().count(), 0);
++    }
++}

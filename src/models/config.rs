@@ -307,8 +307,19 @@ impl AiConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpeechConfig {
+    #[serde(default = "default_max_recording_secs")]
+    pub max_recording_secs: u64,
+    #[serde(default = "default_stt_timeout_secs")]
+    pub stt_timeout_secs: u64,
+
     #[serde(default = "default_stt_model")]
     pub stt_model: String, // Modelo whisper: "base", "tiny", "small"
+    #[serde(default = "default_stt_engine")]
+    pub stt_engine: String,
+    #[serde(default)]
+    pub vosk_library: String,
+    #[serde(default)]
+    pub vosk_model: String,
     /// F3-3: dispositivo de entrada preferido (nombre cpal). "" = por defecto.
     #[serde(default)]
     pub mic_device: String,
@@ -321,24 +332,29 @@ pub struct SpeechConfig {
     #[serde(default = "default_tts_rate")]
     pub tts_rate: f32, // Alias legado
     #[serde(default = "default_piper_model")]
-    pub piper_model: String, // ej: "es_ES-sharvard-medium"
+    pub piper_model: String, // ej: "es_ES-sharvard-medium" o ruta absoluta
+    #[serde(default)]
+    pub piper_runtime: String, // Entorno privado Piper 1.8.0 evaluado; nunca PATH
     #[serde(default = "default_length_scale")]
     pub piper_length_scale: f32, // 1.0 = normal
     #[serde(default)]
     pub piper_speaker: u32, // id de speaker
+    #[serde(default)]
+    pub piper_fast: bool,
+    #[serde(default = "default_piper_fast_ttl")]
+    pub piper_fast_ttl_secs: u64,
     #[serde(default = "default_wake_word")]
     pub wake_word: String,
     #[serde(default = "default_threshold")]
     pub wake_word_threshold: f32,
-    /// Habilita la deteccion automatica del wake word al iniciar.
-    /// Con el modelo ML (hey jarvis) la tasa de falsos positivos es <0.5/hora.
-    #[serde(default = "default_true")]
+    /// Preferencia heredada; F4 no inicia escucha al arrancar.
+    #[serde(default)]
     pub wake_word_enabled: bool,
     #[serde(default)]
     pub auto_speak: bool,
     /// F3-2: tras responder por voz, seguir escuchando unos segundos para
     /// encadenar turnos sin repetir el wake word.
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub auto_listen: bool,
     /// Ventana de escucha continua en segundos (F3-2).
     #[serde(default = "default_listen_window")]
@@ -378,11 +394,21 @@ pub struct SpeechConfig {
     pub stt_api_model: String,
 }
 
+fn default_max_recording_secs() -> u64 {
+    30
+}
+fn default_stt_timeout_secs() -> u64 {
+    90
+}
+
 fn default_stt_model() -> String {
     "base".to_string()
 }
+fn default_stt_engine() -> String {
+    "whisper".into()
+}
 fn default_stt_language() -> String {
-    "auto".to_string()
+    "es".to_string()
 }
 fn default_tts_engine() -> String {
     "piper".to_string()
@@ -392,6 +418,9 @@ fn default_tts_voice() -> String {
 }
 fn default_tts_rate() -> f32 {
     1.0
+}
+fn default_piper_fast_ttl() -> u64 {
+    30
 }
 fn default_piper_model() -> String {
     "es_ES-sharvard-medium".to_string()
@@ -403,13 +432,13 @@ fn default_wake_word() -> String {
     "hey jarvis".to_string()
 }
 fn default_threshold() -> f32 {
-    0.5
+    0.8
 }
 fn default_listen_window() -> u64 {
     6
 }
 fn default_wake_word_model_path() -> String {
-    "assets/models/wake_word.onnx".to_string()
+    String::new() // Resolve the local data directory only on explicit activation.
 }
 fn default_enrollment_required() -> bool {
     true
@@ -427,7 +456,7 @@ fn default_vad_silence_rms() -> f32 {
     0.02
 }
 fn default_stt_backend() -> String {
-    "auto".to_string()
+    "local".to_string()
 }
 fn default_stt_api_model() -> String {
     "whisper-large-v3-turbo".to_string()
@@ -714,6 +743,10 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<()> {
+        anyhow::ensure!(
+            (15..=60).contains(&self.speech.piper_fast_ttl_secs),
+            "La retención de voz rápida debe estar entre 15 y 60 segundos"
+        );
         self.ai.validate_provider()?;
         let url = reqwest::Url::parse(&self.ai.effective_base_url())
             .context("URL del proveedor inválida")?;
@@ -863,20 +896,28 @@ impl Config {
                 max_tool_iterations: default_max_iterations(),
             },
             speech: SpeechConfig {
+                max_recording_secs: default_max_recording_secs(),
+                stt_timeout_secs: default_stt_timeout_secs(),
                 stt_model: default_stt_model(),
+                stt_engine: default_stt_engine(),
+                vosk_library: String::new(),
+                vosk_model: String::new(),
                 mic_device: String::new(),
                 stt_language: default_stt_language(),
                 tts_engine: default_tts_engine(),
                 tts_voice: default_tts_voice(),
                 tts_rate: default_tts_rate(),
                 piper_model: default_piper_model(),
+                piper_runtime: String::new(),
                 piper_length_scale: default_length_scale(),
                 piper_speaker: 0,
+                piper_fast: false,
+                piper_fast_ttl_secs: default_piper_fast_ttl(),
                 wake_word: default_wake_word(),
                 wake_word_threshold: default_threshold(),
-                wake_word_enabled: true, // ML hey_jarvis activo por defecto
+                wake_word_enabled: false, // Requiere activación y validación explícitas
                 auto_speak: false,
-                auto_listen: true,
+                auto_listen: false,
                 listen_window_secs: default_listen_window(),
                 chimes_enabled: true,
                 wake_word_model_path: default_wake_word_model_path(),
@@ -1048,5 +1089,31 @@ mod tests {
         ai.provider_keys
             .insert("openrouter".to_string(), "sk-or-secret".to_string());
         assert_eq!(ai.effective_api_key(), "sk-or-secret");
+    }
+    #[test]
+    fn voice_fast_old_configs_migrate_off_and_ttl_is_bounded() {
+        let config = Config::default();
+        assert!(!config.speech.piper_fast);
+        let mut old = serde_json::to_value(&config).unwrap();
+        old["speech"].as_object_mut().unwrap().remove("piper_fast");
+        old["speech"]
+            .as_object_mut()
+            .unwrap()
+            .remove("piper_fast_ttl_secs");
+        let mut migrated: Config = serde_json::from_value(old).unwrap();
+        assert!(!migrated.speech.piper_fast);
+        assert_eq!(migrated.speech.piper_fast_ttl_secs, 30);
+        migrated.speech.piper_fast = true;
+        let reloaded: Config =
+            serde_json::from_str(&serde_json::to_string(&migrated).unwrap()).unwrap();
+        assert!(reloaded.speech.piper_fast);
+        for ttl in [0, 14, 61, u64::MAX] {
+            migrated.speech.piper_fast_ttl_secs = ttl;
+            assert!(migrated.validate().is_err());
+        }
+        for ttl in [15, 30, 60] {
+            migrated.speech.piper_fast_ttl_secs = ttl;
+            assert!(migrated.validate().is_ok());
+        }
     }
 }

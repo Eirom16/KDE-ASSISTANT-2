@@ -1,0 +1,26 @@
+[
+  {
+    "name": "paired-final",
+    "command": [
+      "python3",
+      "-B",
+      "scripts/benchmark_f4r4.py",
+      "--profile",
+      "/var/tmp/kda-f4r4-_rbmkh36",
+      "--resources",
+      "/var/tmp/kda-f4r3-piper-aqrh6h0h",
+      "--runs",
+      "5",
+      "--baseline",
+      "/var/tmp/kda-f4r4-_rbmkh36/baseline-kde-assistant",
+      "--binary",
+      "/home/eirom/KDE-ASSISTANT-2/target/debug/kde-assistant",
+      "--label",
+      "final-buffered",
+      "--candidate",
+      "buffered"
+    ],
+    "exit": 1,
+    "seconds": 26.36591757900078
+  }
+]

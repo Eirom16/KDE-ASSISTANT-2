@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.30s
+     Running unittests src/lib.rs (target/debug/deps/kde_assistant_lib-c3aadd785874d5a6)
+
+running 2 tests
+test backend::http_server::f4_native_tests::dictation_requires_existing_selected_session_and_has_no_chat_effect ... ok
+test backend::http_server::f4_native_tests::wrong_identity_cannot_stop_or_cancel_voice_and_no_legacy_injection_routes ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 172 filtered out; finished in 0.09s
+

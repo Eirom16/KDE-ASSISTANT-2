@@ -18,6 +18,10 @@ Item {
     // === Props (reexpuestas para Main) ===
     property bool windowVisible: true
     property bool voiceEnabled: false
+    property bool backgroundEnabled: false
+    property bool backgroundPaused: false
+    property bool microphoneActive: false
+    signal backgroundActionRequested(string action)
     property bool alwaysOnTop: true
     property bool alwaysOnTopAvailable: true
     property string pttShortcut: "Super+Shift+V"
@@ -67,6 +71,9 @@ Item {
             r.push(newRow({ label: qsTr("Dictar"), icon: "unmute-16", hint: root.pttShortcut, act: "dictate" }))
         r.push(newRow({ label: qsTr("Restaurar ventana"), act: "restore" }))
         r.push(newRow({ label: qsTr("Minimizar"), act: "minimize" }))
+        r.push(newRow({ label: root.microphoneActive ? qsTr("Micrófono abierto · Hey Jarvis") : root.backgroundEnabled ? qsTr("Hey Jarvis en pausa · micrófono cerrado") : qsTr("Hey Jarvis desactivado"), enabled: false }))
+        r.push(newRow({ label: !root.backgroundEnabled ? qsTr("Activar Hey Jarvis en segundo plano") : root.backgroundPaused ? qsTr("Reanudar Hey Jarvis") : qsTr("Pausar Hey Jarvis"), act: "background", arg: !root.backgroundEnabled ? "enable" : root.backgroundPaused ? "resume" : "pause" }))
+        if (root.backgroundEnabled) r.push(newRow({label: qsTr("Desactivar Hey Jarvis"), act: "background", arg: "disable"}))
         r.push(newRow({ sep: true }))
         r.push(newRow({ label: qsTr("Nueva sesión"), icon: "plus-16", act: "new" }))
         for (var i = 0; i < Math.min(root.recentSessions.length, 5); i++) {
@@ -85,7 +92,7 @@ Item {
         root.rows = r
         var h = 16
         for (var j = 0; j < r.length; j++) h += r[j].sep ? 9 : 36
-        menuWindow.height = h
+        menuWindow.height = Math.min(h, Math.max(Theme.spacingXl, Screen.desktopAvailableHeight - Theme.spacingLg))
     }
 
     function handleRow(act, arg) {
@@ -93,6 +100,8 @@ Item {
         if (act === "toggle") {
             if (root.windowVisible) root.hideRequested()
             else root.showRequested()
+        } else if (act === "background") {
+            root.backgroundActionRequested(arg)
         } else if (act === "restore") {
             root.showRequested()
         } else if (act === "minimize") {
@@ -149,7 +158,7 @@ Item {
     SystemTrayIcon {
         id: tray
         visible: true
-        tooltip: qsTr("KDE Assistant v2") + (root.statusText ? " · " + root.statusText : "")
+        tooltip: qsTr("KDE Assistant v2") + (root.microphoneActive ? qsTr(" · Micrófono abierto · Hey Jarvis") : root.backgroundEnabled ? qsTr(" · Hey Jarvis pausado") : "") + (root.statusText ? " · " + root.statusText : "")
 
         // Icono: nombre del tema hicolor con fallback al SVG del repo.
         icon.name: "kde-assistant"
@@ -186,10 +195,13 @@ Item {
             MenuItem { text: qsTr("Restaurar ventana"); onTriggered: root.showRequested() }
             MenuItem { text: qsTr("Minimizar"); onTriggered: root.minimizeRequested() }
             MenuItem { text: root.statusText; enabled: false; visible: root.statusText !== "" }
+            MenuItem { text: root.microphoneActive ? qsTr("Micrófono abierto · Hey Jarvis") : root.backgroundEnabled ? qsTr("Hey Jarvis en pausa · micrófono cerrado") : qsTr("Hey Jarvis desactivado"); enabled: false }
+            MenuItem { text: !root.backgroundEnabled ? qsTr("Activar Hey Jarvis en segundo plano") : root.backgroundPaused ? qsTr("Reanudar Hey Jarvis") : qsTr("Pausar Hey Jarvis"); onTriggered: root.backgroundActionRequested(!root.backgroundEnabled ? "enable" : root.backgroundPaused ? "resume" : "pause") }
+            MenuItem { text: qsTr("Desactivar Hey Jarvis"); visible: root.backgroundEnabled; onTriggered: root.backgroundActionRequested("disable") }
             MenuItem {
                 visible: root.voiceEnabled
                 enabled: root.voiceEnabled
-                text: qsTr("Dictar") + "  (" + root.pttShortcut + ")"
+                text: qsTr("Abrir entrada de voz")
                 onTriggered: { if (root.voiceEnabled) root.dictateRequested() }
             }
             MenuSeparator { }
@@ -313,10 +325,15 @@ Item {
             border.width: 1
             border.color: Theme.hairline
 
+            Flickable {
+                id: menuScroll
+                anchors.fill: parent
+                anchors.margins: Theme.spacingXs
+                contentHeight: menuCol.implicitHeight
+                clip: true
             Column {
                 id: menuCol
-                anchors.fill: parent
-                anchors.margins: 8
+                width: menuScroll.width
                 spacing: 0
 
                 Repeater {
@@ -405,6 +422,7 @@ Item {
                         }
                     }
                 }
+            }
             }
         }
     }

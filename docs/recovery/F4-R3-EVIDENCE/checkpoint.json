@@ -1,0 +1,21 @@
+{
+  "branch": "recovery/f4-voice-coordinator",
+  "head": "9544a58eba4b6adf6c6343c04db80813b084f76b",
+  "index_empty": true,
+  "historical_reports_unchanged": 13,
+  "package_download_install": "AUTHORIZED_AND_COMPLETE",
+  "offline_synthesis": "PASS",
+  "real_null_sink_lifecycle": "PASS",
+  "live_tts": "NOT_TESTED",
+  "t1_profile": "/var/tmp/kda-f4r3-piper-aqrh6h0h/live-t1-1792419192735966309",
+  "t1_launched": false,
+  "microphone_used": false,
+  "raw_audio_files_remaining": [],
+  "private_regular_bytes": {
+    "venv": 180670633,
+    "wheels": 75140290,
+    "voice": 76738910
+  },
+  "cleanup": "PCM/corrupt fixtures removed. Resources retained temporarily for separately consented human trials.",
+  "gates": "PASS: final-gates; canonical-interpreter final change separately rechecked in hardened/results.json"
+}

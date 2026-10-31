@@ -1,0 +1,27 @@
+{
+  "status": {
+    "error": null,
+    "fast": {
+      "completed": 0,
+      "enabled": true,
+      "generation": null,
+      "last_engine_ms": null,
+      "last_stop_ms": null,
+      "last_synthesis_ms": null,
+      "phase": null,
+      "prepares": 0,
+      "ready_ms": null,
+      "reason": "memory_pressure",
+      "reuses": 0,
+      "revocations": 4,
+      "state": "fallback",
+      "ttl_secs": 30,
+      "worker_pid": null
+    },
+    "identity": null,
+    "state": "idle",
+    "transcript": ""
+  },
+  "meminfo": "MemTotal:        7942712 kB\nMemFree:         2432772 kB\nMemAvailable:    4997476 kB\nBuffers:              16 kB\nCached:          3011724 kB\nSwapCached:         4832 kB\nActive:          1159296 kB\nInactive:        3156572 kB\nActive(anon):     824736 kB\nInactive(anon):   757628 kB\nActive(file):     334560 kB\nInactive(file):  2398944 kB\nUnevictable:      123572 kB\nMlocked:             164 kB\nSwapTotal:       7942140 kB\nSwapFree:        6061736 kB\nZswap:                 0 kB\nZswapped:              0 kB\nDirty:               844 kB\nWriteback:             0 kB\nAnonPages:       1376364 kB\nMapped:           428416 kB\nShmem:            209368 kB\nKReclaimable:     112616 kB\nSlab:             271824 kB\nSReclaimable:     112616 kB\nSUnreclaim:       159208 kB\nKernelStack:       14688 kB\nPageTables:        63212 kB\nSecPageTables:         0 kB\nNFS_Unstable:          0 kB\nBounce:                0 kB\nWritebackTmp:          0 kB\nCommitLimit:    11913496 kB\nCommitted_AS:   22412244 kB\nVmallocTotal:   34359738367 kB\nVmallocUsed:       84108 kB\nVmallocChunk:          0 kB\nPercpu:             3328 kB\nHardwareCorrupted:     0 kB\nAnonHugePages:     98304 kB\nShmemHugePages:        0 kB\nShmemPmdMapped:        0 kB\nFileHugePages:         0 kB\nFilePmdMapped:         0 kB\nCmaTotal:              0 kB\nCmaFree:               0 kB\nUnaccepted:            0 kB\nBalloon:               0 kB\nGPUActive:             0 kB\nGPUReclaim:            0 kB\nHugePages_Total:       0\nHugePages_Free:        0\nHugePages_Rsvd:        0\nHugePages_Surp:        0\nHugepagesize:       2048 kB\nHugetlb:               0 kB\nDirectMap4k:      149632 kB\nDirectMap2M:     4913152 kB\nDirectMap1G:     5242880 kB\n",
+  "psi": "some avg10=0.17 avg60=1.21 avg300=1.00 total=73546104\nfull avg10=0.17 avg60=1.13 avg300=0.92 total=54256794\n"
+}

@@ -1,0 +1,2974 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index e93e4567dee19144155126103b1b07c963617c02..1e983e62ad14d8767bff28b1c6aa0ff4cca0d769 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -62,7 +62,7 @@ dirs = "5"
+ once_cell = "1"
+ hex = "0.4"
+ ctrlc = "3"
+-rustix = { version = "1.1", features = ["fs"] }
++rustix = { version = "1.1", features = ["fs", "process"] }
+ 
+ # Hashing para verificar integridad de descargas
+ sha2 = "0.10"
+diff --git a/docs/recovery/F1B1-ARCHITECTURE.md b/docs/recovery/F1B1-ARCHITECTURE.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..316e0222a6dca2eccde7650bcbcde4f4262ccbbc
+--- /dev/null
++++ b/docs/recovery/F1B1-ARCHITECTURE.md
+@@ -0,0 +1,78 @@
++# F1B-1 — Arquitectura de arranque por capacidades
++
++Fecha: 2026-10-10. Base `ca82e722935e8076f526a484655f2f95f87b5d4c`. Se conserva Rust/Tokio + Axum REST/SSE + qml6 + SQLite. No se introduce otro transporte ni una segunda autoridad de conversación.
++
++## Antes
++
++Backend::new cargaba configuración, descargaba modelos y ONNX Runtime y creaba AI/sesiones/tools/voz. SpeechService::new exigía PiperEngine::new; HotwordDetector::new intentaba cargar ML. Main precargaba Whisper y sintetizaba con Piper, comprobaba/liberaba el puerto después de todo ese trabajo, publicaba HTTP en una tarea y toleraba fallos del token/QML bootstrap. Antes de lanzar UI mataba procesos por `qml6.*Main.qml`.
++
++Una ausencia de Piper bloqueaba texto. Los downloads se ejecutaban aun con wake apagado. F1A ya fallaba cerrado frente a config corrupta, pero también rechazaba instalación nueva sin config.
++
++## Ahora
++
++```mermaid
++flowchart TD
++    Start[Inicio] --> Reserve[Reservar listener 127.0.0.1:8765]
++    Reserve --> Config[Config válida o creación inicial restrictiva]
++    Config --> Core[Cliente AI, SQLite, sesiones, política F1A]
++    Core --> Bootstrap[Token válido y módulo QML privado]
++    Bootstrap --> IPC[Axum autenticado]
++    IPC --> QML[Main.qml y SettingsDialog]
++    QML --> Chat[Proveedor explícito, sesión y chat escrito]
++    Core --> Deferred[Controladores de voz sin recursos activos]
++    Deferred --> Explicit[Activación explícita con dependencias locales]
++    Explicit --> Voice[Pipeline heredado opcional]
++```
++
++El listener reservado permanece bajo ownership del main; no se hace probe seguido de rebind. Una instancia adicional falla antes de tocar configuración/token/DB de la existente. Si configuración, SQLite, token o bootstrap QML falla, no se publica una API privilegiada y el proceso libera su listener. Si qml6 no puede lanzarse o termina con error, el error llega a stderr y el runtime/hijos propios se cierran. La tarea HTTP se supervisa por terminación; no se desarrolla el supervisor avanzado de F3.
++
++| Capacidad | Inicialización |
++| --- | --- |
++| Config | NotFound crea first_run explícito. JSON/tipos/proveedor/URL/modelo inválidos o lectura fallida dan error recuperable, sin fallback. |
++| AI | Construye reqwest Client; no contacta proveedor al arrancar. La clave se exige al pedir chat/modelos. |
++| Sesiones/SQLite | Obligatorio, esquema existente sin migración general. |
++| Tools/approvals | Conserva implementación F1A. Nueva instalación con todas las tools apagadas y allowlist vacía. |
++| IPC | Token de 64 caracteres hex, archivos privados, Host/Origin exactos. |
++| UI | Módulo qml.auth privado; mantiene REST/SSE e interfaz existente. |
++| Piper | OnceCell vacío; construye el motor real en spawn_blocking bajo petición explícita. Sin sustituto ni fallback falso. |
++| Whisper | Wrapper/path y mutex vacío; carga sólo para transcribir. Sin prewarm. |
++| openWakeWord/ONNX | HotwordDetector no carga runtime/modelos en constructor. Sin llamada a downloader. |
++| Micrófono/captura | AudioCapture None. El arranque ordinario no la activa, incluso si una config antigua guarda wake=true. |
++| Chimes | Sin generación ni reproducción en constructor; recursos explícitos al activar voz. |
++| Personaje/overlay | Config nueva apagada; conserva opción existente y proceso propio. Supervisión avanzada pendiente. |
++
++Los controladores de voz se conservan como objetos de estado sin cargar modelos/audio. Se evita sustituir su arquitectura o copiar un pipeline nuevo. `--enable-voice` más wake habilitado permite intentar la ruta heredada exclusivamente con dependencias locales. Sin Piper/modelos/ML, devuelve disponibilidad/error y conserva texto. La ruta de activación exige ML real antes de abrir captura; no admite el fallback energético como wake de producción. No se certifica esta ruta con hardware en F1B1. El audio/PTT/API de voz queda diferido por defecto: solicitudes activas reciben 503 con motivo; streams de estado y selección de sesión siguen compatibles. Auto_speak del endpoint de texto y PTT respetan esa capacidad.
++
++## Configuración y compatibilidad
++
++- `Config::first_run()` es la única política de creación por ausencia; no importa una clave de entorno al archivo. Desactiva tool calling y los 23 flags de tools, wake/auto_listen/auto_speak/chimes, memoria/auto_summary y personaje. Allowed_paths queda vacío; STT se configura local.
++- Defaults explícitos de estructuras/fixtures existentes se conservan; nunca se usan como recuperación de lectura fallida. Se mantienen las mitigaciones de campos omitidos de F1A.
++- Carga de config existente conserva bytes y selección de modelo; se retira la migración automática de modelos supuestamente retirados. El usuario elige otro modelo desde Settings si el proveedor rechaza el anterior. La función de recomendaciones heredada y sus tests permanecen, sin llamada automática.
++- Se endurecen explícitamente permisos de config/backup a 0600 y directorio de aplicación a 0700 al cargar. Token y archivos del módulo QML se crean privados desde el primer byte. Errores de permisos se propagan. Symlinks/hardlinks/propietario incorrecto en archivos bootstrap se rechazan; FIFOs no bloquean la lectura.
++- Guardar valida, publica backup y principal mediante temporales exclusivos 0600 + sync + rename; luego update_config publica RAM. Backup y principal no forman una transacción conjunta; fsync del directorio tras rename puede fallar después de publicar. No se afirma rollback ante pérdida de energía o todas las clases de fallo del filesystem.
++- GET config redacta api_key/provider_keys y añade has_api_key, nombres de proveedores con clave guardada y capabilities. Campos vacíos conservan claves; entradas no vacías reemplazan explícitamente. Al guardar, una clave legacy sin entrada activa no vacía se integra en el mapa por proveedor, conservando las demás. El valor literal legacy se conserva incluso si el mapa activo contiene otra clave o se cambia el proveedor; sólo una clave enviada explícitamente no vacía autoriza reemplazarla. No hay borrado implícito de claves mediante un formulario redactado; un flujo explícito de eliminación queda pendiente.
++- La UI no pide catálogo de modelos ni enumera micrófono al cargar Settings o cambiar proveedor. La consulta de modelos queda en su acción explícita existente. Guardado fallido mantiene el diálogo y muestra el error. No se añaden proveedores ni se rediseña la UI.
++
++## Contrato HTTP mínimo
++
++El token inválido/vacío bloquea el bootstrap. Middleware rechaza también un AppState artificial con token malformado, incluso si el caller envía el mismo valor. Health permanece público y no devuelve credenciales.
++
++Host debe ser exactamente `127.0.0.1:8765`, `localhost:8765` o `[::1]:8765` (comparación de caso normalizado). Ausencia, duplicados, puertos distintos y sufijos se rechazan. Origin omitido o `null` permite QML; los únicos Origins web admitidos son esas autoridades completas con esquema `http`. Paths, userinfo, prefijos, substrings, esquemas file/qrc y listas/duplicados no entran en la allowlist. El bearer se exige independientemente del origen. No hay garantía de aislamiento frente a otro proceso del mismo UID que puede leer las capacidades locales.
++
++`serve` valida el token antes de bind; main reserva el socket una vez y obtiene AppState fallible antes de pasarlo a Axum. Se mantiene el puerto y compatibilidad QML nativa. Clientes que dependían de Host omitido, otro puerto o secretos en GET config deben adaptarse al nuevo contrato.
++
++## Procesos y límites
++
++OwnedChild sólo hace kill + wait de un Child que recibió tras spawn de esta instancia. Main/overlay y snap_ui lo usan también en salidas por error. snap_ui pide un display libre mediante Xvfb -displayfd; deja de borrar X99-lock y de terminar qml6/Xvfb globalmente. No se ejecutó snap_ui; su cambio se revisó y compiló.
++
++Los fixtures de ejecutable solicitan SIGINT al PID propio antes de recurrir a la limpieza del guard. Se observa desaparición del PID QML propio y supervivencia de otro qml6 del fixture. SIGKILL/crash del padre y supervisión avanzada de descendientes no están resueltos en esta fase. El pkill del executor para close_app permanece fuera de esta corrección del arranque; no se ejecutó y la herramienta está desactivada en instalación nueva.
++
++AiService/parser SSE, cancelación de tareas profundas y SessionManager se conservan. Unicode fragmentado sigue vulnerable; cancelación puede dejar request hijo activo; persistencia de turnos/herramientas no es transaccional. Son límites abiertos de F1B-2/recuperación, no funcionalidades resueltas por este cambio.
++
++## Endurecimiento confirmado en revisión
++
++La creación exclusiva de config/token sólo tolera AlreadyExists para releer el archivo de una publicación concurrente. Un fallo de escritura/sync se propaga aunque el destino ya esté publicado: no se continúa con bootstrap parcial como si hubiera tenido éxito. La prueba de EIO valida la clasificación del resultado; no certifica durabilidad ante un fallo real de fsync.
++
++La consulta manual de catálogo toma URL y clave del proveedor seleccionado. Al cambiar proveedor descarta los campos legacy del proveedor anterior para resolver los mapas/presets del nuevo; las entradas no se eliminan de configuración. Dos mocks locales verifican que la credencial seleccionada no se envía al destino anterior.
++
++Un error de espera del hijo UI retorna error, además de los fallos de spawn y exit no cero. Las pruebas identifican su argv qml6/Main.qml y cubren tanto ejecutable ausente como QML real que no carga. La reserva del listener nunca se cierra para volver a bind antes de transferirse a Axum. HTTP puede responder antes del primer frame QML una vez completo el bootstrap crítico; un fallo posterior de UI destruye el runtime y libera el listener.
+diff --git a/docs/recovery/F1B1-REPORT.md b/docs/recovery/F1B1-REPORT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..3e700d443e33973de76fccfe77fc2e2e1a6aa9b4
+--- /dev/null
++++ b/docs/recovery/F1B1-REPORT.md
+@@ -0,0 +1,68 @@
++# F1B-1 — Arranque seguro y núcleo de texto
++
++Fecha: 2026-10-10. Estado: **IMPLEMENTED** para el alcance reproducible de texto. Recomendación: **READY_FOR_REVIEW**. KDE Plasma Wayland real: **NOT_TESTED**; no se certifica distribución ni voz real.
++
++Rama creada sin alterar trabajo pendiente: `recovery/f1b1-text-startup`. Base obligatoria comprobada: `ca82e722935e8076f526a484655f2f95f87b5d4c`, desde `recovery/f1a-containment`. **Durante la implementación no se hicieron commits, push, merge ni release. La consolidación local posterior autorizada se registra en F1B1-CLOSURE.md y F1B1-COMMIT-VALIDATION.md. No se comenzó F1B-2.** Los once documentos/parche preexistentes sin versionar se conservaron; no hubo reset, clean ni stash. No se modificaron datos/configuración/modelos personales.
++
++## Resultado y arquitectura
++
++El ejecutable y Main.qml pueden arrancar y completar dos turnos escritos con mock local sin Piper ni modelos. Backend::new dejó de descargar recursos y de exigir motor TTS/cargar ONNX; se conserva el pipeline de voz con controladores diferidos. Config, cliente IA, sesiones, SQLite, token/IPC y UI son el núcleo obligatorio. El listener se reserva una sola vez, y los fallos críticos terminan de forma visible sin dejar API escuchando.
++
++Antes: config → descarga de modelos/runtime → AI/SQLite → Piper obligatorio/ML → HTTP → UI, más prewarm y limpieza por nombre. Ahora: reserva de instancia → configuración validada o primer arranque restrictivo → AI/SQLite → bootstrap privado/token válido → HTTP/QML; voz y recursos permanecen diferidos y requieren activación explícita. Detalle: [F1B1-ARCHITECTURE](F1B1-ARCHITECTURE.md).
++
++## Archivos modificados y nuevos
++
++| Archivo | Responsabilidad |
++| --- | --- |
++| `Cargo.toml` | Feature process de rustix para comprobar ownership de archivos; lock sin cambios. |
++| `src/lib.rs` | Exporta el guard de hijos propios. |
++| `src/main.rs` | Reserva única de listener; errores críticos; quita prewarm/downloads y cull global; voz explícita; cierre/guard de UI. |
++| `src/backend/mod.rs` | Núcleo sin descargas, http_state fallible; activación opcional exige dependencias antes de captura. |
++| `src/backend/speech_service.rs` | Piper real diferido mediante OnceCell; constructor sin dependencia de TTS. |
++| `src/backend/hotword.rs` | ML no se carga desde constructor. |
++| `src/backend/chime_player.rs` | Generación de recursos diferida; test de generación la solicita explícitamente. |
++| `src/backend/auth.rs` | Token/bootstrap fail-closed, QML privado, autoridades exactas, rechazo de bearer vacío. |
++| `src/backend/private_files.rs` (nuevo) | Archivos privados, lectura segura y publicación atómica. |
++| `src/backend/http_server.rs` | Contrato config redactada/conservación de claves, publicación de RAM después de guardar, capacidades diferidas/503 y validación del token. |
++| `src/models/config.rs` | Primer arranque restrictivo, validación, permisos y escritura segura; conserva selección antigua sin migración automática de modelo. |
++| `src/owned_process.rs` (nuevo) | Guard kill/wait sólo para Child propio. |
++| `src/bin/snap_ui.rs` | Elimina limpieza global y borrado de locks; display libre y guards propios. |
++| `qml/Main.qml` | Estado de credenciales desde has_api_key, elimina instrucción pkill en error. |
++| `qml/components/SettingsDialog.qml` | Conserva claves redactadas, elimina consultas automáticas, muestra disponibilidad/error de guardado. |
++| `tests/f1b1_text_startup.rs` (nuevo) | Trece casos por defecto y un caso Qt opt-in, mocks y fixtures aislados. |
++| `tests/qml/F1B1Text.qml` (nuevo) | Harness del flujo real de Main y Settings; asserts de dos turnos visibles. |
++| `scripts/validate_f1b1.py` (nuevo) | Validación reproducible con XDG privado, Cargo offline y logs. |
++| `docs/recovery/F1B1-REPORT.md` (nuevo) | Informe y criterio de revisión. |
++| `docs/recovery/F1B1-RESULTS.md` (nuevo) | Comandos, resultados exactos y límites. |
++| `docs/recovery/F1B1-ARCHITECTURE.md` (nuevo) | Inicialización, contratos y compatibilidad. |
++
++## Gates demostrados
++
++- Formato, `cargo check --locked --all-targets` y `cargo clippy --locked --all-targets -- -D warnings`: exit **0**.
++- Seguridad F1A: **19 passed, 0 failed, 1 ignored**; montaje opt-in también aprobado por separado. Executor/safe_fs/ai_service y tests F1A no cambiaron; sin regresiones SEC-01/SEC-02 observadas en su selección.
++- F1B1: **13 passed, 0 failed, 1 ignored** por defecto; Qt opt-in ejecutado y aprobado (**1 passed**).
++- Unitarios seguros ampliados: **137 passed, 0 failed, 2 filtered out**. Los doce antes bloqueados por Piper pasan y se verificaron aparte: **12 passed**. App_paths: **2 passed**.
++- Instalación nueva con Piper ausente en el entorno, XDG sin modelos y ORT_DYLIB_PATH inexistente: texto inicializa, no abre micrófono ni crea models/lib ni descarga; modelos/voz no se fingen disponibles.
++- Bearer vacío/token malformado rechazados; bootstrap inválido no publica API; Hosts/Origins preparados reciben 403. Bootstrap/config/backup son privados; GET config no devuelve las claves.
++- Mock local: dos peticiones, historial correcto en la segunda, cuatro mensajes en SQLite. Recrear backend/servidor conserva sesión, mensajes y token. QML muestra ambos intercambios y permite configurar proveedor/modelo desde Settings.
++- Ejecutable real offscreen: lanza su UI, SIGINT recoge su QML y libera puerto, un QML independiente del fixture sigue vivo. Puerto ocupado, config corrupta, token inválido, qml6 ausente y QML que falla al cargar muestran errores y terminan sin listener superviviente.
++
++Resultados y nombres completos: [F1B1-RESULTS](F1B1-RESULTS.md). Evidencia final: `/tmp/kda-f1b1-check-gqxb7pa7/`. Reproducción: `python3 scripts/validate_f1b1.py --qml` con qml6 y puerto 8765 libre. La selección sólo usa proveedores loopback; no prueba una API externa ni impone un sandbox general de red.
++
++## Compatibilidad y asuntos pendientes
++
++Se conserva esquema SQLite y datos; no hay migración general. Config antigua válida conserva bytes/credenciales/selección, con endurecimiento explícito de permisos. El guardado desde la vista redactada integra claves legacy en el mapa por proveedor si faltan, sin borrado implícito. Se retiró la sustitución automática de modelo; el usuario puede elegir otro en Settings. No se persisten valores permissivos ante corrupción.
++
++Cambio deliberado: el arranque ordinario difiere voz incluso si una configuración antigua guarda wake=true/auto_speak=true. La ruta heredada sólo se intenta con `--enable-voice` y recursos ya instalados; no se reconstruye ni valida hardware. Catálogo de modelos pasa a consulta explícita en Settings. Clientes HTTP deben usar la autoridad exacta 8765 y metadata de clave presente, en vez de recuperar secretos de GET config. No se habilitan tools nuevas, delegación ni capacidades de F2.
++
++Permanecen conocidos y **sin resolver**: corrupción UTF-8 al fragmentar bytes SSE, tolerancia de fin/error/argumentos y cancelación que no termina peticiones hijas. La persistencia del happy path pasa, pero el journal/transacciones de turnos parciales siguen pendientes. No se certifican fallos de fsync posteriores a rename, backup/principal transaccionales, aislamiento frente al mismo UID, limpieza tras SIGKILL, modelos/audio/voz reales ni proveedores remotos. Las dependencias de audio/Whisper siguen en la compilación; se retiró su obligatoriedad de runtime, no se creó una build feature de texto.
++
++La integración real con **KDE Plasma Wayland, compositor, tray, atajos y overlay es NOT_TESTED**. La prueba gráfica aprobada es offscreen. Los smokes de TTS/wake y el test de descarga ONNX continúan identificados como externos, no aprobados. No se ejecutó snap_ui; su limpieza se corrigió y compiló. El executor conserva su control de aplicaciones existente fuera del arranque y no se usó para terminar procesos reales.
++
++El alcance F1B-1 está listo para revisión con esos límites explícitos; el inicio de F1B-2 requiere una instrucción posterior.
++
++## Revisión previa a consolidación
++
++La revisión del diff completo detectó y corrigió tres defectos acotados: bootstrap ignoraba cualquier fallo de publicación si el destino existía; el guardado redactado podía sustituir una clave legacy diferente del mapa activo; el catálogo manual podía usar la clave de otro proveedor contra la URL anterior. Ahora sólo AlreadyExists permite releer un ganador concurrente; otros errores se propagan, las credenciales legacy y por proveedor se conservan salvo reemplazo explícito, y catálogo selecciona conjuntamente URL/clave. Un error de try_wait de la UI devuelve error de inicio.
++
++Se añadieron tres regresiones: publicación exclusiva y clasificación EIO, combinaciones legacy/mapa vacío o diferente con cambio de proveedor, y catálogo contra dos mocks que registran Authorization. La prueba EIO inyecta el resultado de error al helper real, no un fallo real de syscall fsync. El lifecycle exige health 200, identifica el hijo qml6 por argv y comprueba falta de ejecutable y error real de carga QML, conservando vivo un proceso QML ajeno del fixture. Validación repetida: todos los comandos del script --qml exit 0; 13 predeterminados más 1 opt-in, 137 unitarios y 12 heredados Piper aprobados. Sin rediseño ni trabajo F1B-2.
+diff --git a/docs/recovery/F1B1-RESULTS.md b/docs/recovery/F1B1-RESULTS.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..94b24dcab7a1a3d8f1ba171838051e77e5323b86
+--- /dev/null
++++ b/docs/recovery/F1B1-RESULTS.md
+@@ -0,0 +1,96 @@
++# F1B-1 — Resultados verificables
++
++Fecha: 2026-10-10. Base obligatoria: `ca82e722935e8076f526a484655f2f95f87b5d4c`. Rama: `recovery/f1b1-text-startup`. Resultado del alcance de texto: **IMPLEMENTED / READY_FOR_REVIEW**. Integración gráfica KDE Plasma Wayland: **NOT_TESTED**.
++
++## Método
++
++Ejecutado `python3 scripts/validate_f1b1.py --qml`, exit **0**. Cada comando usa XDG_CONFIG_HOME, XDG_DATA_HOME, XDG_CACHE_HOME y TMPDIR privados, umask 077, claves de entorno retiradas y Cargo offline con lock. F1B1 reejecuta cada caso con mutación de entorno en un proceso aislado, nunca dentro del runner compartido. SQLite es real y temporal; los proveedores son mocks Axum en loopback, con credenciales ficticias. No se instala ni simula Piper. La UI usa el módulo privado real qml.auth. Los fixtures se eliminan; se conservan logs y results.json.
++
++La evidencia final está en `/tmp/kda-f1b1-check-gqxb7pa7/` (0700). Sus rutas temporales no son entregables permanentes; el script y las pruebas permiten reproducirlas. El puerto 8765 debe estar libre para los tests del ejecutable y QML. Si ya hay un servicio, el fixture falla sin cerrarlo. El resto del mock/backend usa puertos efímeros con Host explícito de la autoridad de producción.
++
++## Comandos finales
++
++Tiempos de pared incluyen compilación; no son métricas de rendimiento del producto.
++
++| Comando | Exit | Resultado | Segundos |
++| --- | --- | --- | --- |
++| `cargo fmt --check` | 0 | PASS | 0.575 |
++| `cargo check --locked --all-targets` | 0 | PASS | 4.903 |
++| `cargo clippy --locked --all-targets -- -D warnings` | 0 | PASS, sin warnings | 5.795 |
++| `cargo test --locked --test f1a_security` | 0 | 19 passed; 0 failed; 1 ignored | 21.41 |
++| `cargo test --locked --test f1b1_text_startup -- --test-threads=1` | 0 | 13 passed; 0 failed; 1 ignored (Qt opt-in) | 6.565 |
++| `cargo test --locked --lib -- --test-threads=1 --skip backend::wakeword_ml::tests::download_and_extract_onnx_runtime --skip backend::tool_executor::tests::show_image_huge_url_is_rejected_before_download` | 0 | 137 passed; 0 failed; 2 filtered out | 15.398 |
++| `cargo test --locked --lib -- --exact --test-threads=1 <12 nombres abajo>` | 0 | 12 passed; 0 failed; 127 filtered out | 1.543 |
++| `cargo test --locked --test app_paths` | 0 | 2 passed; 0 failed | 1.85 |
++| `cargo test --locked --test f1b1_text_startup qml_offscreen -- --ignored --nocapture` | 0 | 1 passed; 0 failed; 13 filtered out; binario y Main.qml offscreen | 3.115 |
++
++También se ejecutó `python3 scripts/validate_f1a.py --mounts`, exit **0**, con la selección F1A original: 125 unitarios seguros aprobados y 14 filtrados, 19 tests de seguridad aprobados/1 ignored por defecto, 2 app_paths aprobados. El opt-in `search_mount_boundaries_remain_closed` pasó: **1 passed; 0 failed; 19 filtered out** en namespace privado. Evidencia: `/tmp/kda-f1a-check-icwyxbdp/`. Es la misma prueba reejecutada en hijo y padre; no cuenta como dos. La ejecución final F1B1 sobre los últimos cambios aprobó otra vez los 19 tests de seguridad y los cinco unitarios F1A incluidos en los 137.
++
++No se ejecutó ni se declara aprobada `cargo test --all-targets` completa.
++
++## Catorce casos F1B1 únicos
++
++| Caso | Evidencia y resultado |
++| --- | --- |
++| `first_run_without_piper_whisper_onnx_or_wake` | Config nueva restrictiva; todas las tools desactivadas, allowlist vacía, voz/memoria/personaje apagados; captura None, Piper sin inicializar, Whisper ausente, ML sin cargar; sin directorios models/lib. PASS. |
++| `existing_configuration_is_preserved` | Conserva bytes, clave, modelo Groq anterior, flag de herramienta y wake habilitado; ningún servicio de audio/ML se activa al crear Backend. PASS. |
++| `corrupt_configuration_is_recoverable_and_never_replaced` | Error explícito; JSON permanece intacto y no se crea DB; corregir el fixture permite reintentar. PASS. |
++| `missing_api_key_never_contacts_provider` | UI/API informa has_api_key=false; el chat SSE devuelve error; mock registra cero peticiones. PASS. |
++| `invalid_tokens_fail_closed` | Bearer esperado vacío rechazado; API 401; serve rechaza token; bootstrap rechaza server.token existente vacío sin sobrescribirlo. PASS. |
++| `hostile_authorities_are_rejected_over_http` | Ocho Hosts y nueve Origins preparados rechazados con 403; null y autoridades loopback completas admitidas; ausencia de Host rechazada. PASS. |
++| `private_files_redaction_and_failed_update_preserve_secrets` | Config/backup/token/QML 0600; directorio QML 0700; GET no devuelve secretos; guardar vista redactada conserva claves; backup symlink provoca 500, conserva RAM/disco y archivo exterior. PASS. |
++| `exclusive_bootstrap_only_tolerates_an_existing_winner` | Publicación exclusiva real conserva ganador sin temporales sobrantes; helper rechaza EIO inyectado incluso con destino existente. No inyecta syscall fsync. PASS. |
++| `redacted_updates_preserve_legacy_and_provider_credentials` | Mapa activo vacío o diferente de legacy, cambio de proveedor, guardado/relectura de disco y reemplazo explícito: claves preservadas y resolución correcta. PASS. |
++| `model_catalog_uses_selected_provider_credentials_and_url` | Dos mocks de catálogo: la clave del proveedor seleccionado sólo llega a su URL; el mock anterior recibe cero peticiones. PASS. |
++| `two_turns_with_mock_and_persistence_after_backend_restart` | Health 200, configura proveedor por API, crea sesión, SSE token/done en dos turnos, cuatro mensajes reales; segundo request contiene el primer intercambio; tras destruir servidor/backend y recrearlos, mismos mensajes y token. PASS. |
++| `startup_has_no_download_or_global_process_cleanup_calls` | Guard estático de los entrypoints de descarga/prewarm y limpieza global eliminados. Se complementa con ausencia de models/lib en arranque dinámico. PASS. |
++| `real_binary_lifecycle_and_critical_failure_leave_no_listener_or_foreign_victim` | Ejecutable real: puerto ocupado no crea config; corrupción y token inválido terminan con errores en stderr y no dejan listener; health exige 200 y SIGINT funciona; qml6 ausente termina con error y libera puerto; guard termina/recoge hijo propio; proceso independiente del fixture sobrevive. PASS. |
++| `qml_offscreen_settings_and_two_visible_turns` | Opt-in ejecutado: Main.qml muestra falta de clave; SettingsDialog guarda proveedor/modelo/key ficticia; crea sesión y muestra first/reply-one/second/reply-two. Después lanza el ejecutable real con su UI: permanece vivo, recoge su QML y libera 8765 con SIGINT, conserva vivo otro qml6/Main.qml del fixture. Identifica argv del hijo; una UI con error real de carga también termina backend/libera 8765. PASS offscreen. |
++
++Los doce casos predeterminados reejecutados en hijos y el harness Qt no se cuentan dos veces por mostrar resultado hijo/padre. Son **13 tests predeterminados más 1 opt-in Qt**; el guard estático no necesita hijo.
++
++Marcadores Qt finales:
++
++```text
++F1B1_UI_PASS; QML terminado y recogido; cuatro mensajes persistidos
++F1B1_BINARY_UI_PASS; hijo QML propio recogido; QML ajeno sigue vivo; puerto liberado
++F1B1_QML_FAILURE_PASS; fallo real de carga QML visible; puerto liberado; QML ajeno vivo
++```
++
++## Piper heredado y exclusiones
++
++Estos **12 nombres exactos**, que en F1A fallaban todos por constructor obligatorio de Piper, ahora pasan sin instalarlo:
++
++```text
++backend::http_server::tests::dictate_roundtrip_empty_transcript_releases_flag
++backend::http_server::tests::dictate_start_conflicts_with_voice_pipeline
++backend::http_server::tests::dictate_stop_without_start_conflicts
++backend::speech_service::tests::piper_engine_initializes
++backend::voice_pipeline::tests::auto_barge_ignora_mic_alto_si_tts_aun_no_suena
++backend::voice_pipeline::tests::barge_in_transita_interrupted_a_listening
++backend::voice_pipeline::tests::dictado_activo_aborta_wait_for_speech_rapido
++backend::voice_pipeline::tests::dictado_activo_bloquea_start_listening
++backend::voice_pipeline::tests::emit_state_mapea_a_strings_legados
++backend::voice_pipeline::tests::signal_broadcast_state
++backend::voice_pipeline::tests::signal_level_throttled
++backend::voice_pipeline::tests::wait_for_speech_times_out_quiet
++```
++
++El nombre heredado `piper_engine_initializes` comprueba ahora el constructor diferido de SpeechService; no acredita sintetizar con un motor real. Los otros once comprueban controladores, exclusión de dictado, señales y estados; no necesitan modelos ni hardware. Todos están incluidos en los 137 unitarios seguros y se repitieron aparte para verificar el grupo histórico. `command -v piper-tts` y `command -v piper` devolvieron exit 1 en este entorno. Whisper/openWakeWord se prueban con XDG_DATA_HOME vacío y ORT_DYLIB_PATH apuntando a un archivo inexistente. No se consultaron ni modificaron modelos personales.
++
++Permanecen excluidos exactamente estos dos tests de la selección unitaria:
++
++- `backend::wakeword_ml::tests::download_and_extract_onnx_runtime`: puede descargar una biblioteca nativa.
++- `backend::tool_executor::tests::show_image_huge_url_is_rejected_before_download`: conserva la exclusión externa de F1A.
++
++No se ejecutaron los opt-in `tests/tts_stream_smoke.rs::speak_streaming_reproduce_oraciones_en_orden` (Piper, voz y salida de audio) ni `tests/wake_resample_sim.rs::resample_44100_vs_directo` (runtime y modelos ONNX/audio). `tests/agent_smoke.rs::chat_with_openrouter` requiere proveedor remoto y no acredita esta fase. Los binarios test_voice/test_stt/test_wakeword tampoco se ejecutaron. **Voz real, micrófono, modelos instalados, proveedores remotos y Plasma Wayland: NOT_TESTED.**
++
++## Correcciones durante validación y límites
++
++La primera selección nueva dio 7 passed / 3 failed: encontró una carrera de SIGINT antes del registro del handler, un caso de conservación de clave legacy junto a mapa parcial y una expectativa incorrecta de tools vacío frente a campo omitido por serde. Se corrigieron los dos problemas de implementación y la expectativa. El primer harness Qt falló por import absoluto y luego por usar una autoridad efímera que el nuevo control Host rechazaba; se corrigió el fixture a URI file y puerto real 8765. Clippy detectó dos guards de tests sobre await; se acotaron por bloques. Los resultados finales de la tabla proceden del árbol corregido.
++
++El mock SSE usa texto ASCII y eventos completos. No verifica UTF-8 fragmentado ni cancelación profunda. REL-03/REL-04 siguen pendientes para F1B-2. No hay sandbox de egress ni captura general de tráfico: la evidencia de ausencia de descarga combina entrypoints eliminados, constructores diferidos y filesystem vacío después del arranque. Las peticiones de conversación verificadas sólo van a loopback. No se presenta un smoke offscreen como validación del compositor, bandeja, atajos o overlay reales.
++
++## Consolidación local posterior
++
++La tabla corresponde a la repetición tras corregir los defectos de bootstrap, conservación de credenciales y catálogo detectados durante revisión. Los SHA, árboles staged exactos compilados sobre sus padres y la validación final de los commits se registran en F1B1-COMMIT-VALIDATION.md. No se amplía esta evidencia a fallos reales de fsync ni Plasma Wayland.
+diff --git a/qml/Main.qml b/qml/Main.qml
+index e23a0bde44d91c8c8cf12e91545965283cfa9a45..ae707e489393ee7a35777882086be0d77b6c676e 100644
+--- a/qml/Main.qml
++++ b/qml/Main.qml
+@@ -793,14 +793,14 @@ ApplicationWindow {
+                                 // (p.ej. otra instancia vieja ocupa el puerto).
+                                 backendStatus = "offline"
+                                 lastError = qsTr("No autorizado")
+-                                lastErrorDetail = qsTr("Token local inválido. Cierra otras instancias (`pkill -f kde-assistant`) y reinicia.")
++                                lastErrorDetail = qsTr("Token local inválido. Cierra KDE Assistant desde su menú y reinicia.")
+                                 showErrorBanner = true
+                                 return
+                             }
+                             if (c.status !== 200) return
+                             try {
+                                 var cfg = JSON.parse(c.responseText)
+-                                var key = (cfg.ai && cfg.ai.api_key) ? String(cfg.ai.api_key).trim() : ""
++                                var key = (cfg.ai && cfg.ai.has_api_key === true) ? "configured" : ""
+                                 var model = (cfg.ai && cfg.ai.model) ? String(cfg.ai.model) : ""
+                                 lastModel = model
+                                 lastProvider = (cfg.ai && cfg.ai.provider) ? String(cfg.ai.provider) : ""
+diff --git a/qml/components/SettingsDialog.qml b/qml/components/SettingsDialog.qml
+index 55e3d225886e57f2392bee7685087ce0f3bb365c..f6f21f341324546ab722292bbca5beb10e6864e1 100644
+--- a/qml/components/SettingsDialog.qml
++++ b/qml/components/SettingsDialog.qml
+@@ -167,7 +167,6 @@ Rectangle {
+         rememberProviderFields()
+         root.provider = p
+         applyProviderFields(p)
+-        if (apiKeyField.value !== "" || p === "lmstudio" || p === "ollama") fetchModels()
+     }
+ 
+     function providerBaseUrl(p) {
+@@ -259,9 +258,9 @@ Rectangle {
+                 pttField.value = root.shortcutPtt
+                 newSessionField.value = root.shortcutNewSession
+                 menuField.value = root.shortcutMenu
+-                // Listar lo que ofrece la API (usa la key recien cargada)
+-                fetchModels()
+-                fetchAudioDevices()
++                // Presencia de credenciales y capacidades, sin consultas automáticas.
++                modelHint.text = cfg.ai.has_api_key ? qsTr("Clave guardada; deja el campo vacío para conservarla. Consulta modelos cuando lo necesites.") : qsTr("Falta clave API. Configura proveedor, modelo y clave para conversar.")
++                micHint.text = (cfg.capabilities && cfg.capabilities.detail) || qsTr("Voz diferida")
+                 fetchFacts()
+             }
+         }
+@@ -466,8 +465,18 @@ Rectangle {
+         setAuth(xhr)
+         xhr.onreadystatechange = function() {
+             if (xhr.readyState === XMLHttpRequest.DONE) {
+-                root.saved()
+-                root.hide()
++                if (xhr.status === 200) {
++                    root.saved()
++                    root.hide()
++                } else {
++                    root.activeTab = "general"
++                    modelHint.color = Theme.error
++                    try {
++                        modelHint.text = JSON.parse(xhr.responseText).error || qsTr("No se pudo guardar la configuración")
++                    } catch (e) {
++                        modelHint.text = qsTr("No se pudo guardar la configuración; revisa el backend")
++                    }
++                }
+             }
+         }
+         xhr.send(JSON.stringify(cfg))
+diff --git a/scripts/validate_f1b1.py b/scripts/validate_f1b1.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..7e175028ad4dc6f88b087a2428cbb8c4d257ca68
+--- /dev/null
++++ b/scripts/validate_f1b1.py
+@@ -0,0 +1,68 @@
++#!/usr/bin/env python3
++"""Validación F1B1 con XDG/SQLite privados y mocks loopback; Qt opt-in."""
++import argparse
++import json
++import os
++from pathlib import Path
++import shutil
++import subprocess
++import tempfile
++import time
++import sys
++sys.dont_write_bytecode = True
++from validate_f1a import PIPER_TESTS, EXTERNAL_TESTS
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--qml", action="store_true", help="Flujo QML y ejecutable offscreen (puerto 8765 libre); no Plasma.")
++    args = parser.parse_args()
++    repo = Path(__file__).resolve().parent.parent
++    os.umask(0o077)
++    evidence = Path(tempfile.mkdtemp(prefix="kda-f1b1-check-"))
++    env = os.environ.copy()
++    for key in list(env):
++        if key.endswith("_API_KEY") or key == "KDA_F1B1_CHILD":
++            env.pop(key)
++    for key, directory in [("XDG_CONFIG_HOME", "config"), ("XDG_CACHE_HOME", "cache"), ("XDG_DATA_HOME", "data"), ("TMPDIR", "tmp")]:
++        path = evidence / directory
++        path.mkdir(mode=0o700)
++        env[key] = str(path)
++    env["CARGO_NET_OFFLINE"] = "true"
++    skips = [argument for name in EXTERNAL_TESTS for argument in ["--skip", name]]
++    commands = [
++        ("fmt", ["cargo", "fmt", "--check"]),
++        ("check", ["cargo", "check", "--locked", "--all-targets"]),
++        ("clippy", ["cargo", "clippy", "--locked", "--all-targets", "--", "-D", "warnings"]),
++        ("f1a-security", ["cargo", "test", "--locked", "--test", "f1a_security"]),
++        ("f1b1", ["cargo", "test", "--locked", "--test", "f1b1_text_startup", "--", "--test-threads=1"]),
++        ("unit-safe", ["cargo", "test", "--locked", "--lib", "--", "--test-threads=1"] + skips),
++        ("piper-inherited-now-lazy", ["cargo", "test", "--locked", "--lib", "--", "--exact", "--test-threads=1"] + PIPER_TESTS),
++        ("app-paths", ["cargo", "test", "--locked", "--test", "app_paths"]),
++    ]
++    if args.qml:
++        commands.append(("qml-offscreen", ["cargo", "test", "--locked", "--test", "f1b1_text_startup", "qml_offscreen", "--", "--ignored", "--nocapture"]))
++    results = {"base": "ca82e722935e8076f526a484655f2f95f87b5d4c", "commands": [], "excluded": EXTERNAL_TESTS, "qml_offscreen": args.qml, "plasma_wayland": "NOT_TESTED"}
++    print(f"Evidencia privada: {evidence}", flush=True)
++    print("Sin modelos ni proveedores remotos. Unitarios excluyen sólo los 2 tests externos F1A. QML es opt-in.", flush=True)
++    try:
++        for name, command in commands:
++            start = time.monotonic()
++            log = evidence / f"{name}.log"
++            with log.open("w") as output:
++                result = subprocess.run(command, cwd=repo, env=env, stdout=output, stderr=subprocess.STDOUT)
++            results["commands"].append({"name": name, "command": command, "exit": result.returncode, "seconds": round(time.monotonic()-start, 3)})
++            (evidence / "results.json").write_text(json.dumps(results, indent=2) + "\n")
++            print(f"{name}: exit {result.returncode}; log {log}", flush=True)
++            if result.returncode:
++                print(log.read_text(), flush=True)
++                return 1
++        print("PASS de la selección F1B1; Plasma Wayland y voz real NOT_TESTED.", flush=True)
++        return 0
++    finally:
++        for directory in ["tmp", "config", "cache", "data"]:
++            shutil.rmtree(evidence / directory)
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/src/backend/auth.rs b/src/backend/auth.rs
+index 1ffbd2a90a54e653b3bc5041fe9953c05dba98b8..f4734c168958d864966cace36bf34653fd900a2b 100644
+--- a/src/backend/auth.rs
++++ b/src/backend/auth.rs
+@@ -24,44 +24,44 @@ pub fn server_token_path() -> Result<PathBuf> {
+     Ok(dir.join("server.token"))
+ }
+ 
+-/// Lee el token si existe (trim). None si no hay o está vacío.
++pub fn valid_server_token(token: &str) -> bool {
++    token.len() == TOKEN_BYTES_HEX && token.bytes().all(|b| b.is_ascii_hexdigit())
++}
++
+ pub fn load_server_token() -> Option<String> {
+     let path = server_token_path().ok()?;
+-    let content = std::fs::read_to_string(&path).ok()?;
+-    let t = content.trim().to_string();
+-    if t.len() >= 32 {
+-        Some(t)
+-    } else {
+-        None
+-    }
++    let content = crate::backend::private_files::read_private(&path).ok()?;
++    let token = content.trim();
++    valid_server_token(token).then(|| token.to_owned())
+ }
+ 
+-/// Garantiza que existe un token, creándolo con 0600 si falta.
+-/// Retorna el token.
++/// Un token existente inválido es un error de bootstrap, nunca una capacidad vacía.
+ pub fn ensure_server_token() -> Result<String> {
+-    if let Some(t) = load_server_token() {
+-        return Ok(t);
+-    }
+     let path = server_token_path()?;
+     if let Some(parent) = path.parent() {
+-        std::fs::create_dir_all(parent).context("creando dir config")?;
++        crate::backend::private_files::private_dir(parent)?;
+     }
+-    // uuid v4 usa getrandom: 2x uuid sin guiones = 64 hex chars.
+-    let token = format!(
+-        "{}{}",
+-        uuid::Uuid::new_v4().simple(),
+-        uuid::Uuid::new_v4().simple()
+-    );
+-    // Asegurar 64 chars (simple() ya da 32 cada uno).
+-    let token: String = token.chars().take(TOKEN_BYTES_HEX).collect();
+-    std::fs::write(&path, format!("{token}\n")).context("escribiendo server.token")?;
+-    #[cfg(unix)]
+-    {
+-        use std::os::unix::fs::PermissionsExt;
+-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
++    match std::fs::symlink_metadata(&path) {
++        Ok(_) => {}
++        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
++            let token = format!(
++                "{}{}",
++                uuid::Uuid::new_v4().simple(),
++                uuid::Uuid::new_v4().simple()
++            );
++            crate::backend::private_files::allow_creation_race(
++                crate::backend::private_files::write_private(&path, &format!("{token}\n"), true),
++            )?;
++        }
++        Err(e) => return Err(e).context("leyendo token local"),
+     }
+-    log::info!("Token local creado en {}", path.display());
+-    Ok(token)
++    let content = crate::backend::private_files::read_private(&path)?;
++    let token = content.trim();
++    anyhow::ensure!(
++        valid_server_token(token),
++        "Token local inválido; API bloqueada. Corrige server.token antes de reintentar"
++    );
++    Ok(token.to_owned())
+ }
+ 
+ /// ¿La ruta requiere auth? Todo `/api/*` salvo `/api/health`.
+@@ -87,6 +87,7 @@ pub fn path_requires_auth(path: &str) -> bool {
+ ///
+ /// Retorna el directorio a pasar con `-I`.
+ pub fn write_qml_auth_module(token: &str, agent_overlay: bool) -> Result<PathBuf> {
++    anyhow::ensure!(valid_server_token(token), "Token QML inválido");
+     let dir = dirs::cache_dir()
+         .ok_or_else(|| anyhow::anyhow!("sin cache_dir"))?
+         .join("kde-assistant/qml-generated");
+@@ -98,7 +99,9 @@ fn write_qml_auth_module_to(token: &str, agent_overlay: bool, dir: &Path) -> Res
+     use std::fmt::Write as _;
+     // Módulo `qml.auth`: <dir>/qml/auth/{qmldir,AuthToken.qml}.
+     let mod_dir = dir.join("qml/auth");
+-    std::fs::create_dir_all(&mod_dir).context("creando dir qml auth")?;
++    crate::backend::private_files::private_dir(dir)?;
++    crate::backend::private_files::private_dir(&dir.join("qml"))?;
++    crate::backend::private_files::private_dir(&mod_dir)?;
+     // Escapar el token para QML (solo hex esperado, pero sin sorpresas).
+     let mut lit = String::with_capacity(token.len() + 2);
+     lit.push('"');
+@@ -124,9 +127,10 @@ fn write_qml_auth_module_to(token: &str, agent_overlay: bool, dir: &Path) -> Res
+         }
+     }
+     let _ = write!(cache_lit, "/\"");
+-    std::fs::write(
+-        mod_dir.join("qmldir"),
++    crate::backend::private_files::write_private(
++        &mod_dir.join("qmldir"),
+         "module qml.auth\nsingleton AuthToken 1.0 AuthToken.qml\n",
++        false,
+     )
+     .context("qmldir auth")?;
+     let qml = format!(
+@@ -139,12 +143,16 @@ fn write_qml_auth_module_to(token: &str, agent_overlay: bool, dir: &Path) -> Res
+          \x20   readonly property bool agentOverlay: {agent_overlay}\n\
+          }}\n"
+     );
+-    std::fs::write(mod_dir.join("AuthToken.qml"), qml).context("AuthToken.qml")?;
++    crate::backend::private_files::write_private(&mod_dir.join("AuthToken.qml"), &qml, false)
++        .context("AuthToken.qml")?;
+     Ok(())
+ }
+ 
+ /// Valida `Authorization: Bearer <token>` con comparación constante (anti-timing).
+ pub fn valid_bearer(headers: &axum::http::HeaderMap, expected: &str) -> bool {
++    if expected.is_empty() {
++        return false;
++    }
+     let got = headers
+         .get(axum::http::header::AUTHORIZATION)
+         .and_then(|v| v.to_str().ok())
+@@ -168,36 +176,36 @@ fn constant_eq(a: &[u8], b: &[u8]) -> bool {
+     diff == 0
+ }
+ 
+-/// Valida `Host`: solo loopback. `None` (tests sin host) se permite.
++/// Autoridad exacta de este servidor. Ausencia de Host no autentica.
+ pub fn valid_host(headers: &axum::http::HeaderMap) -> bool {
+-    let host = headers
++    if headers.get_all(axum::http::header::HOST).iter().count() != 1 {
++        return false;
++    }
++    headers
+         .get(axum::http::header::HOST)
+         .and_then(|v| v.to_str().ok())
+-        .unwrap_or("");
+-    if host.is_empty() {
+-        return true;
+-    }
+-    let h = host.to_lowercase();
+-    // Aceptar con o sin puerto.
+-    h.starts_with("127.0.0.1") || h.starts_with("localhost") || h.starts_with("[::1]")
++        .is_some_and(|h| {
++            matches!(
++                h.to_ascii_lowercase().as_str(),
++                "127.0.0.1:8765" | "localhost:8765" | "[::1]:8765"
++            )
++        })
+ }
+ 
+-/// Valida `Origin`: QML envía vacío/`null`. Un navegador evil enviaría
+-/// `https://evil.com`: rechazar todo lo que no sea vacío/null/loopback/file.
++/// QML nativo omite Origin o usa null; autoridades web se comparan completas.
+ pub fn valid_origin(headers: &axum::http::HeaderMap) -> bool {
+-    let origin = headers
+-        .get(axum::http::header::ORIGIN)
+-        .and_then(|v| v.to_str().ok())
+-        .unwrap_or("");
+-    if origin.is_empty() || origin == "null" {
+-        return true;
++    if headers.get_all(axum::http::header::ORIGIN).iter().count() > 1 {
++        return false;
++    }
++    match headers.get(axum::http::header::ORIGIN) {
++        None => true,
++        Some(value) => value.to_str().is_ok_and(|o| {
++            matches!(
++                o.to_ascii_lowercase().as_str(),
++                "null" | "http://127.0.0.1:8765" | "http://localhost:8765" | "http://[::1]:8765"
++            )
++        }),
+     }
+-    let o = origin.to_lowercase();
+-    o.contains("127.0.0.1")
+-        || o.contains("localhost")
+-        || o.contains("[::1]")
+-        || o.starts_with("file://")
+-        || o.starts_with("qrc:")
+ }
+ 
+ #[cfg(test)]
+@@ -231,7 +239,7 @@ mod tests {
+     fn host_validation() {
+         use axum::http::{HeaderMap, HeaderValue};
+         let mut h = HeaderMap::new();
+-        assert!(valid_host(&h));
++        assert!(!valid_host(&h));
+         h.insert(
+             axum::http::header::HOST,
+             HeaderValue::from_str("127.0.0.1:8765").unwrap(),
+diff --git a/src/backend/chime_player.rs b/src/backend/chime_player.rs
+index aba25ee8c145d2ac4e78536bce5aa444feb055d6..b254affcf6e1d7244f0700b1c07e478819a43a7c 100644
+--- a/src/backend/chime_player.rs
++++ b/src/backend/chime_player.rs
+@@ -24,18 +24,22 @@ impl ChimePlayer {
+         let chimes_dir = dirs::data_dir()
+             .ok_or_else(|| anyhow::anyhow!("sin data_dir"))?
+             .join("kde-assistant/chimes");
+-        tokio::fs::create_dir_all(&chimes_dir).await.ok();
+-
+-        let player = Self {
+-            enabled: AtomicBool::new(true),
++        Ok(Self {
++            enabled: AtomicBool::new(false),
+             chimes_dir,
+-        };
++        })
++    }
+ 
+-        // Generar WAVs si no existen
+-        if let Err(e) = player.ensure_chimes().await {
+-            log::warn!("No se pudieron generar chimes: {e}");
+-        }
++    pub async fn initialize(&self) -> Result<()> {
++        tokio::fs::create_dir_all(&self.chimes_dir).await?;
++        self.ensure_chimes().await?;
++        self.set_enabled(true);
++        Ok(())
++    }
+ 
++    pub async fn with_resources() -> Result<Self> {
++        let player = Self::new().await?;
++        player.initialize().await?;
+         Ok(player)
+     }
+ 
+@@ -199,7 +203,7 @@ mod tests {
+ 
+     #[tokio::test]
+     async fn ensure_chimes_creates_files() {
+-        let p = ChimePlayer::new().await.unwrap();
++        let p = ChimePlayer::with_resources().await.unwrap();
+         assert!(p.chimes_dir.join("activate.wav").exists());
+         assert!(p.chimes_dir.join("process.wav").exists());
+         assert!(p.chimes_dir.join("deactivate.wav").exists());
+diff --git a/src/backend/hotword.rs b/src/backend/hotword.rs
+index e24675a6a33388195035a516af753cebcbdbb0d9..b56aed99680a390ffd33f9506c87bf2fe87b1ddc 100644
+--- a/src/backend/hotword.rs
++++ b/src/backend/hotword.rs
+@@ -51,8 +51,7 @@ impl HotwordDetector {
+             pending_16k: Arc::new(Mutex::new(Vec::new())),
+             dropped_frames: Arc::new(AtomicU64::new(0)),
+         };
+-        // Intentar cargar el modelo ML (no bloquea el arranque si falla)
+-        det.try_load_ml();
++        // Modelo/runtime sólo bajo activación explícita de la capacidad de voz.
+         Ok(det)
+     }
+ 
+diff --git a/src/backend/http_server.rs b/src/backend/http_server.rs
+index 4fdfa44add0c7a8b572ca9fc6c5d923c6db2d3ff..3c7a756da1cb35f11bf785623e5ee6feb9e53a7a 100644
+--- a/src/backend/http_server.rs
++++ b/src/backend/http_server.rs
+@@ -43,6 +43,7 @@ use tokio::sync::RwLock;
+ /// Estado compartido del servidor HTTP.
+ #[derive(Clone)]
+ pub struct AppState {
++    pub voice_enabled: Arc<std::sync::atomic::AtomicBool>,
+     pub ai: Arc<AiService>,
+     pub tools: Arc<ToolExecutor>,
+     pub approvals: Arc<crate::backend::approvals::ApprovalManager>,
+@@ -88,7 +89,9 @@ async fn auth_layer(State(state): State<AppState>, req: Request, next: Next) ->
+         )
+             .into_response();
+     }
+-    if !crate::backend::auth::valid_bearer(req.headers(), &state.local_token) {
++    if !crate::backend::auth::valid_server_token(&state.local_token)
++        || !crate::backend::auth::valid_bearer(req.headers(), &state.local_token)
++    {
+         log::debug!("auth: bearer inválido para {}", path);
+         return (
+             StatusCode::UNAUTHORIZED,
+@@ -96,6 +99,23 @@ async fn auth_layer(State(state): State<AppState>, req: Request, next: Next) ->
+         )
+             .into_response();
+     }
++    let optional_voice = path.starts_with("/api/dictate/")
++        || path.starts_with("/api/speak")
++        || path.starts_with("/api/audio/")
++        || (path.starts_with("/api/voice/")
++            && !matches!(
++                path.as_str(),
++                "/api/voice/stream" | "/api/voice/last" | "/api/voice/session"
++            ));
++    if optional_voice
++        && !state
++            .voice_enabled
++            .load(std::sync::atomic::Ordering::Relaxed)
++    {
++        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
++            "error": "Voz diferida/desactivada; el chat escrito sigue disponible. No se descargan dependencias automáticamente."
++        }))).into_response();
++    }
+     next.run(req).await
+ }
+ 
+@@ -1164,21 +1184,72 @@ async fn set_audio_device(
+     }
+ }
+ 
+-/// Devuelve la configuracion actual (JSON completo).
++/// Configuración sin secretos: la UI recibe presencia y estado, nunca claves guardadas.
+ async fn get_config(State(state): State<AppState>) -> impl IntoResponse {
+     let cfg = state.config.read().await.clone();
+-    Json(cfg).into_response()
++    let mut public = serde_json::to_value(&cfg).unwrap_or_default();
++    public["ai"]["api_key"] = serde_json::json!("");
++    public["ai"]["provider_keys"] = serde_json::json!({});
++    public["ai"]["has_api_key"] = serde_json::json!(!cfg.ai.effective_api_key().trim().is_empty());
++    public["ai"]["configured_provider_keys"] =
++        serde_json::json!(cfg.ai.provider_keys.keys().collect::<Vec<_>>());
++    public["capabilities"] = serde_json::json!({
++        "text": "ready", "voice": if state.voice_enabled.load(std::sync::atomic::Ordering::Relaxed) { "active" } else { "deferred" },
++        "whisper_model_present": state.speech.stt_model_exists(),
++        "piper_binary_present": crate::backend::tts::piper::PiperEngine::find_binary().is_ok(),
++        "microphone": "not_initialized_by_text_startup",
++        "onnx_runtime": "deferred",
++        "wakeword": "deferred",
++        "piper_initialized": state.speech.tts_initialized(),
++        "downloads_on_startup": false,
++        "detail": "Voz opcional diferida; no se carga Piper, ONNX ni micrófono al iniciar texto"
++    });
++    Json(public).into_response()
+ }
+-/// Actualiza la configuracion y la persiste en config.json.
++
++/// Campos de credenciales vacíos de la vista redactada conservan claves previas.
++/// Sólo entradas no vacías sustituyen una clave; no hay borrado implícito.
+ async fn update_config(
+     State(state): State<AppState>,
+-    Json(new_cfg): Json<Config>,
++    Json(mut new_cfg): Json<Config>,
+ ) -> impl IntoResponse {
+-    // Guardar en memoria y persistir
+     let mut cfg = state.config.write().await;
+-    *cfg = new_cfg.clone();
+-    match cfg.save().await {
+-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "status": "ok" }))),
++    let mut keys = cfg.ai.provider_keys.clone();
++    if keys
++        .get(cfg.ai.provider_id())
++        .is_none_or(|key| key.trim().is_empty())
++        && !cfg.ai.api_key.trim().is_empty()
++    {
++        keys.insert(cfg.ai.provider_id().to_owned(), cfg.ai.api_key.clone());
++    }
++    for (provider, key) in &new_cfg.ai.provider_keys {
++        if !key.trim().is_empty() {
++            keys.insert(provider.clone(), key.clone());
++        }
++    }
++    if !new_cfg.ai.api_key.trim().is_empty() {
++        keys.insert(
++            new_cfg.ai.provider_id().to_owned(),
++            new_cfg.ai.api_key.clone(),
++        );
++    }
++    new_cfg.ai.provider_keys = keys;
++    if new_cfg.ai.api_key.trim().is_empty() {
++        // La vista redactada no autoriza borrar/reemplazar un valor legacy,
++        // incluso si el mapa activo contiene otra clave o cambia el proveedor.
++        new_cfg.ai.api_key = cfg.ai.api_key.clone();
++    }
++    if let Err(e) = new_cfg.validate() {
++        return (
++            StatusCode::BAD_REQUEST,
++            Json(serde_json::json!({ "error": e.to_string() })),
++        );
++    }
++    match new_cfg.save().await {
++        Ok(()) => {
++            *cfg = new_cfg;
++            (StatusCode::OK, Json(serde_json::json!({ "status": "ok" })))
++        }
+         Err(e) => (
+             StatusCode::INTERNAL_SERVER_ERROR,
+             Json(serde_json::json!({ "error": e.to_string() })),
+@@ -1235,13 +1306,19 @@ async fn list_ai_models(
+     };
+     let provider_name = AiConfig::provider_name(&provider_id);
+ 
++    let mut selected_ai = cfg.ai.clone();
++    if selected_ai.provider_id() != provider_id {
++        selected_ai.api_key.clear();
++        selected_ai.base_url.clear();
++    }
++    selected_ai.provider = provider_id.clone();
+     let base_url = match body.base_url.as_deref().map(str::trim) {
+         Some(u) if !u.is_empty() => u.to_string(),
+-        _ => cfg.ai.effective_base_url(),
++        _ => selected_ai.effective_base_url(),
+     };
+     let api_key = match body.api_key.as_deref().map(str::trim) {
+         Some(k) if !k.is_empty() => k.to_string(),
+-        _ => cfg.ai.effective_api_key(),
++        _ => selected_ai.effective_api_key(),
+     };
+     if api_key.trim().is_empty() {
+         let env_var = AiConfig::provider_env_var(&provider_id);
+@@ -1617,7 +1694,12 @@ async fn chat_complete(
+     // Regla voz/texto: el chat escrito solo habla si auto_speak esta activo
+     // (las respuestas por voz siempre hablan, ver voice_pipeline).
+     let auto_speak = state.config.read().await.speech.auto_speak;
+-    if auto_speak && !response.trim().is_empty() {
++    if state
++        .voice_enabled
++        .load(std::sync::atomic::Ordering::Relaxed)
++        && auto_speak
++        && !response.trim().is_empty()
++    {
+         let speech = state.speech.clone();
+         let resp = response.clone();
+         tokio::spawn(async move {
+@@ -1638,6 +1720,10 @@ async fn chat_complete(
+ 
+ /// Arranca el servidor HTTP en `127.0.0.1:port`.
+ pub async fn serve(state: AppState, port: u16) -> Result<()> {
++    anyhow::ensure!(
++        crate::backend::auth::valid_server_token(&state.local_token),
++        "Token inválido: API no publicada"
++    );
+     let app = router(state);
+     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+     let listener = tokio::net::TcpListener::bind(addr).await?;
+@@ -2043,6 +2129,7 @@ mod tests {
+             chimes,
+         ));
+         AppState {
++            voice_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+             ai,
+             tools,
+             approvals,
+diff --git a/src/backend/mod.rs b/src/backend/mod.rs
+index bd3ecedc4b1d02fb53ce737291e8f81d8c731778..38c0942bc3931277c1593fbfa9c8b2da64421f18 100644
+--- a/src/backend/mod.rs
++++ b/src/backend/mod.rs
+@@ -14,6 +14,7 @@ pub mod hotword;
+ pub mod http_server;
+ pub mod kde_integration;
+ pub mod model_downloader;
++pub(crate) mod private_files;
+ mod safe_fs;
+ pub mod session_manager;
+ pub mod speech_service;
+@@ -72,13 +73,6 @@ impl Backend {
+         let config = Arc::new(RwLock::new(config));
+         log::info!("Config cargada desde ~/.config/kde-assistant/config.json");
+ 
+-        // Descargar modelos ML si faltan (whisper según stt_model, piper, wakeword).
+-        // Solo si hay conexion; los errores se loguean pero no bloquean el arranque.
+-        let stt_model = config.read().await.speech.stt_model.clone();
+-        if let Err(e) = Self::ensure_models_available(&stt_model).await {
+-            log::warn!("No se pudieron descargar los modelos ML: {e}");
+-        }
+-
+         let ai = Arc::new(ai_service::AiService::new(config.clone()).await?);
+         let sessions = Arc::new(Mutex::new(session_manager::SessionManager::new().await?));
+         // F4-3: el executor audita en SQLite.
+@@ -127,14 +121,9 @@ impl Backend {
+         self.voice.process_utterance(audio, None).await
+     }
+     /// Construye el estado compartido para el servidor HTTP local.
+-    pub fn http_state(&self) -> http_server::AppState {
+-        // Token local F0-3: si falla, usar vacío (el middleware rechazará todo
+-        // salvo /health; el log avisará).
+-        let local_token = crate::backend::auth::ensure_server_token().unwrap_or_else(|e| {
+-            log::warn!("No se pudo garantizar server.token: {e}");
+-            String::new()
+-        });
+-        http_server::AppState {
++    pub fn http_state(&self) -> Result<http_server::AppState> {
++        let local_token = crate::backend::auth::ensure_server_token()?;
++        Ok(http_server::AppState {
+             ai: self.ai.clone(),
+             tools: self.tools.clone(),
+             approvals: self.approvals.clone(),
+@@ -149,52 +138,8 @@ impl Backend {
+             ),
+             dictation_active: self.voice.dictation_flag(),
+             sidecar_active: self.sidecar_active.clone(),
+-        }
+-    }
+-
+-    /// Descarga los modelos ML necesarios si no existen.
+-    async fn ensure_models_available(stt_model: &str) -> Result<()> {
+-        let downloader = model_downloader::ModelDownloader::new()?;
+-        let mut models = model_downloader::required_models();
+-        // Whisper según elección (tiny/base): required trae base; si es tiny,
+-        // asegurar también el tiny sin descargar base de más si ya está.
+-        let whisper_wanted = model_downloader::whisper_spec(stt_model);
+-        if !models.iter().any(|m| m.rel_path == whisper_wanted.rel_path) {
+-            models.push(whisper_wanted);
+-        }
+-        let mut missing = Vec::new();
+-        for spec in &models {
+-            if !downloader.is_downloaded(spec) {
+-                missing.push(spec.clone());
+-            }
+-        }
+-
+-        if missing.is_empty() {
+-            log::info!("Todos los modelos ML estan presentes");
+-        } else {
+-            log::info!("Descargando {} modelo(s) ML faltantes...", missing.len());
+-            for spec in &missing {
+-                let progress: model_downloader::ProgressCallback =
+-                    Arc::new(move |name, done, total| {
+-                        if let Some(t) = total {
+-                            let pct = (done as f64 / t as f64 * 100.0) as u32;
+-                            if done % (t / 20).max(1) < 1024 {
+-                                log::debug!("{name}: {pct}% ({done}/{t} bytes)");
+-                            }
+-                        }
+-                    });
+-                if let Err(e) = downloader.download(spec, Some(progress)).await {
+-                    log::warn!("Fallo al descargar '{}': {e}", spec.name);
+-                }
+-            }
+-        }
+-
+-        // ONNX Runtime (libreria nativa para el wake word ML).
+-        // Si ya hay alguna usable (incluida, sistema o python), no descarga nada.
+-        if let Err(e) = wakeword_ml::ensure_onnx_runtime_lib().await {
+-            log::warn!("ONNX Runtime no disponible: {e}");
+-        }
+-        Ok(())
++            voice_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
++        })
+     }
+ 
+     /// Inicia captura de audio + deteccion de hotword en background.
+@@ -202,6 +147,15 @@ impl Backend {
+     /// el buffer de grabacion del VoicePipeline (para PTT/wake word).
+     /// Retorna un receiver de eventos HotwordEvent.
+     pub async fn start_voice_pipeline(&self) -> Result<mpsc::Receiver<hotword::HotwordEvent>> {
++        anyhow::ensure!(
++            self.speech.is_available().await && self.speech.stt_model_exists(),
++            "Voz no disponible: faltan Piper o modelos locales; no se descargan automáticamente"
++        );
++        self.hotword.try_load_ml();
++        anyhow::ensure!(
++            self.hotword.ml_active(),
++            "Wake word no disponible: faltan modelos/runtime ONNX; captura desactivada"
++        );
+         let (audio_tx, audio_rx) = mpsc::channel::<Vec<f32>>(64);
+         let (event_tx, event_rx) = mpsc::channel::<hotword::HotwordEvent>(8);
+ 
+diff --git a/src/backend/private_files.rs b/src/backend/private_files.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..687b03516349efc8bb0ce481df80e2f3eed099fe
+--- /dev/null
++++ b/src/backend/private_files.rs
+@@ -0,0 +1,78 @@
++//! Publicación atómica de bootstrap privado; los errores nunca se ignoran.
++use anyhow::{bail, Context, Result};
++use std::fs::{self, OpenOptions};
++use std::io::{Read, Write};
++use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
++use std::path::Path;
++
++pub fn private_dir(path: &Path) -> Result<()> {
++    fs::create_dir_all(path)?;
++    let meta = fs::symlink_metadata(path)?;
++    if !meta.is_dir() || meta.uid() != rustix::process::getuid().as_raw() {
++        bail!("Directorio privado inválido: {}", path.display());
++    }
++    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
++    Ok(())
++}
++
++pub fn read_private(path: &Path) -> Result<String> {
++    let mut file = OpenOptions::new()
++        .read(true)
++        .custom_flags((rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32)
++        .open(path)?;
++    let meta = file.metadata()?;
++    if !meta.is_file() || meta.nlink() != 1 || meta.uid() != rustix::process::getuid().as_raw() {
++        bail!("Archivo privado inválido: {}", path.display());
++    }
++    file.set_permissions(fs::Permissions::from_mode(0o600))?;
++    let mut text = String::new();
++    file.read_to_string(&mut text)?;
++    Ok(text)
++}
++
++/// `create_only` publica sin reemplazar una configuración/token concurrente.
++pub fn write_private(path: &Path, content: &str, create_only: bool) -> Result<()> {
++    let parent = path.parent().context("archivo sin directorio")?;
++    private_dir(parent)?;
++    if let Ok(meta) = fs::symlink_metadata(path) {
++        if !meta.is_file() || meta.nlink() != 1 || meta.uid() != rustix::process::getuid().as_raw()
++        {
++            bail!("Destino privado inválido: {}", path.display());
++        }
++    }
++    let temp = parent.join(format!(".bootstrap-{}", uuid::Uuid::new_v4()));
++    let result = (|| -> Result<()> {
++        let mut file = OpenOptions::new()
++            .write(true)
++            .create_new(true)
++            .mode(0o600)
++            .open(&temp)?;
++        file.write_all(content.as_bytes())?;
++        file.sync_all()?;
++        if create_only {
++            fs::hard_link(&temp, path)?;
++            fs::remove_file(&temp)?;
++        } else {
++            fs::rename(&temp, path)?;
++        }
++        fs::File::open(parent)?.sync_all()?;
++        Ok(())
++    })();
++    let _ = fs::remove_file(temp);
++    result
++}
++
++/// Sólo la colisión de publicación exclusiva permite releer al ganador.
++/// Un error de escritura/sync sigue siendo fatal aunque el destino ya exista.
++pub fn allow_creation_race(result: Result<()>) -> Result<()> {
++    match result {
++        Err(error)
++            if error
++                .downcast_ref::<std::io::Error>()
++                .is_some_and(|io| io.kind() == std::io::ErrorKind::AlreadyExists) =>
++        {
++            Ok(())
++        }
++        other => other,
++    }
++}
+diff --git a/src/backend/speech_service.rs b/src/backend/speech_service.rs
+index f2448b6ead3ff5e8bc57cf74585f772b43c82e35..469211543a2056f953a1973f8439a7522b03dc99 100644
+--- a/src/backend/speech_service.rs
++++ b/src/backend/speech_service.rs
+@@ -19,7 +19,7 @@ use crate::models::Config;
+ 
+ pub struct SpeechService {
+     pub config: Arc<RwLock<Config>>,
+-    pub piper: PiperEngine,
++    piper: tokio::sync::OnceCell<PiperEngine>,
+     pub whisper: Arc<WhisperEngine>,
+     stop_requested: Arc<AtomicBool>,
+     /// Cliente STT por API (Groq). Cache: se reconstruye si cambian
+@@ -48,25 +48,6 @@ enum SttBackend {
+ 
+ impl SpeechService {
+     pub async fn new(config: Arc<RwLock<Config>>) -> Result<Self> {
+-        let piper = PiperEngine::new().context("inicializando Piper TTS")?;
+-        let models = piper.list_models();
+-        let available = piper.has_binary();
+-
+-        if !available {
+-            log::warn!("piper-tts no encontrado. TTS no funcionara hasta instalar.");
+-        } else if models.is_empty() {
+-            log::warn!(
+-                "piper-tts disponible pero sin modelos en {}. Descarga uno desde https://huggingface.co/rhasspy/piper-voices",
+-                piper.models_dir.display()
+-            );
+-        } else {
+-            log::info!(
+-                "SpeechService: piper-tts con {} modelo(s): {:?}",
+-                models.len(),
+-                models.iter().map(|m| &m.id).collect::<Vec<_>>()
+-            );
+-        }
+-
+         // Inicializar whisper (STT) con el modelo elegido (tiny/base).
+         let cfg = config.read().await.clone();
+         let whisper_path = whisper_model_path_for(&cfg.speech.stt_model)?;
+@@ -83,14 +64,14 @@ impl SpeechService {
+             );
+         } else {
+             log::warn!(
+-                "whisper sin modelo en '{}'. Se descargara automaticamente al iniciar.",
++                "whisper sin modelo en '{}'. STT no disponible; instalación manual requerida.",
+                 whisper_path_display()
+             );
+         }
+ 
+         Ok(Self {
+             config,
+-            piper,
++            piper: tokio::sync::OnceCell::new(),
+             whisper,
+             stop_requested: Arc::new(AtomicBool::new(false)),
+             stt_api: std::sync::Mutex::new(None),
+@@ -98,6 +79,21 @@ impl SpeechService {
+         })
+     }
+ 
++    /// Sólo una solicitud explícita de voz construye el motor real; no hay sustituto.
++    async fn piper(&self) -> Result<&PiperEngine> {
++        self.piper
++            .get_or_try_init(|| async {
++                tokio::task::spawn_blocking(PiperEngine::new)
++                    .await?
++                    .context("Piper no disponible")
++            })
++            .await
++    }
++
++    pub fn tts_initialized(&self) -> bool {
++        self.piper.initialized()
++    }
++
+     /// Nivel del TTS reproduciéndose ahora (0..1, misma escala que el mic).
+     /// 0 cuando no suena nada. Referencia de eco para el barge-in.
+     pub fn tts_playback_level(&self) -> f32 {
+@@ -107,7 +103,8 @@ impl SpeechService {
+     /// Sintetiza texto a bytes WAV.
+     pub async fn synthesize(&self, text: &str) -> Result<Vec<u8>> {
+         let cfg = self.config.read().await.clone();
+-        self.piper
++        self.piper()
++            .await?
+             .synthesize(
+                 text,
+                 Some(&cfg.speech.piper_model),
+@@ -122,7 +119,8 @@ impl SpeechService {
+         self.stop_requested.store(false, Ordering::Relaxed);
+         let cfg = self.config.read().await.clone();
+         let wav = self
+-            .piper
++            .piper()
++            .await?
+             .synthesize(
+                 text,
+                 Some(&cfg.speech.piper_model),
+@@ -167,7 +165,7 @@ impl SpeechService {
+         };
+         let (wav_tx, mut wav_rx) = mpsc::channel::<Vec<u8>>(2);
+         let producer_stop = self.stop_requested.clone();
+-        let piper = self.piper.clone();
++        let piper = self.piper().await?.clone();
+         let producer = tokio::spawn(async move {
+             while let Some(sentence) = sentences.recv().await {
+                 if producer_stop.load(Ordering::Relaxed) {
+@@ -328,12 +326,15 @@ impl SpeechService {
+ 
+     /// Verifica si piper esta disponible (binario + al menos un modelo).
+     pub async fn is_available(&self) -> bool {
+-        self.piper.is_available()
++        self.piper().await.is_ok_and(|p| p.is_available())
+     }
+ 
+     /// Lista los modelos de voz piper disponibles.
+     pub async fn list_models(&self) -> Vec<String> {
+-        self.piper.list_models().into_iter().map(|m| m.id).collect()
++        match self.piper().await {
++            Ok(p) => p.list_models().into_iter().map(|m| m.id).collect(),
++            Err(_) => Vec::new(),
++        }
+     }
+ 
+     /// Verifica si el modelo STT (whisper) esta disponible.
+diff --git a/src/bin/snap_ui.rs b/src/bin/snap_ui.rs
+index 76b9668d8eba4d8cbf57ea430aa26be220f81af6..6f2ce159c11921ce717b816da3e43a344724a710 100644
+--- a/src/bin/snap_ui.rs
++++ b/src/bin/snap_ui.rs
+@@ -2,6 +2,8 @@
+ // Uso: snap_ui [ancho alto] [archivo_qml] [output.png]
+ 
+ use anyhow::Result;
++use kde_assistant_lib::owned_process::OwnedChild;
++use std::io::{BufRead, BufReader};
+ use std::path::Path;
+ use std::process::{Command, Stdio};
+ use std::time::Duration;
+@@ -21,40 +23,46 @@ fn main() -> Result<()> {
+         vec!["/tmp/snap.png".to_string()]
+     };
+ 
+-    // Limpiar locks previos
+-    let _ = Command::new("pkill").args(["-f", "qml6|Xvfb"]).status();
+-    let _ = std::fs::remove_file("/tmp/.X99-lock");
+-    std::thread::sleep(Duration::from_millis(500));
+-
+-    // Iniciar Xvfb
+-    let _xvfb = Command::new("Xvfb")
+-        .args([
+-            ":99",
+-            "-screen",
+-            "0",
+-            &format!("{width}x{height}x24"),
+-            "-ac",
+-        ])
+-        .stdout(Stdio::null())
+-        .stderr(Stdio::null())
+-        .spawn()?;
+-
+-    std::thread::sleep(Duration::from_secs(2));
++    // Xvfb selecciona un display libre; nunca se borran locks ajenos.
++    let mut xvfb = OwnedChild::new(
++        Command::new("Xvfb")
++            .args([
++                "-displayfd",
++                "1",
++                "-screen",
++                "0",
++                &format!("{width}x{height}x24"),
++                "-nolisten",
++                "tcp",
++            ])
++            .stdout(Stdio::piped())
++            .stderr(Stdio::null())
++            .spawn()?,
++    );
++    let mut display = String::new();
++    BufReader::new(
++        xvfb.stdout
++            .take()
++            .ok_or_else(|| anyhow::anyhow!("Xvfb sin stdout"))?,
++    )
++    .read_line(&mut display)?;
++    let display = format!(":{}", display.trim());
+ 
+     if !Path::new(&qml_file).exists() {
+         eprintln!("QML no encontrado: {qml_file}");
+-        let _ = Command::new("pkill").args(["-f", "Xvfb"]).status();
+-        std::process::exit(1);
++        anyhow::bail!("QML no encontrado");
+     }
+ 
+     // Lanzar QML
+-    let mut child = Command::new("qml6")
+-        .args(["-I", ".", &qml_file])
+-        .env("DISPLAY", ":99")
+-        .env("QT_QPA_PLATFORM", "xcb")
+-        .stdout(Stdio::null())
+-        .stderr(Stdio::null())
+-        .spawn()?;
++    let mut child = OwnedChild::new(
++        Command::new("qml6")
++            .args(["-I", ".", &qml_file])
++            .env("DISPLAY", &display)
++            .env("QT_QPA_PLATFORM", "xcb")
++            .stdout(Stdio::null())
++            .stderr(Stdio::null())
++            .spawn()?,
++    );
+ 
+     std::thread::sleep(Duration::from_secs(4));
+ 
+@@ -70,7 +78,7 @@ fn main() -> Result<()> {
+                 "-framerate",
+                 "1",
+                 "-i",
+-                ":99",
++                &display,
+                 "-frames:v",
+                 "1",
+                 "-update",
+@@ -92,8 +100,6 @@ fn main() -> Result<()> {
+     // Limpiar
+     let _ = child.kill();
+     let _ = child.wait();
+-    let _ = Command::new("pkill").args(["-f", "Xvfb"]).status();
+-    let _ = std::fs::remove_file("/tmp/.X99-lock");
+ 
+     Ok(())
+ }
+diff --git a/src/lib.rs b/src/lib.rs
+index 53be8843f95ec9d841f15e79c5de3b9788270a0e..0efb516e23c81c7ed250447fe8801ef60d4faa9a 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -6,3 +6,5 @@
+ pub mod app_paths;
+ pub mod backend;
+ pub mod models;
++
++pub mod owned_process;
+diff --git a/src/main.rs b/src/main.rs
+index 13a019f693c937c4d6a5ed70ced0e2fb9299033a..81361e4b99d1b2b0709f1f7c85e96e23853669e6 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -6,6 +6,7 @@
+ // Flags:
+ //   --ui-off       No lanzar UI (solo backend + KDE integration)
+ //   --no-shortcuts No registrar global shortcuts
++//   --enable-voice Activar voz existente con dependencias locales instaladas
+ //   --send-msg <s> Emitir senal DBus SendMessage con texto y salir
+ //   --toggle       Emitir senal ShowWindow (toggle) y salir
+ 
+@@ -65,6 +66,21 @@ fn main() -> Result<()> {
+         };
+     }
+ 
++    // Señal de apagado limpio
++    let shutdown = Arc::new(AtomicBool::new(false));
++    let shutdown_signal = shutdown.clone();
++    ctrlc::set_handler(move || {
++        shutdown_signal.store(true, Ordering::SeqCst);
++    })
++    .context("setting up ctrl-c handler")?;
++
++    // Mantener el listener reservado elimina la carrera y evita alterar bootstrap
++    // de una instancia activa. No se publica HTTP hasta completar lo crítico.
++    const HTTP_PORT: u16 = 8765;
++    let listener = std::net::TcpListener::bind(std::net::SocketAddr::from(([127, 0, 0, 1], HTTP_PORT)))
++        .context("Puerto 8765 ocupado: otra instancia o servicio está activo; no se modificó ni terminó ningún proceso")?;
++    listener.set_nonblocking(true)?;
++
+     // Init backend en runtime Tokio
+     let runtime = tokio::runtime::Runtime::new().context("creando Tokio runtime")?;
+     // Backend contiene AudioCapture (cpal), que no es Send/Sync en todas las
+@@ -77,36 +93,6 @@ fn main() -> Result<()> {
+         Ok::<_, anyhow::Error>(Arc::new(b))
+     })?;
+ 
+-    // Pre-warm de whisper en background (el modelo de 147MB tarda
+-    // varios segundos en cargar; mejor al arrancar que en la primera voz)
+-    {
+-        let speech = backend.speech.clone();
+-        runtime.spawn(async move {
+-            if speech.stt_model_exists() {
+-                let whisper = speech.whisper.clone();
+-                match tokio::task::spawn_blocking(move || whisper.ensure_loaded()).await {
+-                    Ok(Ok(())) => log::info!("Whisper pre-cargado en background"),
+-                    Ok(Err(e)) => log::warn!("Pre-warm de whisper fallo: {e}"),
+-                    Err(e) => log::warn!("Task de pre-warm fallo: {e}"),
+-                }
+-            }
+-        });
+-    }
+-
+-    // Pre-warm de piper (la PRIMERA síntesis carga el modelo ONNX en el
+-    // proceso: ~4-5s. El saludo tras el wake word debe salir enseguida).
+-    {
+-        let speech = backend.speech.clone();
+-        runtime.spawn(async move {
+-            if speech.is_available().await {
+-                match speech.synthesize("Listo").await {
+-                    Ok(_) => log::info!("Piper pre-cargado en background"),
+-                    Err(e) => log::warn!("Pre-warm de piper fallo: {e}"),
+-                }
+-            }
+-        });
+-    }
+-
+     // F6: disparar recordatorios pendientes de sesiones anteriores.
+     {
+         let sessions = backend.sessions.clone();
+@@ -115,55 +101,61 @@ fn main() -> Result<()> {
+         });
+     }
+ 
+-    // Iniciar servidor HTTP local (IPC con la UI QML)
+-    const HTTP_PORT: u16 = 8765;
+-    // Falla rápido si el puerto está ocupado (otra instancia vieja con OTRO
+-    // token: la UI lanzaría contra ese backend y todo daría 401 "No autorizado").
+-    if std::net::TcpListener::bind(std::net::SocketAddr::from(([127, 0, 0, 1], HTTP_PORT))).is_err()
+-    {
+-        eprintln!(
+-            "Puerto {HTTP_PORT} en uso. ¿Hay otra instancia de kde-assistant corriendo?\n\
+-             Ciérrala (o `pkill -f kde-assistant; pkill -f \"qml6.*Main.qml\"`) y vuelve a intentar."
+-        );
+-        std::process::exit(1);
+-    }
+-    // Token local F0-3 para que el QML se autentique en /api/*.
+-    // OJO: llamar http_state() una sola vez (contiene el mapa de tasks F0-7).
+-    let http_state = backend.http_state();
++    let http_state = backend.http_state()?;
+     let local_token = http_state.local_token.clone();
+-    {
++    // El módulo privado también es crítico para la interfaz autenticada.
++    let cfg = runtime.block_on(async { backend.config.read().await.clone() });
++    let auth_inc = if ui_off {
++        None
++    } else {
++        Some(kde_assistant_lib::backend::auth::write_qml_auth_module(
++            &local_token,
++            false,
++        )?)
++    };
++    let server = runtime.spawn({
+         let http_state = http_state.clone();
+-        runtime.spawn(async move {
+-            if let Err(e) =
+-                kde_assistant_lib::backend::http_server::serve(http_state, HTTP_PORT).await
+-            {
+-                log::error!("Servidor HTTP fallo: {e}");
+-            }
+-        });
+-        log::info!("Servidor HTTP local en http://127.0.0.1:{HTTP_PORT}");
+-    }
++        async move {
++            let listener = tokio::net::TcpListener::from_std(listener)?;
++            axum::serve(
++                listener,
++                kde_assistant_lib::backend::http_server::router(http_state),
++            )
++            .await?;
++            Ok::<_, anyhow::Error>(())
++        }
++    });
++    log::info!("Núcleo de texto listo en http://127.0.0.1:{HTTP_PORT}; voz diferida, descargas desactivadas");
+ 
+     // Iniciar pipeline de voz (captura de audio + deteccion de wake word)
+     // Solo si esta habilitado en config (por defecto desactivado por falsos positivos)
+-    let cfg = runtime.block_on(async { backend.config.read().await.clone() });
+     // Rust es la única autoridad de conversación: conserva una sola sesión,
+     // permisos, streaming y TTS. El sidecar experimental tenía otro LLM y
+     // rompía la conversación bidireccional al no compartir contexto.
+     let mut sidecar_child: Option<Child> = None;
+-    let voice_events = if cfg.speech.wake_word_enabled {
++    let voice_events = if args.iter().any(|a| a == "--enable-voice") && cfg.speech.wake_word_enabled
++    {
+         runtime.block_on(async {
+             match backend.start_voice_pipeline().await {
+-                Ok(rx) => Some(rx),
++                Ok(rx) => {
++                    http_state.voice_enabled.store(true, Ordering::Relaxed);
++                    if cfg.speech.chimes_enabled {
++                        if let Err(e) = backend.chimes.initialize().await {
++                            log::warn!("Chimes no disponibles: {e}");
++                        }
++                    }
++                    Ok::<_, anyhow::Error>(Some(rx))
++                }
+                 Err(e) => {
+                     log::warn!("No se pudo iniciar el pipeline de voz: {e}");
+                     log::warn!("(verifica que tienes microfono y permisos de audio)");
+-                    None
++                    Ok(None)
+                 }
+             }
+-        })
++        })?
+     } else {
+         log::info!(
+-            "Wake word desactivado por configuracion. Usa el InputBar para escribir mensajes."
++            "Voz diferida; requiere --enable-voice y dependencias locales. Usa el InputBar para escribir mensajes."
+         );
+         None
+     };
+@@ -258,6 +250,7 @@ fn main() -> Result<()> {
+             action_tx,
+             backend.config.clone(),
+         );
++        let voice_enabled = http_state.voice_enabled.clone();
+         // Consumir acciones: PTT start/stop conectan con la grabacion real
+         let vp = backend.voice.clone();
+         runtime.spawn(async move {
+@@ -265,10 +258,17 @@ fn main() -> Result<()> {
+             while let Some(action) = action_rx.recv().await {
+                 match action {
+                     HotkeyAction::PushToTalkStart => {
++                        if !voice_enabled.load(Ordering::Relaxed) {
++                            log::warn!("PTT no disponible: voz diferida; utiliza el chat escrito");
++                            continue;
++                        }
+                         log::info!("PTT: inicio de grabacion");
+                         vp.start_listening();
+                     }
+                     HotkeyAction::PushToTalkEnd => {
++                        if !voice_enabled.load(Ordering::Relaxed) {
++                            continue;
++                        }
+                         log::info!("PTT: fin de grabacion, procesando...");
+                         match vp.stop_and_process().await {
+                             Ok((t, r)) => {
+@@ -294,22 +294,6 @@ fn main() -> Result<()> {
+         log::info!("Global shortcuts deshabilitados (--no-shortcuts)");
+     }
+ 
+-    // Señal de apagado limpio
+-    let shutdown = Arc::new(AtomicBool::new(false));
+-    let shutdown_signal = shutdown.clone();
+-    ctrlc::set_handler(move || {
+-        shutdown_signal.store(true, Ordering::SeqCst);
+-    })
+-    .context("setting up ctrl-c handler")?;
+-
+-    // Autolimpieza: QMLs huespedes de ejecuciones previas. Si el backend
+-    // murio (p. ej. `pkill -f kde-assistant`) su qml6 queda vivo con icono
+-    // y menu propios en la bandeja, y cada arranque suma uno duplicado.
+-    // Solo cuando vamos a lanzar nuestra UI (con --ui-off no tocar nada).
+-    if !ui_off {
+-        cull_stale_qml();
+-    }
+-
+     // Lanzar UI QML como subproceso
+     if !ui_off {
+         log::info!("Lanzando UI QML (qml6)...");
+@@ -345,13 +329,14 @@ fn main() -> Result<()> {
+         // Módulo qml.auth: token + cacheDir + flag de overlay, sin depender de
+         // Qt.platform.environment (nulo en varias sesiones qml6).
+         // KDE_ASSISTANT_TOKEN / KDE_ASSISTANT_AGENT_OVERLAY quedan como respaldo.
+-        let auth_inc =
+-            kde_assistant_lib::backend::auth::write_qml_auth_module(&local_token, spawn_overlay)
+-                .map(|p| p.to_string_lossy().to_string())
+-                .unwrap_or_else(|e| {
+-                    log::warn!("No se pudo generar el módulo QML de auth: {e}");
+-                    String::new()
+-                });
++        let auth_inc = auth_inc
++            .as_ref()
++            .context("Falta módulo QML privado")?
++            .to_string_lossy()
++            .to_string();
++        if spawn_overlay {
++            kde_assistant_lib::backend::auth::write_qml_auth_module(&local_token, true)?;
++        }
+         let mut qml_cmd = Command::new("qml6");
+         // El módulo generado va el ÚLTIMO: ante un módulo duplicado el motor
+         // QML prefiere el último -I (verificado empíricamente; qmlimportscanner
+@@ -368,26 +353,28 @@ fn main() -> Result<()> {
+         }
+         qml_cmd.env("QT_QPA_PLATFORM", &platform);
+ 
+-        let mut child = qml_cmd
+-            .arg("qml/Main.qml")
+-            // Sin caché de QML: evita arrancar con bytecode rancio tras actualizar.
+-            .env("QML_DISABLE_DISK_CACHE", "1")
+-            .env("QML_XHR_ALLOW_FILE_READ", "1")
+-            .env("KDE_ASSISTANT_TOKEN", &local_token)
+-            .env(
+-                "KDE_ASSISTANT_AGENT_OVERLAY",
+-                if spawn_overlay { "1" } else { "0" },
+-            )
+-            .spawn()
+-            .context(
+-                "lanzando qml6 (asegurate de tener Qt6 instalado: pacman -S qt6-declarative)",
+-            )?;
++        let mut child = kde_assistant_lib::owned_process::OwnedChild::new(
++            qml_cmd
++                .arg("qml/Main.qml")
++                // Sin caché de QML: evita arrancar con bytecode rancio tras actualizar.
++                .env("QML_DISABLE_DISK_CACHE", "1")
++                .env("QML_XHR_ALLOW_FILE_READ", "1")
++                .env("KDE_ASSISTANT_TOKEN", &local_token)
++                .env(
++                    "KDE_ASSISTANT_AGENT_OVERLAY",
++                    if spawn_overlay { "1" } else { "0" },
++                )
++                .spawn()
++                .context(
++                    "lanzando qml6 (asegurate de tener Qt6 instalado: pacman -S qt6-declarative)",
++                )?,
++        );
+         log::info!("UI QML lanzada (pid {})", child.id());
+ 
+         // === Proceso separado: Desktop Agent overlay (Fase 4) ===
+         // Proceso qml6 independiente con layer-shell (Wayland). Independiente
+         // de la ventana principal: si minimizas el chat, el personaje sigue.
+-        let overlay_child: Option<Child> = if spawn_overlay {
++        let overlay_child: Option<kde_assistant_lib::owned_process::OwnedChild> = if spawn_overlay {
+             let mut ocmd = Command::new("qml6");
+             // Las flags -I van ANTES del archivo QML: qml6 deja de parsear
+             // opciones al encontrar el primer argumento posicional y se
+@@ -404,7 +391,7 @@ fn main() -> Result<()> {
+             match ocmd.spawn() {
+                 Ok(c) => {
+                     log::info!("Desktop Agent overlay lanzado (pid {})", c.id());
+-                    Some(c)
++                    Some(kde_assistant_lib::owned_process::OwnedChild::new(c))
+                 }
+                 Err(e) => {
+                     log::warn!("No se pudo lanzar el overlay del personaje: {e}");
+@@ -426,10 +413,18 @@ fn main() -> Result<()> {
+         loop {
+             match child.try_wait() {
+                 Ok(Some(status)) => {
++                    anyhow::ensure!(
++                        status.success(),
++                        "La interfaz QML terminó con error: {status}"
++                    );
+                     log::info!("UI QML termino con codigo {:?}", status.code());
+                     break;
+                 }
+                 Ok(None) => {
++                    anyhow::ensure!(
++                        !server.is_finished(),
++                        "Servidor HTTP terminó inesperadamente"
++                    );
+                     if shutdown.load(Ordering::SeqCst) {
+                         log::info!("Apagando UI QML (pid {})...", child.id());
+                         let _ = child.kill();
+@@ -438,10 +433,7 @@ fn main() -> Result<()> {
+                     }
+                     std::thread::sleep(std::time::Duration::from_millis(200));
+                 }
+-                Err(e) => {
+-                    log::warn!("Esperando a la UI QML: {e}");
+-                    break;
+-                }
++                Err(e) => return Err(e).context("Esperando a la UI QML"),
+             }
+         }
+         if let Some(mut oc) = overlay_child.take() {
+@@ -457,49 +449,22 @@ fn main() -> Result<()> {
+     } else {
+         log::info!("UI desactivada por flag --ui-off");
+         log::info!("Presiona Ctrl+C para salir.");
+-        runtime.block_on(async {
+-            tokio::signal::ctrl_c().await.ok();
+-        });
++        while !shutdown.load(Ordering::SeqCst) {
++            anyhow::ensure!(
++                !server.is_finished(),
++                "Servidor HTTP terminó inesperadamente"
++            );
++            std::thread::sleep(std::time::Duration::from_millis(100));
++        }
+     }
+ 
++    server.abort();
++    let _ = runtime.block_on(server);
++    runtime.block_on(backend.stop_voice_pipeline());
+     log::info!("Apagando KDE Assistant v2...");
+     Ok(())
+ }
+ 
+-/// Patron (ERE para pgrep/pkill -f) que identifica QMLs huespedes de
+-/// esta app: procesos `qml6 ... qml/Main.qml` de ejecuciones previas.
+-fn stale_qml_pattern() -> &'static str {
+-    "qml6.*Main\\.qml"
+-}
+-
+-/// Mata QMLs huespedes de ejecuciones previas (best-effort). Sin esto,
+-/// cada arranque tras un backend muerto suma un icono y un menu
+-/// duplicados en la bandeja del sistema.
+-fn cull_stale_qml() {
+-    let pattern = stale_qml_pattern();
+-    // Listar primero para el log (pgrep se excluye solo).
+-    let listed = Command::new("pgrep")
+-        .args(["-af", pattern])
+-        .output()
+-        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+-        .unwrap_or_default();
+-    let victims: Vec<&str> = listed
+-        .lines()
+-        .filter(|l| !l.contains("pgrep") && !l.contains("pkill"))
+-        .collect();
+-    if victims.is_empty() {
+-        return;
+-    }
+-    log::warn!(
+-        "QMLs huespedes de ejecuciones previas ({}): los cierro para no duplicar la bandeja",
+-        victims.len()
+-    );
+-    for v in &victims {
+-        log::warn!("  huesped: {v}");
+-    }
+-    let _ = Command::new("pkill").args(["-f", pattern]).status();
+-}
+-
+ fn truncate(s: &str, max: usize) -> String {
+     if s.chars().count() <= max {
+         s.to_string()
+diff --git a/src/models/config.rs b/src/models/config.rs
+index b85304f89ba349c81a1c384b59c556f4a5758e7e..b191e8320c1cfec3b74ed19aae50811ec5c16117 100644
+--- a/src/models/config.rs
++++ b/src/models/config.rs
+@@ -582,58 +582,127 @@ impl Config {
+         &self.speech
+     }
+ 
+-    /// Ausencia/corrupción bloquea el arranque antes de inicializar capacidades.
+-    /// Los defaults explícitos siguen disponibles para crear configuración;
+-    /// no son una política de recuperación de errores.
++    /// Sólo NotFound permite crear la configuración inicial restrictiva.
++    /// Corrupción y errores de acceso conservan el archivo y bloquean el arranque.
+     pub async fn load() -> Result<Self> {
+         let path = Self::config_path()?;
+-        let mut config = Self::load_from(&path).await?;
+-        // Migra modelos retirados por el proveedor (ej. Groq apagó los llama
+-        // el 16/08/2026: sin esto todo el chat da 404 para siempre).
+-        if let Some(replacement) = retired_model_replacement(&config.ai.provider, &config.ai.model)
+-        {
+-            log::warn!(
+-                "Modelo '{}' retirado; migrando a '{}'",
+-                config.ai.model,
+-                replacement
+-            );
+-            config.ai.model = replacement.to_string();
+-            if let Err(e) = config.save().await {
+-                log::warn!("No se pudo persistir la migración del modelo: {e}");
++        match tokio::fs::symlink_metadata(&path).await {
++            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
++                let initial = Self::first_run();
++                let content = serde_json::to_string_pretty(&initial)?;
++                let dest = path.clone();
++                let published = tokio::task::spawn_blocking(move || {
++                    crate::backend::private_files::write_private(&dest, &content, true)
++                })
++                .await?;
++                crate::backend::private_files::allow_creation_race(published)?;
++                log::info!("Configuración inicial restrictiva creada; configura proveedor/modelo en la interfaz");
+             }
++            Err(e) => return Err(e).context("configuración inaccesible; capacidades bloqueadas"),
++            Ok(_) => {}
+         }
+-        log::info!("Config cargada desde {}", path.display());
+-        Ok(config)
++        Self::load_from(&path).await
+     }
+ 
+     async fn load_from(path: &std::path::Path) -> Result<Self> {
+-        let content = tokio::fs::read_to_string(path)
+-            .await
+-            .context("configuracion ausente o ilegible; capacidades bloqueadas")?;
++        let path = path.to_owned();
++        let content = tokio::task::spawn_blocking(move || {
++            if let Some(parent) = path.parent() {
++                crate::backend::private_files::private_dir(parent)?;
++            }
++            let content = crate::backend::private_files::read_private(&path)?;
++            let backup = path.with_extension("json.bak");
++            match std::fs::symlink_metadata(&backup) {
++                Ok(_) => {
++                    crate::backend::private_files::read_private(&backup)?;
++                }
++                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
++                Err(e) => return Err(e.into()),
++            }
++            Ok::<_, anyhow::Error>(content)
++        })
++        .await?
++        .context("configuración ilegible; conserva y corrige config.json para reintentar")?;
+         let config: Self = serde_json::from_str(&content)
+-            .context("configuracion inválida; capacidades bloqueadas")?;
+-        config.ai.validate_provider()?;
++            .context("configuración inválida; conserva y corrige config.json para reintentar")?;
++        config.validate()?;
+         Ok(config)
+     }
+ 
++    pub fn validate(&self) -> Result<()> {
++        self.ai.validate_provider()?;
++        let url = reqwest::Url::parse(&self.ai.effective_base_url())
++            .context("URL del proveedor inválida")?;
++        anyhow::ensure!(
++            matches!(url.scheme(), "http" | "https")
++                && url.host_str().is_some()
++                && url.username().is_empty()
++                && url.password().is_none(),
++            "URL del proveedor inválida"
++        );
++        anyhow::ensure!(
++            !self.ai.effective_model().trim().is_empty(),
++            "Falta modelo de IA"
++        );
++        Ok(())
++    }
++
++    /// Compatible con el esquema existente; no migra valores ni credenciales.
++    pub fn first_run() -> Self {
++        let mut config = Self::default_internal();
++        config.ai.api_key.clear();
++        config.ai.enable_tool_calling = false;
++        config.tools.open_app = false;
++        config.tools.create_file = false;
++        config.tools.edit_file = false;
++        config.tools.read_file = false;
++        config.tools.web_search = false;
++        config.tools.show_image = false;
++        config.tools.find_file = false;
++        config.tools.open_file = false;
++        config.tools.copy_file = false;
++        config.tools.open_url = false;
++        config.tools.list_open_apps = false;
++        config.tools.focus_app = false;
++        config.tools.close_app = false;
++        config.tools.find_document = false;
++        config.tools.preview_document = false;
++        config.tools.system_info = false;
++        config.tools.notify = false;
++        config.tools.media = false;
++        config.tools.volume = false;
++        config.tools.brightness = false;
++        config.tools.network_status = false;
++        config.tools.remind_in = false;
++        config.tools.kdeconnect = false;
++        config.tools.allowed_paths.clear();
++        config.speech.wake_word_enabled = false;
++        config.speech.auto_listen = false;
++        config.speech.auto_speak = false;
++        config.speech.chimes_enabled = false;
++        config.speech.stt_backend = "local".into();
++        config.memory.enabled = false;
++        config.memory.auto_summarize = false;
++        config.character.enabled = false;
++        config
++    }
++
+     pub async fn save(&self) -> Result<()> {
++        self.validate()?;
+         let path = Self::config_path()?;
+-        if let Some(parent) = path.parent() {
+-            tokio::fs::create_dir_all(parent).await?;
+-        }
+-        // F0-7: backup previo + 0600 (contiene api_key en plaintext).
+-        if path.exists() {
+-            let bak = path.with_extension("json.bak");
+-            let _ = tokio::fs::copy(&path, &bak).await;
+-        }
+         let content = serde_json::to_string_pretty(self)?;
+-        tokio::fs::write(&path, content).await?;
+-        #[cfg(unix)]
+-        {
+-            use std::os::unix::fs::PermissionsExt;
+-            let _ = tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await;
+-        }
+-        Ok(())
++        tokio::task::spawn_blocking(move || {
++            if path.exists() {
++                let previous = crate::backend::private_files::read_private(&path)?;
++                crate::backend::private_files::write_private(
++                    &path.with_extension("json.bak"),
++                    &previous,
++                    false,
++                )?;
++            }
++            crate::backend::private_files::write_private(&path, &content, false)
++        })
++        .await?
+     }
+ 
+     pub fn config_path() -> Result<PathBuf> {
+diff --git a/src/owned_process.rs b/src/owned_process.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..d43360165d1f68876e647102f8a4fb1eaac54bed
+--- /dev/null
++++ b/src/owned_process.rs
+@@ -0,0 +1,27 @@
++//! Un guard sólo termina y recoge el hijo que creó esta instancia.
++use std::ops::{Deref, DerefMut};
++use std::process::Child;
++
++pub struct OwnedChild(Child);
++impl OwnedChild {
++    pub fn new(child: Child) -> Self {
++        Self(child)
++    }
++}
++impl Deref for OwnedChild {
++    type Target = Child;
++    fn deref(&self) -> &Child {
++        &self.0
++    }
++}
++impl DerefMut for OwnedChild {
++    fn deref_mut(&mut self) -> &mut Child {
++        &mut self.0
++    }
++}
++impl Drop for OwnedChild {
++    fn drop(&mut self) {
++        let _ = self.0.kill();
++        let _ = self.0.wait();
++    }
++}
+diff --git a/tests/f1b1_text_startup.rs b/tests/f1b1_text_startup.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..0cc9208708e8b2dbc2ee78d5214a83df0d9437fc
+--- /dev/null
++++ b/tests/f1b1_text_startup.rs
+@@ -0,0 +1,1026 @@
++//! Fixtures XDG en procesos separados: nunca se modifica el entorno del runner.
++use axum::{
++    extract::State,
++    routing::{get, post},
++    Json, Router,
++};
++use kde_assistant_lib::{
++    backend::{auth, http_server, Backend},
++    models::Config,
++    owned_process::OwnedChild,
++};
++use serde_json::{json, Value};
++use std::{
++    fs,
++    os::unix::fs::PermissionsExt,
++    path::PathBuf,
++    process::{Command, Stdio},
++    sync::{Arc, Mutex},
++    time::{Duration, Instant},
++};
++use tokio::task::JoinHandle;
++
++#[path = "../src/backend/private_files.rs"]
++mod bootstrap_files;
++
++struct Fixture(PathBuf);
++impl Drop for Fixture {
++    fn drop(&mut self) {
++        fs::remove_dir_all(&self.0).unwrap();
++    }
++}
++
++fn isolated(name: &str) -> bool {
++    if std::env::var("KDA_F1B1_CHILD").as_deref() == Ok(name) {
++        return false;
++    }
++    let root = std::env::temp_dir().join(format!("kda-f1b1-{}", uuid::Uuid::new_v4()));
++    fs::create_dir(&root).unwrap();
++    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
++    let fixture = Fixture(root);
++    let mut cmd = Command::new(std::env::current_exe().unwrap());
++    cmd.args(["--exact", name, "--nocapture", "--include-ignored"])
++        .env("KDA_F1B1_CHILD", name);
++    for (key, _) in std::env::vars() {
++        if key.ends_with("_API_KEY") {
++            cmd.env_remove(key);
++        }
++    }
++    for (key, dir) in [
++        ("XDG_CONFIG_HOME", "config"),
++        ("XDG_DATA_HOME", "data"),
++        ("XDG_CACHE_HOME", "cache"),
++    ] {
++        let path = fixture.0.join(dir);
++        fs::create_dir(&path).unwrap();
++        cmd.env(key, path);
++    }
++    cmd.env("ORT_DYLIB_PATH", fixture.0.join("absent-onnx.so"));
++    let status = cmd.status().unwrap();
++    assert!(status.success(), "fixture {name}: {status}");
++    true
++}
++fn runtime() -> tokio::runtime::Runtime {
++    tokio::runtime::Runtime::new().unwrap()
++}
++fn client() -> reqwest::Client {
++    reqwest::Client::builder()
++        .no_proxy()
++        .timeout(Duration::from_secs(8))
++        .build()
++        .unwrap()
++}
++fn req(c: &reqwest::Client, base: &str, path: &str, token: &str) -> reqwest::RequestBuilder {
++    c.get(format!("{base}{path}"))
++        .header("Host", "127.0.0.1:8765")
++        .bearer_auth(token)
++}
++async fn server(state: http_server::AppState) -> (String, JoinHandle<()>) {
++    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
++    let base = format!("http://{}", listener.local_addr().unwrap());
++    let handle = tokio::spawn(async move {
++        axum::serve(listener, http_server::router(state))
++            .await
++            .unwrap();
++    });
++    (base, handle)
++}
++async fn stop(handle: JoinHandle<()>) {
++    handle.abort();
++    assert!(handle.await.unwrap_err().is_cancelled());
++}
++type Requests = Arc<Mutex<Vec<Value>>>;
++async fn provider(State(requests): State<Requests>, Json(body): Json<Value>) -> String {
++    let mut recorded = requests.lock().unwrap();
++    recorded.push(body);
++    let reply = if recorded.len() == 1 {
++        "reply-one"
++    } else {
++        "reply-two"
++    };
++    format!(
++        "data: {}\n\ndata: [DONE]\n\n",
++        json!({"choices":[{"delta":{"content":reply}}]})
++    )
++}
++async fn mock() -> (String, Requests, JoinHandle<()>) {
++    let recorded = Arc::new(Mutex::new(Vec::new()));
++    let router = Router::new()
++        .route("/v1/chat/completions", post(provider))
++        .with_state(recorded.clone());
++    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
++    let base = format!("http://{}/v1", listener.local_addr().unwrap());
++    let task = tokio::spawn(async move {
++        axum::serve(listener, router).await.unwrap();
++    });
++    (base, recorded, task)
++}
++async fn persisted(c: &reqwest::Client, base: &str, token: &str, sid: &str, count: usize) -> Value {
++    let deadline = Instant::now() + Duration::from_secs(5);
++    loop {
++        let value: Value = req(c, base, &format!("/api/messages?session_id={sid}"), token)
++            .send()
++            .await
++            .unwrap()
++            .json()
++            .await
++            .unwrap();
++        if value.as_array().is_some_and(|a| a.len() == count) {
++            return value;
++        }
++        assert!(Instant::now() < deadline, "persistencia: {value}");
++        tokio::time::sleep(Duration::from_millis(20)).await;
++    }
++}
++
++#[test]
++fn first_run_without_piper_whisper_onnx_or_wake() {
++    if isolated("first_run_without_piper_whisper_onnx_or_wake") {
++        return;
++    }
++    runtime().block_on(async {
++        let b = Backend::new().await.unwrap();
++        let cfg = b.config.read().await;
++        assert!(!cfg.ai.enable_tool_calling);
++        let flags = serde_json::to_value(&cfg.tools).unwrap();
++        for (name, value) in flags.as_object().unwrap() {
++            if value.is_boolean() && name != "confirm_sensitive" {
++                assert_eq!(value, false, "{name}");
++            }
++        }
++        assert!(cfg.tools.allowed_paths.is_empty());
++        assert!(
++            !cfg.speech.wake_word_enabled
++                && !cfg.speech.auto_listen
++                && !cfg.speech.auto_speak
++                && !cfg.speech.chimes_enabled
++        );
++        assert!(!cfg.memory.enabled && !cfg.memory.auto_summarize && !cfg.character.enabled);
++        assert!(cfg.ai.api_key.is_empty());
++        assert!(b.audio.read().await.is_none());
++        assert!(!b.speech.tts_initialized() && !b.speech.stt_model_exists());
++        assert!(!b.hotword.ml_active() && !b.hotword.is_running());
++        let data = dirs::data_local_dir().unwrap().join("kde-assistant");
++        assert!(!data.join("models").exists() && !data.join("lib").exists());
++        assert!(b.http_state().is_ok());
++    });
++}
++
++#[test]
++fn existing_configuration_is_preserved() {
++    if isolated("existing_configuration_is_preserved") {
++        return;
++    }
++    runtime().block_on(async {
++        let mut cfg = Config::first_run();
++        cfg.ai.provider = "groq".into();
++        cfg.ai.model = "llama-3.3-70b-versatile".into();
++        cfg.ai.api_key = "fixture-secret".into();
++        cfg.speech.wake_word_enabled = true;
++        cfg.tools.read_file = true;
++        cfg.save().await.unwrap();
++        let path = Config::config_path().unwrap();
++        let before = fs::read(&path).unwrap();
++        let b = Backend::new().await.unwrap();
++        assert_eq!(fs::read(path).unwrap(), before);
++        assert_eq!(b.config.read().await.ai.api_key, "fixture-secret");
++        assert!(!b.speech.tts_initialized() && !b.hotword.ml_active());
++        assert!(b.audio.read().await.is_none());
++    });
++}
++
++#[test]
++fn corrupt_configuration_is_recoverable_and_never_replaced() {
++    if isolated("corrupt_configuration_is_recoverable_and_never_replaced") {
++        return;
++    }
++    runtime().block_on(async {
++        let path = Config::config_path().unwrap();
++        fs::create_dir_all(path.parent().unwrap()).unwrap();
++        fs::write(&path, "{broken").unwrap();
++        let error = match Backend::new().await {
++            Err(e) => e,
++            Ok(_) => panic!("corrupt config accepted"),
++        };
++        assert!(format!("{error:#}").contains("configuración inválida"));
++        assert_eq!(fs::read_to_string(&path).unwrap(), "{broken");
++        assert!(!dirs::data_local_dir()
++            .unwrap()
++            .join("kde-assistant")
++            .exists());
++        fs::write(path, serde_json::to_string(&Config::first_run()).unwrap()).unwrap();
++        assert!(Backend::new().await.is_ok());
++    });
++}
++
++#[test]
++fn missing_api_key_never_contacts_provider() {
++    if isolated("missing_api_key_never_contacts_provider") {
++        return;
++    }
++    runtime().block_on(async {
++        let (url, recorded, mock_task) = mock().await;
++        let mut cfg = Config::first_run();
++        cfg.ai.provider = "custom".into();
++        cfg.ai.base_url = url;
++        cfg.save().await.unwrap();
++        let b = Backend::new().await.unwrap();
++        let state = b.http_state().unwrap();
++        let token = state.local_token.clone();
++        let (base, task) = server(state).await;
++        let c = client();
++        let config: Value = req(&c, &base, "/api/config", &token)
++            .send()
++            .await
++            .unwrap()
++            .json()
++            .await
++            .unwrap();
++        assert_eq!(config["ai"]["has_api_key"], false);
++        let response = c
++            .post(format!("{base}/api/chat"))
++            .header("Host", "localhost:8765")
++            .bearer_auth(&token)
++            .json(&json!({"message":"hello"}))
++            .send()
++            .await
++            .unwrap()
++            .text()
++            .await
++            .unwrap();
++        assert!(response.contains("API key no configurada"), "{response}");
++        assert!(recorded.lock().unwrap().is_empty());
++        stop(task).await;
++        stop(mock_task).await;
++    });
++}
++
++#[test]
++fn invalid_tokens_fail_closed() {
++    if isolated("invalid_tokens_fail_closed") {
++        return;
++    }
++    runtime().block_on(async {
++        let b = Backend::new().await.unwrap();
++        let mut state = b.http_state().unwrap();
++        state.local_token.clear();
++        let (base, task) = server(state.clone()).await;
++        let c = client();
++        let response = c
++            .get(format!("{base}/api/config"))
++            .header("Host", "localhost:8765")
++            .header("Authorization", "Bearer ")
++            .send()
++            .await
++            .unwrap();
++        assert_eq!(response.status(), 401);
++        assert!(http_server::serve(state, 0).await.is_err());
++        stop(task).await;
++        fs::write(auth::server_token_path().unwrap(), "").unwrap();
++        assert!(b.http_state().is_err());
++        assert_eq!(fs::read(auth::server_token_path().unwrap()).unwrap(), b"");
++        let mut headers = axum::http::HeaderMap::new();
++        headers.insert("Authorization", "Bearer ".parse().unwrap());
++        assert!(!auth::valid_bearer(&headers, ""));
++    });
++}
++
++#[test]
++fn hostile_authorities_are_rejected_over_http() {
++    if isolated("hostile_authorities_are_rejected_over_http") {
++        return;
++    }
++    runtime().block_on(async {
++        let b = Backend::new().await.unwrap();
++        let state = b.http_state().unwrap();
++        let token = state.local_token.clone();
++        let (base, task) = server(state).await;
++        let c = client();
++        for host in [
++            "localhost.evil:8765",
++            "127.0.0.1.evil:8765",
++            "localhost:87650",
++            "localhost:99",
++            "evil.localhost:8765",
++            "[::1].evil:8765",
++            "localhost",
++            "user@localhost:8765",
++        ] {
++            assert_eq!(
++                c.get(format!("{base}/api/config"))
++                    .header("Host", host)
++                    .bearer_auth(&token)
++                    .send()
++                    .await
++                    .unwrap()
++                    .status(),
++                403,
++                "{host}"
++            );
++        }
++        for origin in [
++            "https://evil.test/localhost",
++            "http://localhost.evil:8765",
++            "http://127.0.0.1:8765.evil",
++            "http://evil@localhost:8765",
++            "http://localhost:8765/path",
++            "http://localhost:9999",
++            "file://evil.test",
++            "qrc:evil",
++            "https://localhost:8765",
++        ] {
++            assert_eq!(
++                req(&c, &base, "/api/config", &token)
++                    .header("Origin", origin)
++                    .send()
++                    .await
++                    .unwrap()
++                    .status(),
++                403,
++                "{origin}"
++            );
++        }
++        for origin in [
++            "null",
++            "http://localhost:8765",
++            "http://127.0.0.1:8765",
++            "http://[::1]:8765",
++        ] {
++            assert_eq!(
++                req(&c, &base, "/api/config", &token)
++                    .header("Origin", origin)
++                    .send()
++                    .await
++                    .unwrap()
++                    .status(),
++                200
++            );
++        }
++        assert!(!auth::valid_host(&axum::http::HeaderMap::new()));
++        stop(task).await;
++    });
++}
++
++#[test]
++fn private_files_redaction_and_failed_update_preserve_secrets() {
++    if isolated("private_files_redaction_and_failed_update_preserve_secrets") {
++        return;
++    }
++    runtime().block_on(async {
++        let mut cfg = Config::first_run();
++        cfg.ai.api_key = "fixture-secret".into();
++        cfg.ai
++            .provider_keys
++            .insert("groq".into(), "fixture-groq".into());
++        cfg.save().await.unwrap();
++        cfg.save().await.unwrap();
++        let b = Backend::new().await.unwrap();
++        let state = b.http_state().unwrap();
++        let token = state.local_token.clone();
++        let module = auth::write_qml_auth_module(&token, false).unwrap();
++        for path in [
++            Config::config_path().unwrap(),
++            Config::config_path().unwrap().with_extension("json.bak"),
++            auth::server_token_path().unwrap(),
++            module.join("qml/auth/AuthToken.qml"),
++            module.join("qml/auth/qmldir"),
++        ] {
++            assert_eq!(
++                fs::metadata(path).unwrap().permissions().mode() & 0o777,
++                0o600
++            );
++        }
++        assert_eq!(
++            fs::metadata(module.join("qml/auth"))
++                .unwrap()
++                .permissions()
++                .mode()
++                & 0o777,
++            0o700
++        );
++        let (base, task) = server(state).await;
++        let c = client();
++        let public = req(&c, &base, "/api/config", &token)
++            .send()
++            .await
++            .unwrap()
++            .text()
++            .await
++            .unwrap();
++        assert!(!public.contains("fixture-secret") && !public.contains("fixture-groq"));
++        let mut update: Value = serde_json::from_str(&public).unwrap();
++        update["ai"]["model"] = json!("changed-model");
++        let post_cfg = |value: Value| {
++            c.post(format!("{base}/api/config"))
++                .header("Host", "localhost:8765")
++                .bearer_auth(&token)
++                .json(&value)
++        };
++        assert_eq!(post_cfg(update.clone()).send().await.unwrap().status(), 200);
++        assert_eq!(
++            b.config.read().await.ai.provider_keys["groq"],
++            "fixture-groq"
++        );
++        assert_eq!(
++            b.config.read().await.ai.provider_keys["openrouter"],
++            "fixture-secret"
++        );
++        let saved = fs::read(Config::config_path().unwrap()).unwrap();
++        let backup = Config::config_path().unwrap().with_extension("json.bak");
++        fs::remove_file(&backup).unwrap();
++        let outside = backup.parent().unwrap().join("outside");
++        fs::write(&outside, "untouched").unwrap();
++        std::os::unix::fs::symlink(&outside, &backup).unwrap();
++        update["ai"]["model"] = json!("must-not-publish");
++        assert_eq!(post_cfg(update).send().await.unwrap().status(), 500);
++        assert_eq!(b.config.read().await.ai.model, "changed-model");
++        assert_eq!(fs::read(Config::config_path().unwrap()).unwrap(), saved);
++        assert_eq!(fs::read_to_string(outside).unwrap(), "untouched");
++        stop(task).await;
++    });
++}
++
++#[test]
++fn exclusive_bootstrap_only_tolerates_an_existing_winner() {
++    if isolated("exclusive_bootstrap_only_tolerates_an_existing_winner") {
++        return;
++    }
++    let path = dirs::config_dir().unwrap().join("bootstrap/value");
++    bootstrap_files::write_private(&path, "winner", true).unwrap();
++    bootstrap_files::allow_creation_race(bootstrap_files::write_private(&path, "loser", true))
++        .unwrap();
++    assert_eq!(bootstrap_files::read_private(&path).unwrap(), "winner");
++    // Inyecta el resultado de sync fallido después de publicar: la existencia
++    // del destino no debe convertir EIO en éxito. No simula una syscall real.
++    let failure = std::io::Error::from_raw_os_error(5);
++    assert!(bootstrap_files::allow_creation_race(Err(failure.into())).is_err());
++    assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
++}
++
++#[test]
++fn redacted_updates_preserve_legacy_and_provider_credentials() {
++    if isolated("redacted_updates_preserve_legacy_and_provider_credentials") {
++        return;
++    }
++    runtime().block_on(async {
++        for active in ["", "fixture-active-map"] {
++            let mut cfg = Config::first_run();
++            cfg.ai.api_key = "fixture-legacy".into();
++            cfg.ai
++                .provider_keys
++                .insert("openrouter".into(), active.into());
++            cfg.ai
++                .provider_keys
++                .insert("groq".into(), "fixture-groq".into());
++            cfg.save().await.unwrap();
++            let b = Backend::new().await.unwrap();
++            let state = b.http_state().unwrap();
++            let token = state.local_token.clone();
++            let (base, task) = server(state).await;
++            let c = client();
++            for selected in ["openrouter", "groq"] {
++                let mut public: Value = req(&c, &base, "/api/config", &token)
++                    .send()
++                    .await
++                    .unwrap()
++                    .json()
++                    .await
++                    .unwrap();
++                public["ai"]["provider"] = json!(selected);
++                assert_eq!(
++                    c.post(format!("{base}/api/config"))
++                        .header("Host", "localhost:8765")
++                        .bearer_auth(&token)
++                        .json(&public)
++                        .send()
++                        .await
++                        .unwrap()
++                        .status(),
++                    200
++                );
++                let saved = Config::load().await.unwrap();
++                assert_eq!(saved.ai.api_key, "fixture-legacy");
++                assert_eq!(saved.ai.provider_keys["groq"], "fixture-groq");
++                assert_eq!(
++                    saved.ai.provider_keys["openrouter"],
++                    if active.is_empty() {
++                        "fixture-legacy"
++                    } else {
++                        active
++                    }
++                );
++                assert_eq!(
++                    saved.ai.effective_api_key(),
++                    if selected == "groq" {
++                        "fixture-groq"
++                    } else if active.is_empty() {
++                        "fixture-legacy"
++                    } else {
++                        active
++                    }
++                );
++            }
++            let mut public: Value = req(&c, &base, "/api/config", &token)
++                .send()
++                .await
++                .unwrap()
++                .json()
++                .await
++                .unwrap();
++            public["ai"]["api_key"] = json!("fixture-explicit-replacement");
++            assert_eq!(
++                c.post(format!("{base}/api/config"))
++                    .header("Host", "localhost:8765")
++                    .bearer_auth(&token)
++                    .json(&public)
++                    .send()
++                    .await
++                    .unwrap()
++                    .status(),
++                200
++            );
++            let saved = Config::load().await.unwrap();
++            assert_eq!(saved.ai.api_key, "fixture-explicit-replacement");
++            assert_eq!(
++                saved.ai.provider_keys["groq"],
++                "fixture-explicit-replacement"
++            );
++            stop(task).await;
++        }
++    });
++}
++
++#[test]
++fn model_catalog_uses_selected_provider_credentials_and_url() {
++    if isolated("model_catalog_uses_selected_provider_credentials_and_url") {
++        return;
++    }
++    runtime().block_on(async {
++        async fn catalog() -> (String, Arc<Mutex<Vec<String>>>, JoinHandle<()>) {
++            let keys = Arc::new(Mutex::new(Vec::new()));
++            let recorded = keys.clone();
++            let router = Router::new().route(
++                "/v1/models",
++                get(move |headers: axum::http::HeaderMap| {
++                    let recorded = recorded.clone();
++                    async move {
++                        recorded
++                            .lock()
++                            .unwrap()
++                            .push(headers["Authorization"].to_str().unwrap().to_string());
++                        Json(json!({"data":[{"id":"fixture-model"}]}))
++                    }
++                }),
++            );
++            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
++            let url = format!("http://{}/v1", listener.local_addr().unwrap());
++            let task = tokio::spawn(async move {
++                axum::serve(listener, router).await.unwrap();
++            });
++            (url, keys, task)
++        }
++        let (current_url, current_keys, current_task) = catalog().await;
++        let (other_url, other_keys, other_task) = catalog().await;
++        let mut cfg = Config::first_run();
++        cfg.ai.base_url = current_url;
++        cfg.ai
++            .provider_keys
++            .insert("openrouter".into(), "fixture-current-key".into());
++        cfg.ai
++            .provider_keys
++            .insert("groq".into(), "fixture-other-key".into());
++        cfg.ai.provider_base_urls.insert("groq".into(), other_url);
++        cfg.save().await.unwrap();
++        let b = Backend::new().await.unwrap();
++        let state = b.http_state().unwrap();
++        let token = state.local_token.clone();
++        let (base, task) = server(state).await;
++        let response: Value = client()
++            .post(format!("{base}/api/ai-models"))
++            .header("Host", "localhost:8765")
++            .bearer_auth(&token)
++            .json(&json!({"provider":"groq"}))
++            .send()
++            .await
++            .unwrap()
++            .json()
++            .await
++            .unwrap();
++        assert_eq!(response["models"], json!(["fixture-model"]));
++        assert!(current_keys.lock().unwrap().is_empty());
++        assert_eq!(
++            *other_keys.lock().unwrap(),
++            vec!["Bearer fixture-other-key"]
++        );
++        stop(task).await;
++        stop(current_task).await;
++        stop(other_task).await;
++    });
++}
++
++#[test]
++fn two_turns_with_mock_and_persistence_after_backend_restart() {
++    if isolated("two_turns_with_mock_and_persistence_after_backend_restart") {
++        return;
++    }
++    runtime().block_on(async {
++        let (url, recorded, mock_task) = mock().await;
++        let b = Backend::new().await.unwrap();
++        let state = b.http_state().unwrap();
++        let token = state.local_token.clone();
++        let (base, task) = server(state).await;
++        let c = client();
++        assert_eq!(
++            req(&c, &base, "/api/health", "")
++                .send()
++                .await
++                .unwrap()
++                .status(),
++            200
++        );
++        let mut public: Value = req(&c, &base, "/api/config", &token)
++            .send()
++            .await
++            .unwrap()
++            .json()
++            .await
++            .unwrap();
++        public["ai"]["provider"] = json!("custom");
++        public["ai"]["base_url"] = json!(url);
++        public["ai"]["model"] = json!("mock-text");
++        public["ai"]["api_key"] = json!("fixture-key");
++        assert_eq!(
++            c.post(format!("{base}/api/config"))
++                .header("Host", "localhost:8765")
++                .bearer_auth(&token)
++                .json(&public)
++                .send()
++                .await
++                .unwrap()
++                .status(),
++            200
++        );
++        let session: Value = c
++            .post(format!("{base}/api/session"))
++            .header("Host", "localhost:8765")
++            .bearer_auth(&token)
++            .json(&json!({"title":"fixture"}))
++            .send()
++            .await
++            .unwrap()
++            .json()
++            .await
++            .unwrap();
++        let sid = session["id"].as_str().unwrap();
++        for (i, message) in ["first", "second"].iter().enumerate() {
++            let stream = c
++                .post(format!("{base}/api/chat"))
++                .header("Host", "localhost:8765")
++                .bearer_auth(&token)
++                .json(&json!({"message":message,"session_id":sid}))
++                .send()
++                .await
++                .unwrap()
++                .text()
++                .await
++                .unwrap();
++            assert!(
++                stream.contains("event: token") && stream.contains("event: done"),
++                "{stream}"
++            );
++            assert!(stream.contains(if i == 0 { "reply-one" } else { "reply-two" }));
++            persisted(&c, &base, &token, sid, (i + 1) * 2).await;
++        }
++        let before = persisted(&c, &base, &token, sid, 4).await;
++        stop(task).await;
++        drop(b);
++        let restarted = Backend::new().await.unwrap();
++        let state = restarted.http_state().unwrap();
++        assert_eq!(state.local_token, token);
++        let (base, task) = server(state).await;
++        assert_eq!(persisted(&c, &base, &token, sid, 4).await, before);
++        {
++            let requests = recorded.lock().unwrap();
++            assert_eq!(requests.len(), 2);
++            assert_eq!(requests[1]["messages"][1]["content"], "first");
++            assert_eq!(requests[1]["messages"][2]["content"], "reply-one");
++            assert_eq!(requests[1]["messages"][3]["content"], "second");
++            assert!(requests.iter().all(|r| r
++                .get("tools")
++                .is_none_or(|t| t.as_array().is_some_and(|t| t.is_empty()))));
++        }
++        stop(task).await;
++        stop(mock_task).await;
++    });
++}
++
++#[test]
++fn startup_has_no_download_or_global_process_cleanup_calls() {
++    let backend = include_str!("../src/backend/mod.rs");
++    let main = include_str!("../src/main.rs");
++    let snapshot = include_str!("../src/bin/snap_ui.rs");
++    assert!(
++        !backend.contains("ensure_models_available")
++            && !backend.contains("downloader.download")
++            && !backend.contains("ensure_onnx_runtime_lib")
++    );
++    assert!(
++        !main.contains("pre-warm")
++            && !main.contains("pkill")
++            && !snapshot.contains("pkill")
++            && !snapshot.contains(".X99-lock")
++    );
++}
++
++fn wait_exit(child: &mut OwnedChild) -> std::process::ExitStatus {
++    let deadline = Instant::now() + Duration::from_secs(10);
++    loop {
++        if let Some(status) = child.try_wait().unwrap() {
++            return status;
++        }
++        assert!(Instant::now() < deadline, "child failed to stop");
++        std::thread::sleep(Duration::from_millis(30));
++    }
++}
++struct TestApp {
++    child: OwnedChild,
++    log: PathBuf,
++}
++impl std::ops::Deref for TestApp {
++    type Target = OwnedChild;
++    fn deref(&self) -> &OwnedChild {
++        &self.child
++    }
++}
++impl std::ops::DerefMut for TestApp {
++    fn deref_mut(&mut self) -> &mut OwnedChild {
++        &mut self.child
++    }
++}
++impl Drop for TestApp {
++    fn drop(&mut self) {
++        if self.child.try_wait().ok().flatten().is_none() {
++            let _ = Command::new("kill")
++                .args(["-INT", &self.child.id().to_string()])
++                .status();
++            let deadline = Instant::now() + Duration::from_secs(3);
++            while self.child.try_wait().ok().flatten().is_none() && Instant::now() < deadline {
++                std::thread::sleep(Duration::from_millis(30));
++            }
++        }
++    }
++}
++fn app(args: &[&str]) -> TestApp {
++    app_with(args, |_| {})
++}
++fn app_with(args: &[&str], configure: impl FnOnce(&mut Command)) -> TestApp {
++    let log = dirs::cache_dir()
++        .unwrap()
++        .join(format!("application-{}.log", uuid::Uuid::new_v4()));
++    let output = fs::File::create(&log).unwrap();
++    let mut command = Command::new(env!("CARGO_BIN_EXE_kde-assistant"));
++    command
++        .args(args)
++        .env("QT_QPA_PLATFORM", "offscreen")
++        .env("QT_ASSUME_STDERR_HAS_CONSOLE", "1")
++        .stdout(output.try_clone().unwrap())
++        .stderr(output);
++    configure(&mut command);
++    let child = OwnedChild::new(command.spawn().unwrap());
++    TestApp { child, log }
++}
++
++#[test]
++fn real_binary_lifecycle_and_critical_failure_leave_no_listener_or_foreign_victim() {
++    if isolated("real_binary_lifecycle_and_critical_failure_leave_no_listener_or_foreign_victim") {
++        return;
++    }
++    // Sólo este test usa el puerto de producción; si está ocupado no tocamos su dueño.
++    let reserved = std::net::TcpListener::bind("127.0.0.1:8765")
++        .expect("8765 debe estar libre para fixture real");
++    let path = Config::config_path().unwrap();
++    let mut foreign = OwnedChild::new(Command::new("/bin/sleep").arg("30").spawn().unwrap());
++    let mut duplicate = app(&["--ui-off", "--no-shortcuts"]);
++    assert!(!wait_exit(&mut duplicate).success());
++    assert!(fs::read_to_string(&duplicate.log)
++        .unwrap()
++        .contains("Puerto 8765 ocupado"));
++    assert!(!path.exists());
++    assert!(foreign.try_wait().unwrap().is_none());
++    drop(reserved);
++    fs::create_dir_all(path.parent().unwrap()).unwrap();
++    fs::write(&path, "{bad").unwrap();
++    let mut broken = app(&["--ui-off", "--no-shortcuts"]);
++    assert!(!wait_exit(&mut broken).success());
++    assert!(fs::read_to_string(&broken.log)
++        .unwrap()
++        .contains("configuración inválida"));
++    assert!(std::net::TcpListener::bind("127.0.0.1:8765").is_ok());
++    fs::remove_file(&path).unwrap();
++    let mut running = app(&["--ui-off", "--no-shortcuts"]);
++    runtime().block_on(async {
++        let deadline = Instant::now() + Duration::from_secs(8);
++        loop {
++            if client()
++                .get("http://127.0.0.1:8765/api/health")
++                .send()
++                .await
++                .is_ok_and(|response| response.status() == 200)
++            {
++                break;
++            }
++            assert!(Instant::now() < deadline);
++            tokio::time::sleep(Duration::from_millis(30)).await;
++        }
++    });
++    assert!(Command::new("kill")
++        .args(["-INT", &running.id().to_string()])
++        .status()
++        .unwrap()
++        .success());
++    assert!(wait_exit(&mut running).success());
++    assert!(std::net::TcpListener::bind("127.0.0.1:8765").is_ok());
++    assert!(foreign.try_wait().unwrap().is_none());
++    // Un fallo de token tampoco publica HTTP.
++    fs::write(auth::server_token_path().unwrap(), "invalid").unwrap();
++    let mut bad_token = app(&["--ui-off", "--no-shortcuts"]);
++    assert!(!wait_exit(&mut bad_token).success());
++    assert!(fs::read_to_string(&bad_token.log)
++        .unwrap()
++        .contains("Token local inválido"));
++    assert!(std::net::TcpListener::bind("127.0.0.1:8765").is_ok());
++    fs::remove_file(auth::server_token_path().unwrap()).unwrap();
++    let empty_path = dirs::cache_dir().unwrap().join("empty-path");
++    fs::create_dir(&empty_path).unwrap();
++    let mut missing_qml = app_with(&["--no-shortcuts"], |command| {
++        command.env("PATH", &empty_path);
++    });
++    assert!(!wait_exit(&mut missing_qml).success());
++    assert!(fs::read_to_string(&missing_qml.log)
++        .unwrap()
++        .contains("lanzando qml6"));
++    assert!(std::net::TcpListener::bind("127.0.0.1:8765").is_ok());
++    assert!(foreign.try_wait().unwrap().is_none());
++    let own_pid;
++    {
++        let own = OwnedChild::new(Command::new("/bin/sleep").arg("30").spawn().unwrap());
++        own_pid = own.id();
++    }
++    assert!(!PathBuf::from(format!("/proc/{own_pid}")).exists());
++    assert!(foreign.try_wait().unwrap().is_none());
++}
++
++#[test]
++#[ignore = "requiere Qt/QML offscreen; no certifica Plasma Wayland"]
++fn qml_offscreen_settings_and_two_visible_turns() {
++    if isolated("qml_offscreen_settings_and_two_visible_turns") {
++        return;
++    }
++    runtime().block_on(async {
++        let (provider_url, recorded, mock_task) = mock().await;
++        let b = Backend::new().await.unwrap();
++        let state = b.http_state().unwrap();
++        let token = state.local_token.clone();
++        let module = auth::write_qml_auth_module(&token, false).unwrap();
++        let listener = tokio::net::TcpListener::bind("127.0.0.1:8765")
++            .await
++            .expect("puerto 8765 libre para UI");
++        let base = "http://127.0.0.1:8765".to_string();
++        let task = tokio::spawn(async move {
++            axum::serve(listener, http_server::router(state))
++                .await
++                .unwrap();
++        });
++        let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
++        let harness = include_str!("qml/F1B1Text.qml")
++            .replace(
++                "F1B1_QML_DIR",
++                &format!("file://{}", repo.join("qml").display()),
++            )
++            .replace(
++                "F1B1_COMPONENT_DIR",
++                &format!("file://{}", repo.join("qml/components").display()),
++            )
++            .replace("F1B1_BACKEND", &base)
++            .replace("F1B1_PROVIDER", &provider_url);
++        let path = dirs::cache_dir().unwrap().join("F1B1Text.qml");
++        fs::write(&path, harness).unwrap();
++        let log_path = dirs::cache_dir().unwrap().join("qml.log");
++        let log = fs::File::create(&log_path).unwrap();
++        let mut child = OwnedChild::new(
++            Command::new("qml6")
++                .args(["--verbose", "-apptype", "widget", "-I"])
++                .arg(&repo)
++                .arg("-I")
++                .arg(&module)
++                .arg(path)
++                .env("QT_QPA_PLATFORM", "offscreen")
++                .env("QT_LOGGING_RULES", "*.warning=true;*.critical=true")
++                .env("QT_ASSUME_STDERR_HAS_CONSOLE", "1")
++                .env("QML_DISABLE_DISK_CACHE", "1")
++                .env("QML_XHR_ALLOW_FILE_READ", "1")
++                .stdout(log.try_clone().unwrap())
++                .stderr(log)
++                .spawn()
++                .unwrap(),
++        );
++        let deadline = Instant::now() + Duration::from_secs(20);
++        let status = loop {
++            if let Some(status) = child.try_wait().unwrap() {
++                break status;
++            }
++            assert!(
++                Instant::now() < deadline,
++                "QML timeout: {}",
++                fs::read_to_string(&log_path).unwrap()
++            );
++            tokio::time::sleep(Duration::from_millis(50)).await;
++        };
++        let log = fs::read_to_string(log_path).unwrap();
++        assert!(
++            status.success() && log.contains("F1B1_UI_PASS"),
++            "{status}\n{log}"
++        );
++        assert!(!log.contains("F1B1_UI_FAIL"), "{log}");
++        let sid = {
++            let sessions = b.sessions.lock().unwrap();
++            let list = sessions.list_sessions().unwrap();
++            assert_eq!(list.len(), 1);
++            list[0].id.clone()
++        };
++        persisted(&client(), &base, &token, &sid, 4).await;
++        assert_eq!(recorded.lock().unwrap().len(), 2);
++        assert!(!PathBuf::from(format!("/proc/{}", child.id())).exists());
++        println!("F1B1_UI_PASS; QML terminado y recogido; cuatro mensajes persistidos");
++        stop(task).await;
++        // El ejecutable real también debe lanzar y recoger su propia UI.
++        let foreign_qml = dirs::cache_dir().unwrap().join("Main.qml");
++        fs::write(
++            &foreign_qml,
++            "import QtQuick\nWindow { visible: true; width: 100; height: 100 }\n",
++        )
++        .unwrap();
++        let mut foreign = OwnedChild::new(
++            Command::new("qml6")
++                .arg(&foreign_qml)
++                .env("QT_QPA_PLATFORM", "offscreen")
++                .stdout(Stdio::null())
++                .stderr(Stdio::null())
++                .spawn()
++                .unwrap(),
++        );
++        let mut application = app(&["--no-shortcuts"]);
++        let children_path = PathBuf::from(format!(
++            "/proc/{}/task/{}/children",
++            application.id(),
++            application.id()
++        ));
++        let deadline = Instant::now() + Duration::from_secs(8);
++        let own_ui = loop {
++            assert!(
++                application.try_wait().unwrap().is_none(),
++                "el binario terminó antes de lanzar UI"
++            );
++            if let Ok(children) = fs::read_to_string(&children_path) {
++                if let Some(pid) = children.split_whitespace().find(|pid| {
++                    fs::read(format!("/proc/{pid}/cmdline")).is_ok_and(|args| {
++                        let argv = args.split(|byte| *byte == 0).collect::<Vec<_>>();
++                        argv.first().is_some_and(|arg| arg.ends_with(b"qml6"))
++                            && argv.contains(&b"qml/Main.qml".as_slice())
++                    })
++                }) {
++                    break pid.to_owned();
++                }
++            }
++            assert!(Instant::now() < deadline, "el binario no lanzó QML");
++            tokio::time::sleep(Duration::from_millis(30)).await;
++        };
++        tokio::time::sleep(Duration::from_millis(400)).await;
++        assert!(application.try_wait().unwrap().is_none());
++        assert!(foreign.try_wait().unwrap().is_none());
++        assert!(Command::new("kill")
++            .args(["-INT", &application.id().to_string()])
++            .status()
++            .unwrap()
++            .success());
++        assert!(wait_exit(&mut application).success());
++        assert!(!PathBuf::from(format!("/proc/{own_ui}")).exists());
++        assert!(foreign.try_wait().unwrap().is_none());
++        assert!(std::net::TcpListener::bind("127.0.0.1:8765").is_ok());
++        println!(
++            "F1B1_BINARY_UI_PASS; hijo QML propio recogido; QML ajeno sigue vivo; puerto liberado"
++        );
++        let broken_ui_dir = dirs::cache_dir().unwrap().join("broken-ui");
++        fs::create_dir_all(broken_ui_dir.join("qml")).unwrap();
++        fs::write(broken_ui_dir.join("qml/Main.qml"), "import QtQuick\nWindow { invalid QML").unwrap();
++        let mut broken_ui = app_with(&["--no-shortcuts"], |command| {
++            command.current_dir(&broken_ui_dir);
++        });
++        assert!(!wait_exit(&mut broken_ui).success());
++        assert!(fs::read_to_string(&broken_ui.log).unwrap().contains("interfaz QML terminó con error"));
++        assert!(std::net::TcpListener::bind("127.0.0.1:8765").is_ok());
++        assert!(foreign.try_wait().unwrap().is_none());
++        println!("F1B1_QML_FAILURE_PASS; fallo real de carga QML visible; puerto liberado; QML ajeno vivo");
++        stop(mock_task).await;
++    });
++}
+diff --git a/tests/qml/F1B1Text.qml b/tests/qml/F1B1Text.qml
+new file mode 100644
+index 0000000000000000000000000000000000000000..96795b4f10765ea95d005cec4828129bd7e9ce18
+--- /dev/null
++++ b/tests/qml/F1B1Text.qml
+@@ -0,0 +1,61 @@
++// Harness de flujo real de Main.qml y SettingsDialog, sólo offscreen.
++import QtQuick
++import "F1B1_QML_DIR" as App
++import "F1B1_COMPONENT_DIR" as Components
++
++App.Main {
++    id: chat
++    backendUrl: "F1B1_BACKEND"
++    property int phase: 0
++    property bool settingsSaved: false
++    Components.SettingsDialog {
++        id: settings
++        backendUrl: chat.backendUrl
++        onSaved: chat.settingsSaved = true
++    }
++    function fail(message) {
++        console.error("F1B1_UI_FAIL: " + message)
++        Qt.exit(1)
++    }
++    Timer {
++        interval: 100
++        repeat: true
++        running: true
++        property int ticks: 0
++        onTriggered: {
++            ticks++
++            if (ticks > 150) { chat.fail("timeout phase " + chat.phase); return }
++            if (chat.phase === 0 && chat.backendStatus === "nokey") {
++                if (!chat.showErrorBanner) { chat.fail("missing key is invisible"); return }
++                settings.show()
++                chat.phase = 1
++            } else if (chat.phase === 1 && settings.rawConfig.ai) {
++                if (settings.rawConfig.ai.api_key !== "") { chat.fail("secret returned"); return }
++                settings.provider = "custom"
++                settings.providerKeys = ({ custom: "fixture-key" })
++                settings.providerBaseUrls = ({ custom: "F1B1_PROVIDER" })
++                settings.providerModels = ({ custom: "mock-text" })
++                settings.applyProviderFields("custom")
++                settings.saveConfig()
++                chat.phase = 2
++            } else if (chat.phase === 2 && chat.settingsSaved) {
++                chat.checkBackend()
++                chat.sendMessage("first")
++                chat.phase = 3
++            } else if (chat.phase === 3 && !chat.streaming && chat.messages.length === 2) {
++                if (chat.messages[0].content !== "first" || chat.messages[1].content.indexOf("reply-one") < 0) {
++                    chat.fail("first response missing from chat"); return
++                }
++                chat.sendMessage("second")
++                chat.phase = 4
++            } else if (chat.phase === 4 && !chat.streaming && chat.messages.length === 4) {
++                if (chat.messages[2].content !== "second" || chat.messages[3].content.indexOf("reply-two") < 0) {
++                    chat.fail("second response missing from chat"); return
++                }
++                if (!chat.currentSessionId) { chat.fail("no session"); return }
++                console.log("F1B1_UI_PASS: settings, session, two turns, four visible messages")
++                Qt.quit()
++            }
++        }
++    }
++}

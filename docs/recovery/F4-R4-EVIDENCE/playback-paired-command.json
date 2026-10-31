@@ -1,0 +1,20 @@
+{
+  "command": [
+    "python3",
+    "-B",
+    "scripts/benchmark_f4r4_playback.py",
+    "--profile",
+    "/var/tmp/kda-f4r4-_rbmkh36",
+    "--resources",
+    "/var/tmp/kda-f4r3-piper-aqrh6h0h",
+    "--runs",
+    "5",
+    "--baseline",
+    "/var/tmp/kda-f4r4-_rbmkh36/baseline-kde-assistant",
+    "--label",
+    "playback-paired-final",
+    "--paired"
+  ],
+  "exit": 0,
+  "seconds": 113.3628767070004
+}

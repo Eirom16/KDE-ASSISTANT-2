@@ -1,0 +1,34 @@
+pw-record [options] [<file>|-]
+  -h, --help                            Show this help
+      --version                         Show version
+  -v, --verbose                         Enable verbose operations
+
+  -R, --remote                          Remote daemon name
+      --media-type                      Set media type (default Audio)
+      --media-category                  Set media category (default Playback)
+      --media-role                      Set media role (default Music)
+      --target                          Set node target serial or name (default auto)
+                                          0 means don't link
+      --latency                         Set node latency (default 100ms)
+                                          Xunit (unit = s, ms, us, ns)
+                                          or direct samples (256)
+                                          the rate is the one of the source file
+  -P  --properties                      Set node properties
+
+      --rate                            Sample rate (default 48000)
+      --channels                        Number of channels (default 2)
+      --channel-map                     Channel map
+                                            a channel layout: "Stereo", "5.1",... or
+                                            comma separated list of channel names: eg. "FL,FR"
+      --list-layouts                    List supported channel layouts
+      --list-channel-names              List supported channel maps
+      --format                          Sample format (default s16)
+      --list-formats                    List supported sample formats
+      --container                       Container format
+      --list-containers                 List supported containers and extensions
+      --volume                          Stream volume 0-1.0 (default 1.000)
+  -q  --quality                         Resampler quality (0 - 15) (default 4)
+  -a, --raw                             RAW mode
+  -M, --force-midi                      Force midi format, one of "none", "midi" or "ump", (default none)
+  -n, --sample-count COUNT              Stop after COUNT samples
+

@@ -14,7 +14,19 @@ Item {
     property alias text: input.text
     property bool recording: false
     property bool voiceEnabled: false
-    property bool canSend: text.trim().length > 0 && !streaming
+    property bool voiceReady: true
+    property string voiceUnavailableText: ""
+    property string voiceStatus: "idle"
+    property bool voiceBusy: false
+    signal voiceCancelClicked()
+    signal wakeClicked()
+    property bool wakeAvailable: false
+    property bool backgroundEnabled: false
+    property bool backgroundPaused: false
+    property bool microphoneActive: false
+    property string backgroundState: "off"
+    signal backgroundDisableClicked()
+    property bool canSend: text.trim().length > 0 && !streaming && !voiceBusy
 
     property bool streaming: false   // Mientras el LLM esta respondiendo, no se puede enviar
 
@@ -39,7 +51,7 @@ Item {
 
     implicitWidth: 480
     // Altura barre + hint; la barre crece con el contenido
-    implicitHeight: bar.implicitHeight + hintText.implicitHeight + 8
+    implicitHeight: bar.implicitHeight + hintText.implicitHeight + voiceLabel.implicitHeight + Theme.spacingSm
 
     // === Floating capsule bar ===
     Rectangle {
@@ -165,20 +177,51 @@ Item {
                 Layout.alignment: Qt.AlignVCenter
                 visible: root.voiceEnabled
                 objectName: "dictationButton"
-                iconName: root.recording ? "stop-16" : "microphone-16"
+                iconName: root.voiceBusy ? "stop-16" : "microphone-16"
                 iconSize: Theme.iconSizeMd
                 buttonSize: Theme.buttonIconSize
                 backgroundColor: Theme.surfaceChip
                 iconColor: root.recording ? Theme.inkOnPrimary : Theme.ink
-                accessibleName: root.recording ? qsTr("Detener dictado") : qsTr("Iniciar dictado")
+                accessibleName: !root.voiceReady && !root.voiceBusy ? root.voiceUnavailableText : root.recording ? qsTr("Terminar grabación y transcribir") : root.voiceBusy ? qsTr("Cancelar operación de voz") : qsTr("Iniciar dictado local; pulsa de nuevo para terminar")
                 active: root.recording && !root.streaming
                 activeColor: Theme.error
-                opacity: root.streaming ? 0.4 : 1.0
-                enabled: root.voiceEnabled && !root.streaming
+                opacity: root.streaming || !root.voiceReady ? 0.4 : 1.0
+                enabled: root.voiceEnabled && !root.streaming && (root.voiceReady || root.voiceBusy)
                 onClicked: {
                     // Toggle: el padre (Main) decide si empezar o parar el dictado.
                     root.micClicked()
                 }
+            }
+
+            IconButton {
+                objectName: "voiceCancelButton"
+                Layout.alignment: Qt.AlignVCenter
+                visible: root.voiceBusy || root.recording || root.voiceStatus === "transcript_ready"
+                iconName: "x-16"
+                buttonSize: Theme.buttonIconSize
+                accessibleName: root.voiceStatus === "transcript_ready" ? qsTr("Cancelar voz y conservar el borrador") : qsTr("Cancelar voz y descartar grabación")
+                onClicked: root.voiceCancelClicked()
+            }
+
+            IconButton {
+                objectName: "wakeWordButton"
+                Layout.alignment: Qt.AlignVCenter
+                iconName: "hubot-16"
+                buttonSize: Theme.buttonIconSize
+                active: (root.backgroundEnabled && !root.backgroundPaused) || root.voiceStatus === "wake_waiting"
+                activeColor: Theme.primary
+                accessibleName: root.backgroundEnabled ? (root.backgroundPaused ? qsTr("Reanudar Hey Jarvis en segundo plano") : qsTr("Pausar Hey Jarvis y cerrar el micrófono")) : qsTr("Activar Hey Jarvis en segundo plano; mantiene el micrófono abierto incluso al ocultar la ventana. El texto no se envía")
+                enabled: root.backgroundEnabled || root.voiceStatus === "wake_waiting" || (root.wakeAvailable && root.voiceReady && !root.voiceBusy && !root.streaming)
+                onClicked: root.wakeClicked()
+            }
+
+            IconButton {
+                objectName: "backgroundDisableButton"
+                visible: root.backgroundEnabled
+                iconName: "stop-16"
+                buttonSize: Theme.buttonIconSize
+                accessibleName: qsTr("Desactivar escucha en segundo plano")
+                onClicked: root.backgroundDisableClicked()
             }
 
             // === Boton enviar (circular) ===
@@ -202,6 +245,19 @@ Item {
                 }
             }
         }
+    }
+
+    Text {
+        id: voiceLabel
+        objectName: "voiceStatusLabel"
+        anchors.top: bar.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(implicitWidth, parent.width)
+        wrapMode: Text.Wrap
+        horizontalAlignment: Text.AlignHCenter
+        font: Theme.font(Theme.fontSizeCaption, Theme.weightNormal, Theme.lsBody)
+        color: root.voiceStatus === "error" ? Theme.error : Theme.ink
+        text: (root.microphoneActive ? qsTr("Micrófono abierto · Hey Jarvis: %1 · ").arg(root.backgroundState) : root.backgroundEnabled ? qsTr("Hey Jarvis pausado · micrófono cerrado · ") : "") + (({wake_waiting: qsTr("Hey Jarvis activo · un dictado · pulsa para desactivar"), preparing: qsTr("Preparando voz…"), recording: qsTr("Grabando · pulsa para transcribir"), transcribing: qsTr("Transcribiendo en este equipo…"), transcript_ready: qsTr("Revisa el texto antes de enviarlo"), speaking: qsTr("Reproduciendo · puedes detener la voz"), cancelling: qsTr("Deteniendo voz…"), error: qsTr("Voz no disponible; revisa el aviso")})[root.voiceStatus] || (!root.voiceReady ? root.voiceUnavailableText : ""))
     }
 
     // === Menu adjuntar (popup propio con tokens Theme, no Menu nativo) ===
@@ -295,7 +351,7 @@ Item {
     // === Hint text (debajo) ===
     Text {
         id: hintText
-        anchors.top: bar.bottom
+        anchors.top: voiceLabel.bottom
         anchors.topMargin: 6
         anchors.horizontalCenter: parent.horizontalCenter
         // Envuelve a 360px en vez de elidirse: dos lineas maximo.

@@ -1,0 +1,86 @@
+{
+  "category": "AUTOMATED_AUDIO_FIXTURE",
+  "audible": "NOT_TESTED",
+  "physical_microphone": "NOT_TESTED",
+  "results": [
+    {
+      "test": "cancel-preparation",
+      "status": "PASS",
+      "cancel_ms": 16.155260000005,
+      "children_reaped": [
+        4902
+      ]
+    },
+    {
+      "test": "cancel-inference",
+      "status": "PASS",
+      "cancel_ms": 13.880026999913753,
+      "children_reaped": [
+        4904
+      ]
+    },
+    {
+      "test": "cancel-null-playback",
+      "status": "PASS",
+      "cancel_ms": 9.746509000024162
+    },
+    {
+      "test": "new-playback-after-cancel",
+      "status": "PASS"
+    },
+    {
+      "test": "session-change-during-playback",
+      "status": "PASS",
+      "cancel_ms": 9.28501500004586
+    },
+    {
+      "test": "mock-completed-turn-auto-read",
+      "status": "PASS",
+      "provider_calls": 1,
+      "persisted_text_unchanged": true
+    },
+    {
+      "test": "missing-model-text-independent",
+      "status": "PASS",
+      "error": "Recurso Piper ausente o no accesible"
+    }
+  ],
+  "idle": {
+    "seconds": 3.002,
+    "processes": {
+      "4895": {
+        "rss_kib": 29280,
+        "pss_kib": 24683,
+        "cpu_one_core_percent": 0.0
+      }
+    }
+  },
+  "provider_calls": [
+    {
+      "path": "/v1/chat/completions",
+      "messages": 2
+    }
+  ],
+  "observed_child_pids": [
+    4902,
+    4904,
+    4905,
+    4906,
+    4910,
+    4916,
+    4917,
+    4923,
+    4928,
+    4929,
+    4936,
+    4943,
+    4944,
+    5043,
+    5050
+  ],
+  "profile": "/var/tmp/kda-f4r3-piper-aqrh6h0h/coordinator-1792418013959739805",
+  "interpretation_notes": [
+    "cancel-inference is the original fixture label: 1.5s in Preparing does NOT establish that model load had finished; count as cancellation of active preparation only.",
+    "Null sink only. No speaker or human confirmation. This run used the first worker implementation before graph/prepacking measurement flags."
+  ]
+}

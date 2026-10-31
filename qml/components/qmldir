@@ -24,3 +24,4 @@ ToolDetailDialog 1.0 ToolDetailDialog.qml
 AuditDialog 1.0 AuditDialog.qml
 SettingsButton 1.0 SettingsButton.qml
 SettingsChoice 1.0 SettingsChoice.qml
+VoiceController 1.0 VoiceController.qml

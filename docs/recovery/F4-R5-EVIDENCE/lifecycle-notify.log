@@ -1,0 +1,14 @@
+PASS disable_preparing
+PASS disable_ready
+PASS cancel_actual_inference
+PASS session_change_during_playback
+PASS unexpected_worker_death_reaped
+PASS stalled_worker_cancel_kill_wait
+PASS llm_cancel_during_preparation_no_partial_audio
+PASS speaker_change_revokes
+PASS resource_change_inotify_revokes_idle
+PASS first_new_request_after_health_revocation_recovers
+PASS missing_model_no_orphan
+PASS repeated_toggle_no_preload
+PASS text_works_with_voice_disabled
+PASS application_shutdown_during_load

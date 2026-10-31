@@ -1,0 +1,10 @@
+{
+  "equal_pcm_wav_sha256": {
+    "silence": true,
+    "noise": true,
+    "tone": true
+  },
+  "source_a": "dev-canonical-tone/corpus-manifest.json",
+  "source_b": "vosk-final/corpus-manifest.json",
+  "speech_included": false
+}

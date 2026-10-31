@@ -1,0 +1,9 @@
+..Instancia privada preparada. El micrófono permanece apagado hasta pulsar Grabar.
+Estado: idle
+Estado: recording
+Estado: transcript_ready
+..........
+----------------------------------------------------------------------
+Ran 12 tests in 1.244s
+
+OK

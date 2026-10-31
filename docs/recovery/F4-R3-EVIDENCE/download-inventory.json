@@ -1,0 +1,140 @@
+{
+  "scope": "Metadata only, no components downloaded or installed",
+  "python": "3.14.8",
+  "platform": "x86_64",
+  "packages": [
+    {
+      "name": "piper-tts",
+      "version": "1.8.0",
+      "metadata_source": "https://pypi.org/pypi/piper-tts/1.8.0/json",
+      "filename": "piper_tts-1.8.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux_2_28_x86_64.whl",
+      "bytes": 34131442,
+      "url": "https://files.pythonhosted.org/packages/84/81/0112a7d510911f33018dc24023d1655bb772f84a4e95fe7f0180f66bbd17/piper_tts-1.8.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "25b4d3f31ff70c8fa7151908e00aaa5650cbdf16bca8fcf21299f3941b89a7d3",
+      "license_expression": null,
+      "license_metadata": "GPL-3.0-or-later",
+      "dependencies": [
+        "onnxruntime<2,>=1",
+        "pathvalidate<4,>=3"
+      ]
+    },
+    {
+      "name": "onnxruntime",
+      "version": "1.31.0",
+      "metadata_source": "https://pypi.org/pypi/onnxruntime/1.31.0/json",
+      "filename": "onnxruntime-1.31.0-cp314-cp314-manylinux_2_28_x86_64.whl",
+      "bytes": 23762993,
+      "url": "https://files.pythonhosted.org/packages/30/2e/5c6ec7e26a097e97ee70f2dee68b8ca4d9d26701f2f33c3f8ab585cb89fe/onnxruntime-1.31.0-cp314-cp314-manylinux_2_28_x86_64.whl",
+      "sha256": "e4efa4a1a0bb0b5173c6a3292c181d518b8323f9d56e978635d0c09d38c94d1a",
+      "license_expression": null,
+      "license_metadata": "MIT License",
+      "dependencies": [
+        "flatbuffers",
+        "numpy>=1.21.6",
+        "packaging",
+        "protobuf>=4.25.8"
+      ]
+    },
+    {
+      "name": "pathvalidate",
+      "version": "3.3.1",
+      "metadata_source": "https://pypi.org/pypi/pathvalidate/3.3.1/json",
+      "filename": "pathvalidate-3.3.1-py3-none-any.whl",
+      "bytes": 24305,
+      "url": "https://files.pythonhosted.org/packages/9a/70/875f4a23bfc4731703a5835487d0d2fb999031bd415e7d17c0ae615c18b7/pathvalidate-3.3.1-py3-none-any.whl",
+      "sha256": "5263baab691f8e1af96092fa5137ee17df5bdfbd6cff1fcac4d6ef4bc2e1735f",
+      "license_expression": null,
+      "license_metadata": "MIT License",
+      "dependencies": []
+    },
+    {
+      "name": "flatbuffers",
+      "version": "25.12.19",
+      "metadata_source": "https://pypi.org/pypi/flatbuffers/25.12.19/json",
+      "filename": "flatbuffers-25.12.19-py2.py3-none-any.whl",
+      "bytes": 26661,
+      "url": "https://files.pythonhosted.org/packages/e8/2d/d2a548598be01649e2d46231d151a6c56d10b964d94043a335ae56ea2d92/flatbuffers-25.12.19-py2.py3-none-any.whl",
+      "sha256": "7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4",
+      "license_expression": null,
+      "license_metadata": "Apache 2.0",
+      "dependencies": []
+    },
+    {
+      "name": "numpy",
+      "version": "2.5.4",
+      "metadata_source": "https://pypi.org/pypi/numpy/2.5.4/json",
+      "filename": "numpy-2.5.4-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "bytes": 16721710,
+      "url": "https://files.pythonhosted.org/packages/16/d5/928078d2b28f26829b138b4a6c3980045022fb409f570657a224ae60ef4e/numpy-2.5.4-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "d549420b8858885cea8838a727842249218b9c1da24dd517e25c9c7a948310a3",
+      "license_expression": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
+      "license_metadata": "",
+      "dependencies": []
+    },
+    {
+      "name": "packaging",
+      "version": "26.3",
+      "metadata_source": "https://pypi.org/pypi/packaging/26.3/json",
+      "filename": "packaging-26.3-py3-none-any.whl",
+      "bytes": 129956,
+      "url": "https://files.pythonhosted.org/packages/63/34/ba1c580383c9eada3711951fef0795c80b829a078d72188184bcab9dd527/packaging-26.3-py3-none-any.whl",
+      "sha256": "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+      "license_expression": "Apache-2.0 OR BSD-2-Clause",
+      "license_metadata": "",
+      "dependencies": []
+    },
+    {
+      "name": "protobuf",
+      "version": "7.36.2",
+      "metadata_source": "https://pypi.org/pypi/protobuf/7.36.2/json",
+      "filename": "protobuf-7.36.2-cp310-abi3-manylinux2014_x86_64.whl",
+      "bytes": 343223,
+      "url": "https://files.pythonhosted.org/packages/db/f3/3996583dd2906297a637af12114deddf7658af6e683fedb83be061983fb5/protobuf-7.36.2-cp310-abi3-manylinux2014_x86_64.whl",
+      "sha256": "89f23aa53c24553a2416fd4fd1ec06f74fa42b14b546d8883128813f775bbfd2",
+      "license_expression": null,
+      "license_metadata": "3-Clause BSD License",
+      "dependencies": []
+    }
+  ],
+  "voice": {
+    "repository": "rhasspy/piper-voices",
+    "revision": "c10ece1aade47bb51c153c893d14e5bf8e5b7117",
+    "files": [
+      {
+        "path": "es/es_ES/sharvard/medium/MODEL_CARD",
+        "size": 392,
+        "oid": "8ce8fb3966b2480974b07a27036b1962d12cad84"
+      },
+      {
+        "path": "es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx",
+        "size": 76733615,
+        "oid": "1d8d7097fc26b9fe9d2500c6f70a7fd3c3f66b8e",
+        "lfs": {
+          "oid": "40febfb1679c69a4505ff311dc136e121e3419a13a290ef264fdf43ddedd0fb1",
+          "size": 76733615,
+          "pointerSize": 133
+        }
+      },
+      {
+        "path": "es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx.json",
+        "size": 4903,
+        "oid": "b36c5ba1a23982f6e874989454ef0234951f29c4"
+      }
+    ],
+    "model_card": "https://huggingface.co/rhasspy/piper-voices/raw/c10ece1aade47bb51c153c893d14e5bf8e5b7117/es/es_ES/sharvard/medium/MODEL_CARD"
+  },
+  "wheel_total_bytes": 75140290,
+  "voice_total_bytes": 76738910,
+  "approved": false,
+  "total_bytes": 151879200,
+  "private_destination": "/var/tmp/kda-f4r3-piper-aqrh6h0h",
+  "installation": "Private venv only; bundled ensurepip 26.2.1, install wheels using venv interpreter with --no-index --require-hashes; no pip on system Python",
+  "license_notes": {
+    "engine": "GPL-3.0-or-later",
+    "voice_repository": "MIT metadata; retain voice-specific attribution",
+    "voice_dataset": "Model card says CC BY 3.0; do not imply dataset license proves all weights/third-party conditions"
+  },
+  "hardware_status": "x86_64/Python wheel tags match; N5000 native import/inference not yet tested",
+  "audio_playback_authorized": false,
+  "microphone_authorized": false
+}

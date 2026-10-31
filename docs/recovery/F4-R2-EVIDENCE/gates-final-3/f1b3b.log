@@ -1,0 +1,87 @@
+Evidencia privada: /var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f1b3b-check-1zt6j0eh
+Sin modelos ni proveedores remotos. Unitarios excluyen sólo los 2 tests externos F1A. QML es opt-in.
+fmt: exit 0; log /var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f1b3b-check-1zt6j0eh/fmt.log
+check: exit 0; log /var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f1b3b-check-1zt6j0eh/check.log
+clippy: exit 0; log /var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f1b3b-check-1zt6j0eh/clippy.log
+f1a-security: exit 0; log /var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f1b3b-check-1zt6j0eh/f1a-security.log
+f1b1: exit 0; log /var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f1b3b-check-1zt6j0eh/f1b1.log
+f1b2-conversation: exit 0; log /var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f1b3b-check-1zt6j0eh/f1b2-conversation.log
+f1b3a-persistence: exit 101; log /var/tmp/kda-f4r2-gates-yd5o5ki_/tmp/kda-f1b3b-check-1zt6j0eh/f1b3a-persistence.log
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.32s
+     Running tests/f1b3a_persistence.rs (target/debug/deps/f1b3a_persistence-47fb19770a5e27b9)
+
+running 27 tests
+test busy_database_times_out_without_effect_and_recovers ... ok
+test cancellation_before_dispatch_is_persisted_as_abandoned ... ok
+test crash_after_authorization ... ok
+test crash_after_dispatch ... ok
+test crash_after_intent ... ok
+test crash_after_result_before_turn_finalization ... ok
+test crash_before_intent ... ok
+test crash_during_audit_transaction ... ok
+test crash_during_cancellation ... ok
+test crash_during_sqlite_transaction ... ok
+test crash_worker ... ignored, controlled crash worker; invoked only by this suite
+test dispatched_marker_without_an_effect_is_still_unknown ... ok
+test http_manual_denial_is_persisted_and_write_failure_is_closed ... 
+running 1 test
+test http_manual_denial_is_persisted_and_write_failure_is_closed ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 26 filtered out; finished in 0.14s
+
+ok
+test http_result_write_failure_has_no_tool_success_or_done ... 
+running 1 test
+
+thread 'http_result_write_failure_has_no_tool_success_or_done' (104273) panicked at tests/f1b3a_persistence.rs:832:52:
+called `Result::unwrap()` on an `Err` value: database_backend_already_running
+
+Caused by:
+    Resource temporarily unavailable (os error 11)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test http_result_write_failure_has_no_tool_success_or_done ... FAILED
+
+failures:
+
+failures:
+    http_result_write_failure_has_no_tool_success_or_done
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 26 filtered out; finished in 0.17s
+
+FAILED
+test http_success_and_authenticated_journal_match_turn ... 
+running 1 test
+test http_success_and_authenticated_journal_match_turn ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 26 filtered out; finished in 0.17s
+
+ok
+test insert_and_dispatch_failures_never_execute ... ok
+test legacy_migration_preserves_messages_and_explicit_storage_settings ... ok
+test legacy_user_retry_remains_blocked_after_repeated_restarts ... ok
+test nonexistent_session_cannot_dispatch_or_persist_untrusted_metadata ... ok
+test persisted_failure_survives_without_claiming_effect_rollback ... ok
+test privacy_denials_transitions_and_schema_are_enforced ... ok
+test recovery_error_rolls_back_all_changes_and_next_start_can_recover ... ok
+test result_or_audit_failure_never_reports_success ... ok
+test retries_keep_the_original_user_link_and_cannot_hide_effects ... ok
+test retry_rechecks_unanswered_input_inside_transaction ... ok
+test second_backend_cannot_recover_live_operations ... ok
+test simulated_disk_full_fails_closed_and_rolls_back ... ok
+
+failures:
+
+---- http_result_write_failure_has_no_tool_success_or_done stdout ----
+
+thread 'http_result_write_failure_has_no_tool_success_or_done' (104271) panicked at tests/f1b3a_persistence.rs:666:5:
+assertion failed: cmd.status().unwrap().success()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    http_result_write_failure_has_no_tool_success_or_done
+
+test result: FAILED. 25 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 9.08s
+
+error: test failed, to rerun pass `--test f1b3a_persistence`
+

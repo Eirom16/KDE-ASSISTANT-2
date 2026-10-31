@@ -1,0 +1,13 @@
+isolation 0
+spanish-evaluator 0
+build 0
+internal-cli 0
+coordinator 0
+process 0
+tts-stream 0
+tts-selection 0
+stt-selection 0
+vosk-guards 0
+native-http 0
+audio 0
+qml 0

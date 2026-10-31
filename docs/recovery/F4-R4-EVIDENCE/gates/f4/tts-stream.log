@@ -1,0 +1,11 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.32s
+     Running unittests src/lib.rs (target/debug/deps/kde_assistant_lib-31e21eb49519a7fb)
+
+running 4 tests
+test backend::voice_pcm::tests::cancellation_and_timeout_reap_producer_and_backpressured_player ... ok
+test backend::voice_pcm::tests::malformed_or_unverified_pcm_never_starts_player ... ok
+test backend::voice_pcm::tests::producer_failure_after_pcm_and_total_limit_stop_the_player ... ok
+test backend::voice_pcm::tests::streaming_preserves_order_and_finishes_both_children ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 183 filtered out; finished in 0.87s
+

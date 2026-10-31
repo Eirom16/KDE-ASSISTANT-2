@@ -1,0 +1,9 @@
+{
+  "free_disk_bytes": 128612315136,
+  "meminfo": {
+    "MemAvailable": "4680580 kB",
+    "SwapFree": "5022212 kB"
+  },
+  "plan": "Native Release comparison using package-specific debug-assertions=false; Rust dev unchanged; cached dependencies offline; one job; no full release/LTO rebuild",
+  "estimate": "Only whisper-sys native rebuild and dependent linking expected; order of minutes, uncertain. Existing dev build took 45.6s; do not infer a precise release duration. Stop on build failure/OOM; no parallel heavy build."
+}

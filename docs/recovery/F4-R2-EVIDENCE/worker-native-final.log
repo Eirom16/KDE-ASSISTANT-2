@@ -1,0 +1,16 @@
+   Compiling kde-assistant v0.1.0 (/home/eirom/KDE-ASSISTANT-2)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.95s
+     Running tests/f4_worker.rs (target/debug/deps/f4_worker-9c6d122a65845475)
+
+running 2 tests
+test authorised_native_vosk_parity_cancel_timeout_and_reaping ... F4_NATIVE_VOSK_PARITY sample=short cold_worker_ms=1992.465 text_matches=true reaped=true
+F4_NATIVE_VOSK_PARITY sample=applications cold_worker_ms=2362.149 text_matches=true reaped=true
+F4_NATIVE_VOSK_PARITY sample=numbers cold_worker_ms=2321.234 text_matches=true reaped=true
+F4_NATIVE_VOSK_PARITY sample=long cold_worker_ms=3502.306 text_matches=true reaped=true
+F4_NATIVE_VOSK_CANCEL pid=96285 cpu_ticks_after_entry=2 cancel_wait_ms=12.479 reaped=true
+ok
+test authorised_whisper_worker_cancels_and_times_out_without_orphans ... F4_CONFIRMED_INFERENCE_CANCEL pid=96810 cpu_ticks_after_entry=4 cancel_wait_ms=15.416 reaped=true
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.53s
+

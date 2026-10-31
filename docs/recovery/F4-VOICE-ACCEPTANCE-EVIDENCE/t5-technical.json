@@ -1,0 +1,72 @@
+{
+  "trial": 5,
+  "technical": "FAILED",
+  "human": "PENDING",
+  "microphone": false,
+  "raw_audio_saved": false,
+  "backend_pid": 8094,
+  "ready_before_synthesis": true,
+  "events": [
+    {
+      "state": "idle",
+      "fast_state": "cold",
+      "mock_calls": 0,
+      "ms": 5.801768000310403
+    },
+    {
+      "state": "idle",
+      "fast_state": "preparing",
+      "mock_calls": 1,
+      "ms": 20103.507440000612
+    },
+    {
+      "state": "idle",
+      "fast_state": "ready",
+      "mock_calls": 1,
+      "ms": 26813.030349001565
+    },
+    {
+      "state": "preparing",
+      "fast_state": "synthesizing",
+      "mock_calls": 1,
+      "ms": 32155.710794000697
+    },
+    {
+      "state": "speaking",
+      "fast_state": "ready",
+      "mock_calls": 1,
+      "ms": 34663.50199699991
+    },
+    {
+      "state": "idle",
+      "fast_state": "ready",
+      "mock_calls": 1,
+      "ms": 40946.91582300038
+    }
+  ],
+  "ui_pids": [
+    8102
+  ],
+  "ready_observed_ms": 26813.030349001565,
+  "persisted_before_speaking": false,
+  "speaking_observed_ms": 34663.50199699991,
+  "mock_calls": 1,
+  "completed": 1,
+  "prepared_reuses": 1,
+  "turn_identity": {
+    "generation": "70470431-c099-4bff-8736-9e812bd6a9ca",
+    "session_id": "cde75469-669f-4acf-850b-3d1d83294ad8",
+    "turn_id": "83cd8faa-ab81-4314-9247-c846f3d84afe"
+  },
+  "identity_preserved": true,
+  "persisted_after_speaking": false,
+  "finished_ms": 40946.91582300038,
+  "failure_type": "AssertionError",
+  "ended": true,
+  "children_reaped": true,
+  "voice_pids": [
+    8150,
+    8173,
+    8176
+  ]
+}

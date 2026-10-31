@@ -1,0 +1,89 @@
+{
+  "baseline": {
+    "branch": "recovery/f4-voice-coordinator",
+    "head": "9544a58eba4b6adf6c6343c04db80813b084f76b",
+    "status": " M Cargo.lock\n M Cargo.toml\n M qml/Main.qml\n M qml/components/InputBar.qml\n M qml/components/SettingsDialog.qml\n M qml/components/TrayMenu.qml\n M qml/components/qmldir\n M scripts/validate_f35.py\n M src/backend/audio_capture.rs\n M src/backend/http_server.rs\n M src/backend/mod.rs\n M src/backend/speech_service.rs\n M src/backend/stt.rs\n M src/main.rs\n M src/models/config.rs\n M tests/qml/tst_f35_settings.qml\n?? docs/recovery/ARCHITECTURE.md\n?? docs/recovery/F1A-CHANGES.patch\n?? docs/recovery/F1A-CLOSURE.md\n?? docs/recovery/F1A-COMMIT-VALIDATION.md\n?? docs/recovery/F1A-DIFF-REVIEW.md\n?? docs/recovery/F1A-FINAL-REVIEW.md\n?? docs/recovery/F1A-REPORT.md\n?? docs/recovery/F1A-RESULTS.md\n?? docs/recovery/F1B1-CHANGES.patch\n?? docs/recovery/F1B1-CLOSURE.md\n?? docs/recovery/F1B1-COMMIT-VALIDATION.md\n?? docs/recovery/F1B2-CHANGES.patch\n?? docs/recovery/F1B2-CLOSURE.md\n?? docs/recovery/F1B2-COMMIT-VALIDATION.md\n?? docs/recovery/F1B3A-CHANGES.patch\n?? docs/recovery/F1B3A-CLOSURE.md\n?? docs/recovery/F1B3A-COMMIT-VALIDATION.md\n?? docs/recovery/F1B3B-CHANGES.patch\n?? docs/recovery/F1B3B-CLOSURE.md\n?? docs/recovery/F1B3B-COMMIT-VALIDATION.md\n?? docs/recovery/F2-CHANGES.patch\n?? docs/recovery/F2-CLOSURE.md\n?? docs/recovery/F2-COMMIT-VALIDATION.md\n?? docs/recovery/F2-W1-EVIDENCE/\n?? docs/recovery/F2-W1-HUMAN-ISSUES.md\n?? docs/recovery/F2-W1-HUMAN-REPORT.md\n?? docs/recovery/F2-W1-HUMAN-RESULTS.md\n?? docs/recovery/F2-W1-ISSUES.md\n?? docs/recovery/F2-W1-REPORT.md\n?? docs/recovery/F2-W1-RESULTS.md\n?? docs/recovery/F3-CHANGES.patch\n?? docs/recovery/F3-CLOSURE.md\n?? docs/recovery/F3-COMMIT-VALIDATION.md\n?? docs/recovery/F3-W1-ISSUES.md\n?? docs/recovery/F3-W1-REPORT.md\n?? docs/recovery/F3-W1-RESULTS.md\n?? docs/recovery/F3.5-CHANGES.patch\n?? docs/recovery/F3.5-CLOSURE.md\n?? docs/recovery/F3.5-COMMIT-VALIDATION.md\n?? docs/recovery/F4-EVIDENCE/\n?? docs/recovery/F4-ISSUES.md\n?? docs/recovery/F4-MODEL-MATRIX.md\n?? docs/recovery/F4-R-BENCHMARKS.md\n?? docs/recovery/F4-R-EVIDENCE/\n?? docs/recovery/F4-R-ISSUES.md\n?? docs/recovery/F4-R-REPORT.md\n?? docs/recovery/F4-R-RESULTS.md\n?? docs/recovery/F4-R2-BENCHMARKS.md\n?? docs/recovery/F4-R2-EVIDENCE/\n?? docs/recovery/F4-R2-ISSUES.md\n?? docs/recovery/F4-R2-REPORT.md\n?? docs/recovery/F4-R2-RESULTS.md\n?? docs/recovery/F4-REPORT.md\n?? docs/recovery/F4-RESULTS.md\n?? docs/recovery/F4-VOICE-CONTRACT.md\n?? docs/recovery/GATE-W1-ISSUES.md\n?? docs/recovery/GATE-W1-REPORT.md\n?? docs/recovery/GATE-W1-RESULTS.md\n?? docs/recovery/GATE-W1R-CHANGES.patch\n?? docs/recovery/GATE-W1R-CLOSURE.md\n?? docs/recovery/GATE-W1R-COMMIT-VALIDATION.md\n?? docs/recovery/RECOVERY-PLAN.md\n?? docs/recovery/REPORT.md\n?? docs/recovery/RESULTS.md\n?? qml/components/VoiceController.qml\n?? scripts/__pycache__/\n?? scripts/benchmark_f4.py\n?? scripts/benchmark_native_vosk_f4.py\n?? scripts/benchmark_vosk_f4.py\n?? scripts/compare_f4_spanish.py\n?? scripts/f4_pipewire.py\n?? scripts/f4_qml_lifecycle.py\n?? scripts/f4_runtime.py\n?? scripts/f4_safety.py\n?? scripts/f4_spanish.py\n?? scripts/live_f4_ptt.py\n?? scripts/record_f4_spanish.py\n?? scripts/test_f4_safety.py\n?? scripts/test_f4_spanish.py\n?? scripts/validate_f4.py\n?? scripts/validate_f4_r2.py\n?? scripts/voice_corpus.py\n?? src/backend/voice_coordinator.rs\n?? src/backend/voice_process.rs\n?? src/backend/voice_stt.rs\n?? src/backend/vosk.rs\n?? src/bin/bench_voice.rs\n?? tests/f4_audio.rs\n?? tests/f4_cli.rs\n?? tests/f4_worker.rs\n?? tests/fixtures/f4/\n?? tests/qml/tst_f4_voice.qml\n"
+  },
+  "results": [
+    {
+      "name": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check"
+      ],
+      "exit": 0,
+      "status": "PASS",
+      "seconds": 1.0688309510005638,
+      "plasma_own_windows": false
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "status": "PASS",
+      "seconds": 18.947441911997885,
+      "plasma_own_windows": false
+    },
+    {
+      "name": "clippy-legacy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--features",
+        "legacy-fixtures",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "status": "PASS",
+      "seconds": 19.5109866649982,
+      "plasma_own_windows": false
+    },
+    {
+      "name": "build",
+      "command": [
+        "cargo",
+        "build",
+        "--locked",
+        "--bin",
+        "kde-assistant",
+        "--bin",
+        "bench_voice"
+      ],
+      "exit": 0,
+      "status": "PASS",
+      "seconds": 9.753647788002127,
+      "plasma_own_windows": false
+    },
+    {
+      "name": "f4",
+      "command": [
+        "python3",
+        "-B",
+        "scripts/validate_f4.py",
+        "--output",
+        "/home/eirom/KDE-ASSISTANT-2/docs/recovery/F4-R2-EVIDENCE/gates-final-2/f4"
+      ],
+      "exit": 1,
+      "status": "FAIL",
+      "seconds": 83.11935049999738,
+      "plasma_own_windows": false
+    }
+  ],
+  "microphone": "NOT_USED_BY_GATES",
+  "audio_remote": "f4-unreachable-audio",
+  "home_tmp_xdg": "PRIVATE",
+  "provider": "SYNTHETIC_LOOPBACK_ONLY"
+}

@@ -1,0 +1,207 @@
+fmt: PASS (1.13s)
+check: PASS (33.51s)
+clippy: FAIL (13.34s)
+   Compiling kde-assistant v0.1.0 (/home/eirom/KDE-ASSISTANT-2)
+error: this loop could be written as a `while let` loop
+  --> src/backend/piper_resource_watch.rs:34:13
+   |
+34 | /             loop {
+35 | |                 let Some(parent) = child.parent() else { break };
+36 | |                 let Some(name) = child.file_name() else { break };
+37 | |                 directories
+...  |
+46 | |                 child = parent.to_owned();
+47 | |             }
+   | |_____________^ help: try: `while let Some(parent) = child.parent() { .. }`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#while_let_loop
+   = note: `-D clippy::while-let-loop` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::while_let_loop)]`
+
+error: could not compile `kde-assistant` (lib) due to 1 previous error
+
+clippy-fixtures: FAIL (12.78s)
+   Compiling kde-assistant v0.1.0 (/home/eirom/KDE-ASSISTANT-2)
+error: this loop could be written as a `while let` loop
+  --> src/backend/piper_resource_watch.rs:34:13
+   |
+34 | /             loop {
+35 | |                 let Some(parent) = child.parent() else { break };
+36 | |                 let Some(name) = child.file_name() else { break };
+37 | |                 directories
+...  |
+46 | |                 child = parent.to_owned();
+47 | |             }
+   | |_____________^ help: try: `while let Some(parent) = child.parent() { .. }`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#while_let_loop
+   = note: `-D clippy::while-let-loop` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::while_let_loop)]`
+
+error: could not compile `kde-assistant` (lib) due to 1 previous error
+
+f1a: PASS (93.64s)
+f1b1: PASS (13.68s)
+f1b2: PASS (16.85s)
+f1b3a: PASS (48.97s)
+f1b3b: PASS (56.86s)
+f2: PASS (13.31s)
+f2-http: PASS (41.4s)
+f2-qml: PASS (1.41s)
+gate-w1r: PASS (10.3s)
+{
+  "results": [
+    {
+      "name": "fmt",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 1.13,
+      "counts": null,
+      "log": "/var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f2-validation-vvi570_e/fmt.log"
+    },
+    {
+      "name": "check",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 33.51,
+      "counts": null,
+      "log": "/var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f2-validation-vvi570_e/check.log"
+    },
+    {
+      "name": "clippy",
+      "status": "FAIL",
+      "exit": 101,
+      "seconds": 13.34,
+      "counts": null,
+      "log": "/var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f2-validation-vvi570_e/clippy.log"
+    },
+    {
+      "name": "clippy-fixtures",
+      "status": "FAIL",
+      "exit": 101,
+      "seconds": 12.78,
+      "counts": null,
+      "log": "/var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f2-validation-vvi570_e/clippy-fixtures.log"
+    },
+    {
+      "name": "f1a",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 93.64,
+      "counts": {
+        "pass": 19,
+        "fail": 0,
+        "ignored": 1,
+        "filtered": 0
+      },
+      "log": "/var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f2-validation-vvi570_e/f1a.log"
+    },
+    {
+      "name": "f1b1",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 13.68,
+      "counts": {
+        "pass": 16,
+        "fail": 0,
+        "ignored": 1,
+        "filtered": 0
+      },
+      "log": "/var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f2-validation-vvi570_e/f1b1.log"
+    },
+    {
+      "name": "f1b2",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 16.85,
+      "counts": {
+        "pass": 20,
+        "fail": 0,
+        "ignored": 3,
+        "filtered": 0
+      },
+      "log": "/var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f2-validation-vvi570_e/f1b2.log"
+    },
+    {
+      "name": "f1b3a",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 48.97,
+      "counts": {
+        "pass": 26,
+        "fail": 0,
+        "ignored": 1,
+        "filtered": 0
+      },
+      "log": "/var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f2-validation-vvi570_e/f1b3a.log"
+    },
+    {
+      "name": "f1b3b",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 56.86,
+      "counts": {
+        "pass": 33,
+        "fail": 0,
+        "ignored": 3,
+        "filtered": 0
+      },
+      "log": "/var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f2-validation-vvi570_e/f1b3b.log"
+    },
+    {
+      "name": "f2",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 13.31,
+      "counts": {
+        "pass": 17,
+        "fail": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      "log": "/var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f2-validation-vvi570_e/f2.log"
+    },
+    {
+      "name": "f2-http",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 41.4,
+      "counts": {
+        "pass": 1,
+        "fail": 0,
+        "ignored": 0,
+        "filtered": 199
+      },
+      "log": "/var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f2-validation-vvi570_e/f2-http.log"
+    },
+    {
+      "name": "f2-qml",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 1.41,
+      "counts": {
+        "pass": 4,
+        "fail": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      "log": "/var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f2-validation-vvi570_e/f2-qml.log"
+    },
+    {
+      "name": "gate-w1r",
+      "status": "PASS",
+      "exit": 0,
+      "seconds": 10.3,
+      "counts": {
+        "pass": 12,
+        "fail": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      "log": "/var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f2-validation-vvi570_e/gate-w1r.log"
+    }
+  ],
+  "external_services": "NOT_TESTED",
+  "models_microphone": "NOT_TESTED",
+  "plasma_wayland": "NOT_TESTED"
+}

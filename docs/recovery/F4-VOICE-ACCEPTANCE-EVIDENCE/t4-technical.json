@@ -1,0 +1,44 @@
+{
+  "trial": 4,
+  "technical": "PASS",
+  "human": "PENDING",
+  "microphone": false,
+  "raw_audio_saved": false,
+  "backend_pid": 7395,
+  "ui_pids": [
+    7403
+  ],
+  "cancel_observed": true,
+  "voice_pids": [
+    7551,
+    7560
+  ],
+  "voice_processes_reaped": true,
+  "natural_completion": false,
+  "fast_completed": 1,
+  "same_backend_as_t2": false,
+  "failure": null,
+  "transitions": [
+    {
+      "state": "idle",
+      "generation": null,
+      "ms": 3.6527080001178547
+    },
+    {
+      "state": "preparing",
+      "generation": "1a6d11e5-2771-43cd-8254-f9bef28d4036",
+      "ms": 47562.39259600079
+    },
+    {
+      "state": "speaking",
+      "generation": "1a6d11e5-2771-43cd-8254-f9bef28d4036",
+      "ms": 58982.398107000336
+    },
+    {
+      "state": "idle",
+      "generation": null,
+      "ms": 61181.59047300014
+    }
+  ],
+  "ended": false
+}

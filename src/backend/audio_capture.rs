@@ -263,29 +263,45 @@ impl SimpleVad {
     }
 }
 
-/// Resamplea audio mono f32 desde `src_rate` a 16kHz (requerido por whisper).
-/// Usa interpolacion lineal. Retorna un buffer con la duracion preservada.
+/// Offline reference conversion. Production F4 capture uses PipeWire's resampler.
+/// A windowed sinc low-pass removes frequencies above the destination Nyquist.
+/// Invalid rates/non-finite input fail closed to an empty signal.
 pub fn resample_to_16k(samples: &[f32], src_rate: u32) -> Vec<f32> {
+    if !(8000..=192000).contains(&src_rate) || samples.iter().any(|s| !s.is_finite()) {
+        return Vec::new();
+    }
     if src_rate == 16000 {
         return samples.to_vec();
     }
-    if samples.len() < 2 {
-        return samples.to_vec();
-    }
     let ratio = src_rate as f64 / 16000.0;
-    let out_len = (samples.len() as f64 / ratio) as usize;
-    let mut out = Vec::with_capacity(out_len);
-    let last = samples.len() - 1;
-    for i in 0..out_len {
-        let src_idx = i as f64 * ratio;
-        let idx0 = src_idx.floor() as usize;
-        let idx1 = (idx0 + 1).min(last);
-        let frac = (src_idx - idx0 as f64) as f32;
-        let s0 = samples[idx0];
-        let s1 = samples[idx1];
-        out.push(s0 + (s1 - s0) * frac);
-    }
-    out
+    let cutoff = (16000.0 / src_rate as f64).min(1.0) * 0.94;
+    let radius = (32.0 / cutoff).ceil() as i64;
+    let out_len = (samples.len() as f64 / ratio).floor() as usize;
+    (0..out_len)
+        .map(|i| {
+            let position = i as f64 * ratio;
+            let center = position.floor() as i64;
+            let mut sum = 0.0;
+            let mut norm = 0.0;
+            for index in (center - radius)..=(center + radius) {
+                if index < 0 || index >= samples.len() as i64 {
+                    continue;
+                }
+                let distance = position - index as f64;
+                let x = std::f64::consts::PI * distance * cutoff;
+                let sinc = if x.abs() < 1e-12 { 1.0 } else { x.sin() / x };
+                let window = 0.5 + 0.5 * (std::f64::consts::PI * distance / radius as f64).cos();
+                let weight = sinc * window * cutoff;
+                sum += samples[index as usize] as f64 * weight;
+                norm += weight;
+            }
+            if norm.abs() > 1e-12 {
+                (sum / norm) as f32
+            } else {
+                0.0
+            }
+        })
+        .collect()
 }
 
 /// Convierte samples interleaved multi-canal a mono f32.
@@ -294,6 +310,9 @@ where
     T: cpal::Sample + cpal::SizedSample,
     f32: cpal::FromSample<T>,
 {
+    if channels == 0 {
+        return Vec::new();
+    }
     let mut mono = Vec::with_capacity(interleaved.len() / channels);
     for sample in interleaved.chunks(channels) {
         let sum: f32 = sample.iter().map(|s| f32::from_sample(*s)).sum();

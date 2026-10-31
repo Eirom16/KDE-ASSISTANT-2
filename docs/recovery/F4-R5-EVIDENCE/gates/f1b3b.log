@@ -1,0 +1,16 @@
+Evidencia privada: /var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f1b3b-check-73vh8zbw
+Sin modelos ni proveedores remotos. Unitarios excluyen sólo los 2 tests externos F1A. QML es opt-in.
+fmt: exit 0; log /var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f1b3b-check-73vh8zbw/fmt.log
+check: exit 0; log /var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f1b3b-check-73vh8zbw/check.log
+clippy: exit 0; log /var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f1b3b-check-73vh8zbw/clippy.log
+f1a-security: exit 0; log /var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f1b3b-check-73vh8zbw/f1a-security.log
+f1b1: exit 0; log /var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f1b3b-check-73vh8zbw/f1b1.log
+f1b2-conversation: exit 0; log /var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f1b3b-check-73vh8zbw/f1b2-conversation.log
+f1b3a-persistence: exit 0; log /var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f1b3b-check-73vh8zbw/f1b3a-persistence.log
+f1b3b-storage: exit 0; log /var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f1b3b-check-73vh8zbw/f1b3b-storage.log
+unit-safe: exit 0; log /var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f1b3b-check-73vh8zbw/unit-safe.log
+app-paths: exit 0; log /var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f1b3b-check-73vh8zbw/app-paths.log
+qml-offscreen: exit 0; log /var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f1b3b-check-73vh8zbw/qml-offscreen.log
+qml-f1b2-review: exit 0; log /var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f1b3b-check-73vh8zbw/qml-f1b2-review.log
+qml-f1b3b-recovery: exit 0; log /var/tmp/kda-f4r5-3y7zg8fs/gates-profile/tmp/kda-f1b3b-check-73vh8zbw/qml-f1b3b-recovery.log
+PASS de la selección F1B3B; Plasma Wayland y voz real NOT_TESTED.

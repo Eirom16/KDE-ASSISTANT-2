@@ -1,0 +1,29 @@
+    Checking kde-assistant v0.1.0 (/home/eirom/KDE-ASSISTANT-2)
+error: enclosing `Ok` and `?` operator are unneeded
+  --> src/backend/voice_pcm.rs:32:5
+   |
+32 |     Ok(serde_json::from_slice(&bytes).context("Estado Piper inválido")?)
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#needless_question_mark
+   = note: `-D clippy::needless-question-mark` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::needless_question_mark)]`
+help: remove the enclosing `Ok` and `?` operator
+   |
+32 -     Ok(serde_json::from_slice(&bytes).context("Estado Piper inválido")?)
+32 +     serde_json::from_slice(&bytes).context("Estado Piper inválido")
+   |
+
+error: manual implementation of `.is_multiple_of()`
+   --> src/backend/voice_pcm.rs:113:38
+    |
+113 |                     size <= FRAME && size % 2 == 0 && trace.pcm_bytes + size <= LIMIT,
+    |                                      ^^^^^^^^^^^^^ help: replace with: `size.is_multiple_of(2)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.99.0/index.html#manual_is_multiple_of
+    = note: `-D clippy::manual-is-multiple-of` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::manual_is_multiple_of)]`
+
+error: could not compile `kde-assistant` (lib) due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `kde-assistant` (lib test) due to 2 previous errors

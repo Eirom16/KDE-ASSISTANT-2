@@ -1,0 +1,22 @@
+********* Start testing of kde_assistant *********
+Config: Using QtTest library 6.12.0, Qt 6.12.0 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 16.2.1 20260810), cachyos unknown
+PASS   : kde_assistant::F35Settings::initTestCase()
+PASS   : kde_assistant::F35Settings::test_credential_and_provider_drafts()
+PASS   : kde_assistant::F35Settings::test_f35_audit_compact_error_footer()
+PASS   : kde_assistant::F35Settings::test_f35_audit_destination_requires_explicit_decision()
+PASS   : kde_assistant::F35Settings::test_f35_audit_pending_after_save()
+PASS   : kde_assistant::F35Settings::test_f35_audit_timeout_invalidates_late_ack()
+PASS   : kde_assistant::F35Settings::test_f4r2_local_engine_is_explicit_and_survives_save()
+PASS   : kde_assistant::F35Settings::test_f4r3_piper_runtime_and_speaker_survive_save()
+PASS   : kde_assistant::F35Settings::test_f4r5_fast_voice_off_migration_roundtrip_and_keyboard()
+PASS   : kde_assistant::F35Settings::test_failed_save_stays_open_then_success()
+PASS   : kde_assistant::F35Settings::test_keyboard_and_scroll()
+PASS   : kde_assistant::F35Settings::test_layout(desktop-dark)
+PASS   : kde_assistant::F35Settings::test_layout(desktop-light)
+PASS   : kde_assistant::F35Settings::test_layout(compact)
+PASS   : kde_assistant::F35Settings::test_layout(minimum)
+PASS   : kde_assistant::F35Settings::test_models_and_connection_buttons_do_not_save()
+PASS   : kde_assistant::F35Settings::test_read_failure_disables_save()
+PASS   : kde_assistant::F35Settings::cleanupTestCase()
+Totals: 18 passed, 0 failed, 0 skipped, 0 blacklisted, 4924ms
+********* Finished testing of kde_assistant *********

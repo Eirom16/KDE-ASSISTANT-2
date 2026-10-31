@@ -45,6 +45,7 @@ use tokio::sync::RwLock;
 #[derive(Clone)]
 pub struct AppState {
     pub desktop: Arc<crate::desktop::Desktop>,
+    pub native_voice: Arc<crate::backend::voice_coordinator::VoiceCoordinator>,
     pub http_port: u16,
     pub voice_enabled: Arc<std::sync::atomic::AtomicBool>,
     pub ai: Arc<AiService>,
@@ -131,12 +132,17 @@ async fn auth_layer(State(state): State<AppState>, req: Request, next: Next) -> 
             .into_response();
     }
     let optional_voice = path.starts_with("/api/dictate/")
-        || path.starts_with("/api/speak")
-        || path.starts_with("/api/audio/")
         || (path.starts_with("/api/voice/")
             && !matches!(
                 path.as_str(),
-                "/api/voice/stream" | "/api/voice/last" | "/api/voice/session"
+                "/api/voice/stream"
+                    | "/api/voice/last"
+                    | "/api/voice/session"
+                    | "/api/voice/status"
+                    | "/api/voice/start"
+                    | "/api/voice/stop"
+                    | "/api/voice/cancel"
+                    | "/api/voice/background"
             ));
     if optional_voice
         && !state
@@ -198,19 +204,13 @@ pub fn router(state: AppState) -> Router {
         .route("/api/agent/stream", get(agent_stream))
         .route("/api/agent/dashboard", get(agent_dashboard))
         .route("/api/voice/session", post(set_voice_session))
-        .route(
-            "/api/voice/calibration",
-            get(calibration_status)
-                .post(calibration_start)
-                .delete(calibration_stop),
-        )
-        .route("/api/voice/log", post(voice_log))
-        .route("/api/voice/barge_in", post(voice_barge_in))
-        .route("/api/voice/sidecar-event", post(voice_sidecar_event))
-        .route("/api/dictate/start", post(dictate_start))
-        .route("/api/dictate/stop", post(dictate_stop))
+        .route("/api/voice/status", get(native_voice_status))
+        .route("/api/voice/start", post(native_voice_start))
+        .route("/api/voice/stop", post(native_voice_stop))
+        .route("/api/voice/cancel", post(native_voice_cancel))
+        .route("/api/voice/background", post(native_background))
         .route("/api/speak", post(speak_text))
-        .route("/api/speak/stop", post(speak_stop))
+        .route("/api/speak/stop", post(native_voice_cancel))
         .route("/api/audio/devices", get(audio_devices))
         .route("/api/audio/device", post(set_audio_device))
         .route("/api/tools", get(list_tools))
@@ -257,6 +257,10 @@ async fn chat_cancel(
         return (StatusCode::NOT_FOUND, Json(serde_json::json!({"code":"turn_not_found","error":"El turno no pertenece a esta sesión o ya fue recogido"}))).into_response();
     };
     let requested = turn.cancel();
+    state
+        .native_voice
+        .cancel_turn(turn.session_id.as_deref(), &turn.id)
+        .await;
     let effective = state.chat_tasks.cancel_and_wait(&turn).await;
     (
         if effective {
@@ -288,20 +292,6 @@ async fn chat_regenerate(
         },
         true,
     )
-}
-
-#[derive(Debug, Deserialize)]
-pub struct VoiceLogRequest {
-    pub transcript: String,
-    #[serde(default)]
-    pub response: String,
-    #[serde(default)]
-    pub session_id: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct VoiceLogResponse {
-    pub session_id: String,
 }
 
 /// Ultimo intercambio por voz (para que la UI lo muestre en el chat).
@@ -435,6 +425,125 @@ async fn agent_dashboard(State(state): State<AppState>) -> impl IntoResponse {
     (StatusCode::OK, Json(snapshot))
 }
 
+// F4 native operations never accept audio, transcripts or tool results from clients.
+async fn native_voice_status(State(state): State<AppState>) -> impl IntoResponse {
+    let mut snapshot = serde_json::to_value(state.native_voice.snapshot()).unwrap_or_default();
+    snapshot["fast"] = serde_json::to_value(state.native_voice.fast_snapshot()).unwrap_or_default();
+    snapshot["background"] =
+        serde_json::to_value(state.native_voice.background_snapshot()).unwrap_or_default();
+    Json(snapshot)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NativeVoiceStart {
+    session_id: String,
+    scope: String,
+    #[serde(default)]
+    wake: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BackgroundControl {
+    action: String,
+    generation: Option<String>,
+}
+async fn native_background(
+    State(state): State<AppState>,
+    Json(body): Json<BackgroundControl>,
+) -> Response {
+    if body.action == "ack" {
+        let Some(id) = body.generation.filter(|g| g.len() == 36) else {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error":"Identidad inválida"})),
+            )
+                .into_response();
+        };
+        state.native_voice.acknowledge_background(&id);
+        return Json(state.native_voice.background_snapshot()).into_response();
+    }
+    let cfg = state.config.read().await.speech.clone();
+    match state.native_voice.set_background(&body.action, cfg).await {
+        Ok(status) => Json(status).into_response(),
+        Err(e) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({"error":e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+async fn native_voice_start(
+    State(state): State<AppState>,
+    Json(body): Json<NativeVoiceStart>,
+) -> Response {
+    let sessions = state.sessions.clone();
+    let sid = body.session_id.clone();
+    let exists = tokio::task::spawn_blocking(move || {
+        sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get_session(&sid)
+            .ok()
+            .flatten()
+            .is_some()
+    })
+    .await
+    .unwrap_or(false);
+    if !exists {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error":"Conversación no disponible"})),
+        )
+            .into_response();
+    }
+    let cfg = state.config.read().await.speech.clone();
+    let result = if body.wake {
+        state
+            .native_voice
+            .start_wake(body.session_id, body.scope, cfg)
+            .await
+    } else {
+        state
+            .native_voice
+            .start(body.session_id, body.scope, cfg)
+            .await
+    };
+    match result {
+        Ok(snapshot) => (StatusCode::ACCEPTED, Json(snapshot)).into_response(),
+        Err(e) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({"error":e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+async fn native_voice_stop(
+    State(state): State<AppState>,
+    Json(id): Json<crate::backend::voice_coordinator::Identity>,
+) -> Response {
+    match state.native_voice.stop(&id) {
+        Ok(()) => Json(state.native_voice.snapshot()).into_response(),
+        Err(e) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({"error":e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+async fn native_voice_cancel(
+    State(state): State<AppState>,
+    Json(id): Json<crate::backend::voice_coordinator::Identity>,
+) -> Response {
+    match state.native_voice.cancel(&id).await {
+        Ok(()) => Json(state.native_voice.snapshot()).into_response(),
+        Err(e) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({"error":e.to_string()})),
+        )
+            .into_response(),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct VoiceSessionRequest {
     #[serde(default)]
@@ -457,224 +566,8 @@ async fn set_voice_session(
             .flatten()
             .is_some()
     });
-    state.voice.set_active_session(valid.clone());
-    Json(serde_json::json!({ "session_id": valid }))
-}
-
-#[derive(Debug, Serialize)]
-struct CalibrationStatus {
-    required: bool,
-    count: u32,
-    target: u32,
-    active: bool,
-}
-
-async fn calibration_status(State(state): State<AppState>) -> impl IntoResponse {
-    let cfg = state.config.read().await;
-    Json(CalibrationStatus {
-        required: cfg.speech.wake_word_enrollment_required,
-        count: cfg.speech.wake_word_enrollment_count,
-        target: 3,
-        active: state.voice.calibration_active(),
-    })
-}
-
-/// Inicia una muestra de "hey jarvis". La captura permanece local y usa el
-/// mismo dispositivo ya abierto por AudioCapture.
-async fn calibration_start(State(state): State<AppState>) -> impl IntoResponse {
-    match state.voice.start_calibration() {
-        Ok(()) => (
-            StatusCode::OK,
-            Json(serde_json::json!({ "status": "recording" })),
-        ),
-        Err(e) => (
-            StatusCode::CONFLICT,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        ),
-    }
-}
-
-/// Guarda la muestra PCM resampleada a 16 kHz en data_local. Estas muestras
-/// sirven para auditoría/calibración local; no se suben ni se usan como una
-/// falsa re-entrenamiento del modelo ONNX.
-async fn calibration_stop(State(state): State<AppState>) -> impl IntoResponse {
-    if !state.voice.calibration_active() {
-        return (
-            StatusCode::CONFLICT,
-            Json(serde_json::json!({ "error": "no hay calibración activa" })),
-        );
-    }
-    let samples = state.voice.stop_calibration();
-    if samples.len() < 12_800 {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "muestra demasiado corta" })),
-        );
-    }
-    let dir = match dirs::data_local_dir() {
-        Some(d) => d.join("kde-assistant/wakeword/enrollment"),
-        None => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "sin data_local_dir" })),
-            )
-        }
-    };
-    if let Err(e) = tokio::fs::create_dir_all(&dir).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        );
-    }
-    let count = state.config.read().await.speech.wake_word_enrollment_count + 1;
-    let path = dir.join(format!("sample-{count}.wav"));
-    let write = tokio::task::spawn_blocking(move || {
-        let spec = hound::WavSpec {
-            channels: 1,
-            sample_rate: 16_000,
-            bits_per_sample: 16,
-            sample_format: hound::SampleFormat::Int,
-        };
-        let mut writer = hound::WavWriter::create(&path, spec)?;
-        for sample in samples {
-            writer.write_sample((sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)?;
-        }
-        writer.finalize()?;
-        Ok::<(), anyhow::Error>(())
-    })
-    .await;
-    match write {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            );
-        }
-    }
-    let mut cfg = state.config.write().await;
-    cfg.speech.wake_word_enrollment_count = count.min(3);
-    if cfg.speech.wake_word_enrollment_count >= 3 {
-        cfg.speech.wake_word_enrollment_required = false;
-    }
-    let status = serde_json::json!({
-        "required": cfg.speech.wake_word_enrollment_required,
-        "count": cfg.speech.wake_word_enrollment_count,
-        "target": 3,
-        "active": false,
-    });
-    if let Err(e) = cfg.save().await {
-        log::warn!("no se pudo guardar estado de calibración: {e}");
-    }
-    (StatusCode::OK, Json(status))
-}
-
-/// Payload empujado por el sidecar de voz (Python/Pipecat).
-/// Eventos: {"type":"state","state":...} | {"type":"level","level":f32} |
-///          {"type":"exchange","transcript":..,"response":..} .
-/// Todos se reenvian al SSE /api/voice/stream (UI/personaje) sin cambios.
-#[derive(Debug, serde::Deserialize)]
-pub struct SidecarEvent {
-    #[serde(rename = "type")]
-    pub kind: String,
-    #[serde(default)]
-    pub state: Option<String>,
-    #[serde(default)]
-    pub level: Option<f32>,
-    #[serde(default)]
-    pub transcript: Option<String>,
-    #[serde(default)]
-    pub response: Option<String>,
-    #[serde(default)]
-    pub name: Option<String>,
-}
-
-async fn voice_sidecar_event(
-    State(state): State<AppState>,
-    Json(ev): Json<SidecarEvent>,
-) -> impl IntoResponse {
-    match ev.kind.as_str() {
-        "state" => {
-            if let Some(s) = ev.state.as_deref() {
-                // El sidecar manda estados ricos; la UI consume los 4 legacy.
-                // bridge: los estados del sidecar van a emit_state y cambian
-                // la VoiceState via emit_state. Mapeo directo:
-                let sv = match s {
-                    "wake_detected" => crate::backend::voice_state::VoiceState::WakeDetected,
-                    "listening" => crate::backend::voice_state::VoiceState::Listening,
-                    "thinking" => crate::backend::voice_state::VoiceState::Thinking,
-                    "speaking" => crate::backend::voice_state::VoiceState::Responding,
-                    "interrupted" => crate::backend::voice_state::VoiceState::Interrupted,
-                    "tool_call" => crate::backend::voice_state::VoiceState::ToolExecuting,
-                    "idle" => crate::backend::voice_state::VoiceState::Idle,
-                    _ => crate::backend::voice_state::VoiceState::Idle,
-                };
-                state.voice.emit_state(sv);
-            }
-        }
-        "level" => {
-            if let Some(l) = ev.level {
-                state.voice.emit_level_from_sidecar(l);
-            }
-        }
-        "exchange" => {
-            let transcript = ev.transcript.unwrap_or_default();
-            let response = ev.response.unwrap_or_default();
-            if !transcript.trim().is_empty() {
-                state
-                    .voice
-                    .set_last_exchange_from_sidecar(transcript, response);
-            }
-        }
-        _ => {}
-    }
-    (StatusCode::OK, Json(serde_json::json!({ "ok": true })))
-}
-
-/// Persiste un intercambio por voz en una sesion (la crea si no hay).
-/// Retorna el session_id para que la UI lo seleccione.
-async fn voice_log(
-    State(state): State<AppState>,
-    Json(body): Json<VoiceLogRequest>,
-) -> impl IntoResponse {
-    if body.transcript.trim().is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "transcript vacio" })),
-        );
-    }
-    let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
-    // Reusar la sesion indicada si existe; si no, la sesion unica de voz
-    // (evita fragmentar el historial en N sesiones homonimas).
-    let sid = match body.session_id.as_deref() {
-        Some(id) if sessions.get_session(id).ok().flatten().is_some() => id.to_string(),
-        _ => match sessions.get_or_create_voice_session() {
-            Ok(s) => s.id,
-            Err(e) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                )
-            }
-        },
-    };
-    let _ = sessions.add_message(&sid, &Message::user(body.transcript.clone()));
-    if !body.response.trim().is_empty() {
-        let _ = sessions.add_message(&sid, &Message::assistant(body.response.clone()));
-    }
-    drop(sessions);
-    // F5: resumir el hilo en segundo plano si toca.
-    maybe_summarize(&state, &sid);
-    (
-        StatusCode::OK,
-        Json(serde_json::json!({ "session_id": sid })),
-    )
+    let scope = state.native_voice.select_session(valid.clone()).await;
+    Json(serde_json::json!({ "session_id": valid, "scope": scope }))
 }
 
 #[derive(Debug, Deserialize)]
@@ -732,35 +625,32 @@ async fn delete_fact(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SpeakRequest {
+    pub session_id: String,
+    pub scope: String,
     pub text: String,
 }
 
-/// Sintetiza y reproduce un texto (fire-and-forget para el boton reproducir).
-async fn speak_text(
-    State(state): State<AppState>,
-    Json(body): Json<SpeakRequest>,
-) -> impl IntoResponse {
-    if body.text.trim().is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "texto vacio" })),
-        );
+/// Manual reading is scoped to the selected conversation; it never starts a turn.
+async fn speak_text(State(state): State<AppState>, Json(body): Json<SpeakRequest>) -> Response {
+    let cfg = state.config.read().await.speech.clone();
+    match state
+        .native_voice
+        .speak(body.session_id, None, Some(body.scope), body.text, cfg)
+        .await
+    {
+        Ok(snapshot) => (StatusCode::ACCEPTED, Json(snapshot)).into_response(),
+        Err(e) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({"error":e.to_string()})),
+        )
+            .into_response(),
     }
-    let speech = state.speech.clone();
-    let text = body.text.clone();
-    tokio::spawn(async move {
-        if let Err(e) = speech.speak(&text).await {
-            log::warn!("POST /api/speak fallo: {e}");
-        }
-    });
-    (
-        StatusCode::ACCEPTED,
-        Json(serde_json::json!({ "status": "ok" })),
-    )
 }
 
 /// POST simple al sidecar de voz (127.0.0.1:8766), devolviendo su JSON.
+#[cfg(test)]
 async fn sidecar_post(path: &str) -> anyhow::Result<serde_json::Value> {
     let client = reqwest::Client::new();
     let resp = client
@@ -771,30 +661,11 @@ async fn sidecar_post(path: &str) -> anyhow::Result<serde_json::Value> {
     Ok(resp.json().await?)
 }
 
-/// Detiene la reproduccion TTS en curso (barge-in via hotkey/UI).
-async fn speak_stop(State(state): State<AppState>) -> impl IntoResponse {
-    state.speech.request_stop();
-    // Si el VoicePipeline esta hablando, tambien hacer barge-in silencioso
-    state.voice.barge_in_silent();
-    (
-        StatusCode::OK,
-        Json(serde_json::json!({ "status": "stopped" })),
-    )
-}
-
-/// Barge-in por voz: interrumpe TTS y reinicia escucha.
-async fn voice_barge_in(State(state): State<AppState>) -> impl IntoResponse {
-    state.voice.barge_in_silent();
-    (
-        StatusCode::OK,
-        Json(serde_json::json!({ "status": "barge_in" })),
-    )
-}
-
 /// Dictado al input del chat: empieza a grabar (solo STT, sin LLM ni TTS).
 /// Cuando el sidecar Python posee el microfono (option por defecto), este
 /// handler solo reenvia la peticion; el pipeline local queda como respaldo.
 /// Rechaza si hay una captura activa (dictado o pipeline de voz).
+#[cfg(test)]
 async fn dictate_start(State(state): State<AppState>) -> impl IntoResponse {
     use std::sync::atomic::Ordering;
     if state.sidecar_active.load(Ordering::SeqCst) {
@@ -834,6 +705,7 @@ async fn dictate_start(State(state): State<AppState>) -> impl IntoResponse {
 
 /// Dictado al input del chat: para la grabación y transcribe con Whisper.
 /// Retorna `{ transcript }` (puede estar vacío si no se escuchó nada).
+#[cfg(test)]
 async fn dictate_stop(State(state): State<AppState>) -> impl IntoResponse {
     use std::sync::atomic::Ordering;
     if state.sidecar_active.load(Ordering::SeqCst) {
@@ -1170,8 +1042,16 @@ async fn list_tool_audit(
 
 /// Dispositivos de entrada + selección actual (F3-3).
 async fn audio_devices(State(state): State<AppState>) -> impl IntoResponse {
-    let devices =
-        crate::backend::audio_capture::AudioCapture::list_input_devices().unwrap_or_default();
+    let devices = match crate::backend::voice_process::devices().await {
+        Ok(devices) => devices,
+        Err(_) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error":"No se pudo consultar PipeWire"})),
+            )
+                .into_response()
+        }
+    };
     let current = state.config.read().await.speech.mic_device.clone();
     Json(serde_json::json!({ "devices": devices, "current": current })).into_response()
 }
@@ -1189,8 +1069,9 @@ async fn set_audio_device(
 ) -> impl IntoResponse {
     let name = body.name.trim().to_string();
     if !name.is_empty() {
-        let devices =
-            crate::backend::audio_capture::AudioCapture::list_input_devices().unwrap_or_default();
+        let devices = crate::backend::voice_process::devices()
+            .await
+            .unwrap_or_default();
         if !devices.iter().any(|d| d == &name) {
             return (
                 StatusCode::BAD_REQUEST,
@@ -1290,12 +1171,21 @@ async fn get_config(State(state): State<AppState>) -> impl IntoResponse {
         .collect::<Vec<_>>());
     public["capabilities"] = serde_json::json!({
         "text": "ready", "voice": if state.voice_enabled.load(std::sync::atomic::Ordering::Relaxed) { "active" } else { "deferred" },
-        "whisper_model_present": state.speech.stt_model_exists(),
-        "piper_binary_present": crate::backend::tts::piper::PiperEngine::find_binary().is_ok(),
+        "whisper_model_present": crate::backend::speech_service::whisper_model_path_for(&cfg.speech.stt_model).is_ok_and(|path| path.is_file()),
+        "stt_engine": cfg.speech.stt_engine,
+        "stt_model_present": crate::backend::voice_stt::Selection::from_config(&cfg.speech).is_ok_and(|selected| selected.paths_present()),
+        "piper_binary_present": crate::backend::voice_tts::Selection::from_config(&cfg.speech).is_ok_and(|selected| selected.paths_present()),
+        "piper_runtime": "explicit_private_python_314_piper_180",
+        "piper_initialized": matches!(state.native_voice.fast_snapshot().state,
+            crate::backend::warm_piper::State::Ready | crate::backend::warm_piper::State::Synthesizing),
+        "piper_fast_supported": cfg!(all(target_os="linux",target_arch="x86_64")),
+        "piper_lifecycle": if cfg.speech.piper_fast {"optional_managed_worker"} else {"disposable_worker_no_backend_model"},
         "microphone": "not_initialized_by_text_startup",
         "onnx_runtime": "deferred",
-        "wakeword": "deferred",
-        "piper_initialized": state.speech.tts_initialized(),
+        "wakeword": "openwakeword_background_opt_in",
+        "native_dictation": true,
+        "wake_word": "optional_off_by_default",
+        "remote_audio": "disabled",
         "downloads_on_startup": false,
         "detail": "Voz opcional diferida; no se carga Piper, ONNX ni micrófono al iniciar texto"
     });
@@ -1397,6 +1287,7 @@ async fn update_config(
     match new_cfg.save().await {
         Ok(()) => {
             *cfg = new_cfg;
+            state.native_voice.configure(&cfg.speech).await;
             (StatusCode::OK, Json(serde_json::json!({"status":"ok"})))
         }
         Err(_) => (
@@ -1663,6 +1554,7 @@ fn start_turn(
     let turn = state.chat_tasks.reserve(req.session_id.clone())?;
     let (out_tx, out_rx) = mpsc::channel::<TurnEvent>(256);
     let owned = turn.clone();
+    let voice_scope = state.native_voice.scope_for(turn.session_id.as_deref());
     let registry = state.chat_tasks.clone();
     let task = tokio::spawn(async move {
         // Reserve delivery space for exactly one terminal event before data.
@@ -1715,6 +1607,12 @@ fn start_turn(
                 Ok(state.config.read().await.clone())
             })
             .await?;
+            if let (Some(session), Some(scope)) = (&owned.session_id, &voice_scope) {
+                state
+                    .native_voice
+                    .prepare_for_turn(session, &owned.id, scope, &cfg.speech)
+                    .await;
+            }
             let (tx, mut rx) = mpsc::channel::<StreamEvent>(256);
             let agent = state.ai.run_agent_for_turn(
                 messages,
@@ -1775,19 +1673,6 @@ fn start_turn(
                     }
                 }
             }
-            if cfg.speech.auto_speak
-                && state
-                    .voice_enabled
-                    .load(std::sync::atomic::Ordering::Relaxed)
-                && !outcome.response.trim().is_empty()
-            {
-                let speech = owned
-                    .dispatch(state.speech.speak(&outcome.response))
-                    .await?;
-                if let Err(error) = speech {
-                    log::warn!("TTS de respuesta escrita: {error}");
-                }
-            }
             owned.complete(|| {
                 state
                     .sessions
@@ -1799,6 +1684,21 @@ fn start_turn(
                         &outcome.new_messages,
                     )
             })?;
+            if cfg.speech.auto_speak && voice_scope.is_some() && !outcome.response.trim().is_empty()
+            {
+                if let Some(sid) = &owned.session_id {
+                    let _ = state
+                        .native_voice
+                        .speak(
+                            sid.clone(),
+                            Some(owned.id.clone()),
+                            voice_scope.clone(),
+                            outcome.response.clone(),
+                            cfg.speech.clone(),
+                        )
+                        .await;
+                }
+            }
             Ok::<_, anyhow::Error>(outcome.response)
         };
         // A closed HTTP body cancels even before provider headers/first token.
@@ -1808,10 +1708,29 @@ fn start_turn(
             owned.cancel();
             std::future::pending::<()>().await
         };
+        let revoke_preparation = async {
+            owned.cancellation().await;
+            // The registry wakes on every terminal state, including success.
+            // A completed turn is precisely the one allowed to read its final text.
+            if owned.state() != TurnState::Completed {
+                state
+                    .native_voice
+                    .cancel_turn(owned.session_id.as_deref(), &owned.id)
+                    .await;
+            }
+            std::future::pending::<()>().await
+        };
         let result = tokio::select! {
+            _=revoke_preparation=>unreachable!(),
             result = std::panic::AssertUnwindSafe(work).catch_unwind() => result.unwrap_or_else(|_|Err(anyhow::anyhow!("supervisor_panic"))),
             _ = disconnect => unreachable!(),
         };
+        if owned.state() != TurnState::Completed {
+            state
+                .native_voice
+                .cancel_turn(owned.session_id.as_deref(), &owned.id)
+                .await;
+        }
         let terminal = if owned.state() == TurnState::Cancelling {
             let _ = owned.transition(TurnState::Cancelled);
             emit(
@@ -2077,37 +1996,6 @@ async fn build_messages(
 
 /// Revisa si toca resumir el hilo y lo lanza en segundo plano (F5).
 /// Artefacto legacy opcional; nunca sustituye el contexto conversacional.
-fn maybe_summarize(state: &AppState, session_id: &str) {
-    let enabled = state
-        .config
-        .try_read()
-        .map(|c| c.memory.auto_summarize)
-        .unwrap_or(false);
-    if !enabled {
-        return;
-    }
-    let (count, summarized) = {
-        let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        let count = sessions.count_messages(session_id).unwrap_or(0);
-        let summarized = sessions
-            .get_summary(session_id)
-            .map(|(_, c)| c)
-            .unwrap_or(0);
-        (count, summarized)
-    };
-    if !crate::backend::session_manager::should_summarize(count, summarized) {
-        return;
-    }
-    let state2 = state.clone();
-    let sid = session_id.to_string();
-    tokio::spawn(async move {
-        if let Err(e) = summarize_session(&state2, &sid).await {
-            log::warn!("Resumen automático falló: {e}");
-        }
-    });
-}
-
-/// Resume el tramo no resumido (dejando los últimos 20 intactos) y lo guarda.
 async fn summarize_session(state: &AppState, session_id: &str) -> anyhow::Result<()> {
     let (prev_summary, prev_count, chunk) = {
         let sessions = state.sessions.lock().unwrap_or_else(|e| e.into_inner());
@@ -2204,7 +2092,7 @@ mod tests {
     use crate::backend::tool_executor::ToolExecutor;
     use crate::backend::voice_pipeline::VoicePipeline;
 
-    async fn test_state() -> AppState {
+    pub(super) async fn test_state() -> AppState {
         let cfg = Arc::new(RwLock::new(Config::default()));
         let sessions = Arc::new(Mutex::new(SessionManager::in_memory_for_tests().unwrap()));
         let ai = Arc::new(AiService::new(cfg.clone()).await.unwrap());
@@ -2223,6 +2111,7 @@ mod tests {
         ));
         AppState {
             desktop: Arc::new(crate::desktop::Desktop::default()),
+            native_voice: Arc::new(crate::backend::voice_coordinator::VoiceCoordinator::default()),
             http_port: 8765,
             voice_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             ai,
@@ -2634,6 +2523,7 @@ mod tests {
 
     /// Dictado: start cuando la voz del asistente ya graba -> 409 Conflict.
     #[tokio::test]
+    #[cfg(test)]
     async fn dictate_start_conflicts_with_voice_pipeline() {
         let state = test_state().await;
         state.voice.start_recording(48000);
@@ -2644,6 +2534,7 @@ mod tests {
 
     /// Dictado: stop sin dictado activo -> 409 Conflict.
     #[tokio::test]
+    #[cfg(test)]
     async fn dictate_stop_without_start_conflicts() {
         let state = test_state().await;
         let resp = dictate_stop(State(state)).await.into_response();
@@ -2667,5 +2558,190 @@ mod tests {
         assert!(!state
             .dictation_active
             .load(std::sync::atomic::Ordering::SeqCst));
+    }
+}
+
+#[cfg(test)]
+mod f4_native_tests {
+    use super::*;
+    use crate::backend::voice_coordinator::{Identity, State as VoiceState};
+    #[tokio::test]
+    async fn background_control_fails_closed_before_capture_and_has_no_chat_authority() {
+        let state = super::tests::test_state().await;
+        let sid = state
+            .sessions
+            .lock()
+            .unwrap()
+            .create_session("background offline")
+            .unwrap()
+            .id;
+        state.native_voice.select_session(Some(sid.clone())).await;
+        state.config.write().await.speech.stt_model = "/nonexistent/background-stt.bin".into();
+        assert!(!state.native_voice.background_snapshot().enabled);
+        assert!(serde_json::from_value::<BackgroundControl>(
+            serde_json::json!({"action":"enable","audio":"injected"})
+        )
+        .is_err());
+        let response = native_background(
+            State(state.clone()),
+            Json(BackgroundControl {
+                action: "enable".into(),
+                generation: None,
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while !state.native_voice.background_snapshot().paused {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let status = state.native_voice.background_snapshot();
+        assert!(status.enabled && status.paused && !status.microphone_active);
+        assert!(status.capture_pid.is_none() && status.detector_pid.is_none());
+        assert_eq!(status.state, "error");
+        assert_eq!(
+            state.sessions.lock().unwrap().count_messages(&sid).unwrap(),
+            0
+        );
+        assert!(state
+            .sessions
+            .lock()
+            .unwrap()
+            .list_tool_audit(10)
+            .unwrap()
+            .is_empty());
+        assert!(state.chat_tasks.current(&Some(sid)).is_none());
+        native_background(
+            State(state.clone()),
+            Json(BackgroundControl {
+                action: "disable".into(),
+                generation: None,
+            }),
+        )
+        .await;
+        assert!(!state.native_voice.background_snapshot().enabled);
+        state.native_voice.shutdown().await;
+    }
+    #[tokio::test]
+    async fn wake_is_explicit_scoped_and_has_no_chat_or_tool_authority() {
+        let state = super::tests::test_state().await;
+        let sid = state
+            .sessions
+            .lock()
+            .unwrap()
+            .create_session("synthetic wake")
+            .unwrap()
+            .id;
+        let scope = state.native_voice.select_session(Some(sid.clone())).await;
+        state.config.write().await.speech.stt_model = "/nonexistent/wake-no-stt.bin".into();
+        assert!(!state.config.read().await.speech.wake_word_enabled);
+        assert!(
+            serde_json::from_value::<NativeVoiceStart>(serde_json::json!({
+                "session_id":sid, "scope":scope, "wake":true, "transcript":"Abre Dolphin"
+            }))
+            .is_err()
+        );
+        let response = native_voice_start(
+            State(state.clone()),
+            Json(NativeVoiceStart {
+                session_id: sid.clone(),
+                scope,
+                wake: true,
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+        assert_eq!(state.native_voice.snapshot().state, VoiceState::Error);
+        assert_eq!(
+            state.sessions.lock().unwrap().count_messages(&sid).unwrap(),
+            0
+        );
+        assert!(state.chat_tasks.current(&Some(sid)).is_none());
+        assert!(state
+            .sessions
+            .lock()
+            .unwrap()
+            .list_tool_audit(10)
+            .unwrap()
+            .is_empty());
+        state.native_voice.shutdown().await;
+    }
+    #[tokio::test]
+    async fn dictation_requires_existing_selected_session_and_has_no_chat_effect() {
+        let state = super::tests::test_state().await;
+        let missing = native_voice_start(
+            State(state.clone()),
+            Json(NativeVoiceStart {
+                wake: false,
+                session_id: "missing".into(),
+                scope: "missing".into(),
+            }),
+        )
+        .await;
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+        let sid = state
+            .sessions
+            .lock()
+            .unwrap()
+            .create_session("synthetic F4")
+            .unwrap()
+            .id;
+        let wrong = native_voice_start(
+            State(state.clone()),
+            Json(NativeVoiceStart {
+                wake: false,
+                session_id: sid.clone(),
+                scope: "wrong".into(),
+            }),
+        )
+        .await;
+        assert_eq!(wrong.status(), StatusCode::CONFLICT);
+        let scope = state.native_voice.select_session(Some(sid.clone())).await;
+        state.config.write().await.speech.stt_model = "/nonexistent/f4-no-model.bin".into();
+        state.config.write().await.speech.stt_backend = "api".into();
+        let started = native_voice_start(
+            State(state.clone()),
+            Json(NativeVoiceStart {
+                wake: false,
+                session_id: sid.clone(),
+                scope,
+            }),
+        )
+        .await;
+        assert_eq!(started.status(), StatusCode::ACCEPTED);
+        tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+        assert_eq!(state.native_voice.snapshot().state, VoiceState::Error);
+        assert_eq!(
+            state.sessions.lock().unwrap().count_messages(&sid).unwrap(),
+            0
+        );
+        assert!(state.chat_tasks.current(&Some(sid.clone())).is_none());
+        state.native_voice.shutdown().await;
+    }
+    #[tokio::test]
+    async fn wrong_identity_cannot_stop_or_cancel_voice_and_no_legacy_injection_routes() {
+        let state = super::tests::test_state().await;
+        let id = Identity {
+            session_id: "wrong".into(),
+            generation: "wrong".into(),
+            turn_id: None,
+        };
+        assert_eq!(
+            native_voice_stop(State(state.clone()), Json(id.clone()))
+                .await
+                .status(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            native_voice_cancel(State(state.clone()), Json(id))
+                .await
+                .status(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(state.native_voice.snapshot().state, VoiceState::Idle);
     }
 }

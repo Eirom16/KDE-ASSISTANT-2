@@ -1,0 +1,14 @@
+Evidence: /tmp/kda-f3-validation-4tde78l_
+Traceback (most recent call last):
+  File "/home/eirom/KDE-ASSISTANT-2/scripts/validate_f3.py", line 97, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/home/eirom/KDE-ASSISTANT-2/scripts/validate_f3.py", line 84, in main
+    results.extend(runtime_tests(repo, evidence, env, plasma=args.plasma))
+                   ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/eirom/KDE-ASSISTANT-2/scripts/f3_runtime.py", line 325, in runtime_tests
+    wait_for(activate)
+    ~~~~~~~~^^^^^^^^^^
+  File "/home/eirom/KDE-ASSISTANT-2/scripts/f3_runtime.py", line 33, in wait_for
+    raise AssertionError(f"timeout: {last}")
+AssertionError: timeout: None

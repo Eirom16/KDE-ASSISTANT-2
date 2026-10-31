@@ -1,0 +1,27 @@
+{
+  "trial": 5,
+  "fixture_assertion": "FAILED_PRESERVED",
+  "diagnosis": "User prompt omitted final period; exact response persisted correctly.",
+  "expected_prompt_chars": 22,
+  "actual_prompt_chars": 21,
+  "exact_prompt_match": false,
+  "prompt_matches_without_period": true,
+  "persisted_response_exact": true,
+  "response_sha256": "60931203d05f163ac0dde53d88857b27943a4cf6f18cf06e870b398243db94ff",
+  "message_roles": [
+    "user",
+    "assistant"
+  ],
+  "turn_states": [
+    "completed"
+  ],
+  "tool_audit_count": 0,
+  "tool_fields_absent": true,
+  "ready_before_synthesis": true,
+  "mock_calls": 1,
+  "prepared_reuses": 1,
+  "completed_syntheses": 1,
+  "backend_and_children_absent": true,
+  "persisted_response_independent_hash_during_playback": "NOT_RECORDED",
+  "no_repeat": true
+}

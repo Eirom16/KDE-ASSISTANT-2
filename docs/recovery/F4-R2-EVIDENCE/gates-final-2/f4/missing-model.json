@@ -1,0 +1,10 @@
+{
+  "state": "error",
+  "identity": {
+    "session_id": "c95d3e32-12d6-41f7-8279-aceb96b20f15",
+    "generation": "28ae889f-c1aa-4ee1-8b07-751d58ff55e4",
+    "turn_id": null
+  },
+  "transcript": "",
+  "error": "Modelo STT no instalado; instala manualmente un modelo Whisper multiling\u00fce"
+}

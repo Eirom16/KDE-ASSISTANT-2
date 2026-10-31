@@ -1,0 +1,199 @@
+{
+  "base": "d8a6972b5bc3977408c8d0956fce3196623d5458",
+  "commands": [
+    {
+      "name": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 1.202
+    },
+    {
+      "name": "check",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "--all-targets"
+      ],
+      "exit": 0,
+      "seconds": 12.12
+    },
+    {
+      "name": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 36.974
+    },
+    {
+      "name": "f1a-security",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--features",
+        "legacy-fixtures",
+        "--test",
+        "f1a_security"
+      ],
+      "exit": 0,
+      "seconds": 7.321
+    },
+    {
+      "name": "f1b1",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--test",
+        "f1b1_text_startup",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 5.724
+    },
+    {
+      "name": "f1b2-conversation",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--test",
+        "f1b2_conversation",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 7.654
+    },
+    {
+      "name": "f1b3a-persistence",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--test",
+        "f1b3a_persistence",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 9.604
+    },
+    {
+      "name": "f1b3b-storage",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--features",
+        "legacy-fixtures",
+        "--test",
+        "f1b3b_storage",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 4.441
+    },
+    {
+      "name": "unit-safe",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--lib",
+        "--",
+        "--test-threads=1",
+        "--skip",
+        "backend::wakeword_ml::tests::download_and_extract_onnx_runtime",
+        "--skip",
+        "backend::tool_executor::tests::show_image_huge_url_is_rejected_before_download"
+      ],
+      "exit": 0,
+      "seconds": 7.981
+    },
+    {
+      "name": "app-paths",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--test",
+        "app_paths"
+      ],
+      "exit": 0,
+      "seconds": 2.274
+    },
+    {
+      "name": "qml-offscreen",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--test",
+        "f1b1_text_startup",
+        "qml_offscreen",
+        "--",
+        "--ignored",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 3.403
+    },
+    {
+      "name": "qml-f1b2-review",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--test",
+        "f1b2_conversation",
+        "qml_",
+        "--",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 7.499
+    },
+    {
+      "name": "qml-f1b3b-recovery",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--features",
+        "legacy-fixtures",
+        "--test",
+        "f1b3b_storage",
+        "qml_",
+        "--",
+        "--ignored",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 6.1
+    }
+  ],
+  "excluded": [
+    "backend::wakeword_ml::tests::download_and_extract_onnx_runtime",
+    "backend::tool_executor::tests::show_image_huge_url_is_rejected_before_download"
+  ],
+  "qml_offscreen": true,
+  "plasma_wayland": "NOT_TESTED"
+}

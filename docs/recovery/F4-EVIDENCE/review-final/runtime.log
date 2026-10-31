@@ -1,0 +1,17 @@
+[2026-10-18T16:45:23Z INFO  kde_assistant] KDE Assistant v2 starting...
+[2026-10-18T16:45:23Z WARN  kde_assistant] DBus de sesión no disponible; integración y activación deshabilitadas
+[2026-10-18T16:45:23Z INFO  kde_assistant_lib::backend] Inicializando Backend...
+[2026-10-18T16:45:23Z INFO  kde_assistant_lib::models::config] Configuración inicial restrictiva creada; configura proveedor/modelo en la interfaz
+[2026-10-18T16:45:23Z INFO  kde_assistant_lib::backend] Config cargada desde ~/.config/kde-assistant/config.json
+[2026-10-18T16:45:23Z INFO  kde_assistant_lib::backend::ai_service] AiService: cliente OpenRouter listo
+[2026-10-18T16:45:23Z INFO  kde_assistant_lib::backend::session_manager] SQLite DB: /tmp/kda-f4-private-ucb986ej/data/kde-assistant/sessions.db
+[2026-10-18T16:45:23Z INFO  kde_assistant_lib::backend::resource_cache] Owned resource cache maintenance: {"failures":0,"max_bytes":268435456,"max_workspaces":1024,"removed":0,"skipped":0}
+[2026-10-18T16:45:23Z WARN  kde_assistant_lib::backend::speech_service] whisper sin modelo en '/tmp/kda-f4-private-ucb986ej/data/kde-assistant/models/ggml-base.bin'. STT no disponible; instalación manual requerida.
+[2026-10-18T16:45:23Z INFO  kde_assistant_lib::backend] Todos los subservicios inicializados
+[2026-10-18T16:45:23Z INFO  kde_assistant] Backend inicializado correctamente
+[2026-10-18T16:45:23Z INFO  kde_assistant] Núcleo de texto listo en http://127.0.0.1:37391; voz diferida, descargas desactivadas
+[2026-10-18T16:45:23Z INFO  kde_assistant] Atajos globales deshabilitados; registro opt-in mediante --enable-shortcuts
+[2026-10-18T16:45:23Z INFO  kde_assistant] UI desactivada por flag --ui-off
+[2026-10-18T16:45:23Z INFO  kde_assistant] Presiona Ctrl+C para salir.
+[2026-10-18T16:45:26Z INFO  kde_assistant_lib::backend::ai_service] Agent iter 1/8
+[2026-10-18T16:45:26Z INFO  kde_assistant] Apagando KDE Assistant v2...

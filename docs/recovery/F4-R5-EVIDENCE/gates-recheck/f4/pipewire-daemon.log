@@ -1,0 +1,3 @@
+[E][20:05:30.047890] mod.protocol-native | [module-protocol-:  762 init_socket_name()] server 0x55ea783cf3f0: socket path "/var/tmp/kda-f4r5-3y7zg8fs/recheck-profile/tmp/kda-f4-private-txjmb9b1/virtual-pipewire/f4-synthetic-manager" plus null terminator exceeds 108 bytes
+[E][20:05:30.048183] pw.conf      | [          conf.c:  607 load_module()] 0x55ea783c5250: could not load mandatory module "libpipewire-module-protocol-native": File name too long
+[E][20:05:30.048306] default      | [      pipewire.c:  124 main()] failed to create context: File name too long

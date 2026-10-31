@@ -1,0 +1,45 @@
+{
+  "trial": 3,
+  "technical": "FAILED",
+  "human": "PENDING",
+  "microphone": false,
+  "raw_audio_saved": false,
+  "backend_pid": 6642,
+  "ui_pids": [
+    6650
+  ],
+  "cancel_observed": true,
+  "voice_pids": [
+    6714,
+    6725
+  ],
+  "voice_processes_reaped": true,
+  "natural_completion": false,
+  "fast_completed": 1,
+  "same_backend_as_t2": false,
+  "failure": "Playback completion does not match trial",
+  "ended": true,
+  "children_reaped": true,
+  "transitions": [
+    {
+      "state": "idle",
+      "generation": null,
+      "ms": 3.6663920000137296
+    },
+    {
+      "state": "preparing",
+      "generation": "b4f14405-79b1-4dea-bbae-a41dc13c3a12",
+      "ms": 24157.150340000044
+    },
+    {
+      "state": "speaking",
+      "generation": "b4f14405-79b1-4dea-bbae-a41dc13c3a12",
+      "ms": 35091.905145000055
+    },
+    {
+      "state": "idle",
+      "generation": null,
+      "ms": 46312.00162999994
+    }
+  ]
+}

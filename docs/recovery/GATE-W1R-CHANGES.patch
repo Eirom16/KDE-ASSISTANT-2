@@ -1,0 +1,616 @@
+diff --git a/docs/recovery/GATE-W1R-ISSUES.md b/docs/recovery/GATE-W1R-ISSUES.md
+new file mode 100644
+index 0000000..5d17172
+--- /dev/null
++++ b/docs/recovery/GATE-W1R-ISSUES.md
+@@ -0,0 +1,31 @@
++# GATE-W1R — Incidencias y límites pendientes
++
++No se introdujeron cambios de backend, commits ni fases nuevas. Reproducciones y trazas están en `/tmp/kda-gate-w1r-7pmmhybe`; sólo contienen SQLite y configuración sintéticos. El estado general es **PARTIAL** por rendimiento visible en reposo y observación humana pendiente, aunque los dos fallos funcionales principales de W1 quedaron resueltos en el retest automático Wayland.
++
++## W1R-01 — Estado minimizado no reflejado por `Window.visibility`
++
++**Severidad residual: baja. Estado: mitigado y PASS para transiciones probadas.** Al minimizar la ventana desde KWin, el compositor informó `minimized=true`, mientras QML mantenía `visible=true` y `visibility=Windowed` (`2`). La primera corrección que sólo comprobaba `Window.Minimized` no restauró la ventana; se reprodujo y se corrigió antes de cerrar la prueba. El respaldo actual usa `root.active`: si la ventana está visible pero inactiva, la bandeja intenta mostrarla con `showNormal()`, `raise()` y `requestActivate()`.
++
++Una ventana visible pero desenfocada se trata también como candidata a mostrar. Por ello, «Mostrar ventana» puede aparecer en el menú mientras la ventana está mapeada detrás de otra. El retest sintético de bandeja pasó visible activa, oculta, minimizada, cerrada y tres ciclos. **NOT_TESTED:** clic físico del usuario cuando otra aplicación conserva foco, y comportamiento de una ventana maximizada y totalmente tapada. Si esa ambigüedad afecta el uso diario, la corrección futura debe obtener el estado minimizado real desde una fuente Qt/KWin fiable; no inferirlo sólo de `visible`. El archivo afectado es `qml/Main.qml`, bloque `TrayMenu`; `qml/components/TrayMenu.qml` consume el estado compartido. No se observó denegación de foco por KWin en los casos medidos.
++
++## W1R-02 — CPU visible en reposo sigue alrededor del 11 %
++
++**Severidad: media para autonomía/temperatura en este equipo. Estado: pendiente de diagnóstico adicional.** Dos muestras de 5 s del proceso real posterior dieron 10,79 % y 11,19 % de un núcleo (W1: 11,0 % y 10,6 %). Oculto dio 2,60 % y 2,40 % (W1: 2,2 %). La CPU durante streaming **sí** bajó en el fixture comparable de 41,25/67,41/95,96 % a 15,44/16,34/15,40 % en tres turnos; no volvió a crecer con el historial corto.
++
++Se investigaron el pulso del indicador de conexión en `qml/Main.qml` y `hotkeyTimer` de 300 ms. Copias privadas con cada uno desactivado dieron 10,34 % y 10,75 % frente a 11,53 % de referencia. Al ser muestras únicas y próximas, no prueban causalidad ni justifican quitar una operación de supervisión. El refresco del tray cada 15 s y otros timers/animaciones tampoco se atribuyeron sin evidencia. Próximo paso acotado para F5: traza de scenegraph/render de reposo con varias ventanas idénticas y repeticiones suficientes; comprobar si la carga viene del render, composición o actividad de QML. No introducir un cambio ciego en el polling de red o del turno.
++
++**F2:** no se identificó bloqueo funcional por este consumo. **Uso cotidiano:** podría elevar temperatura y gasto energético mientras la ventana permanece abierta; no se midió batería ni sesión prolongada.
++
++## W1R-03 — Evidencia visual y duración limitadas
++
++**Estado: NOT_TESTED, no fallo afirmado.** La prueba automatizada de 80 mensajes verificó que 20 cambios del último mensaje no desplazan al lector situado al principio; no midió fluidez perceptible de scroll ni accesibilidad con un usuario. El primer token del harness se detectó con sondeo de 20 ms, no con cámara ni medida de fotón en pantalla. No se tomó una nueva captura: las evidencias son KWin, DBusMenu, Qt journal, profiler y pruebas QML. El usuario aún debe observar clic físico en bandeja, texto, foco y scroll durante uso real. Tema claro, atajos globales y varias horas de actividad permanecen sin ensayar para no cambiar preferencias KDE ni invadir atajos.
++
++RSS/PSS se midieron después de varios turnos y ciclos; no apareció crecimiento evidente en esa ventana corta, pero eso no certifica ausencia de fugas a largo plazo. El PSS de la app real (~123 MiB) no se compara directamente con los ~98 MiB de W1 como si fueran páginas privadas: depende del reparto de librerías Qt con otros procesos. Se requiere una serie prolongada bajo condiciones controladas para atribuir cambios de memoria.
++
++## W1R-04 — Voz diferida y fases futuras
++
++**Estado: corregido para la configuración ensayada.** `capabilities.voice=deferred` oculta/deshabilita el micrófono del InputBar y deja «Dictar» oculto/deshabilitado en DBusMenu; el popup propio omite esa fila. `GetLayout` aún contiene la entrada nativa con `visible=false` y `enabled=false`, que es la forma de exportación de Qt/Plasma. No se ejercieron micrófono, Whisper, Piper, ONNX, wake word, avatar ni atajos globales. Sus pruebas e implementación pertenecen a F3/F4 y no se cuentan como regresión F1B.
++
++## Resultado para decisiones
++
++No hay incidencia reproducida de orden de tokens, UTF‑8, identidad de turno/sesión, cancelación, error explícito, persistencia o seguridad que bloquee técnicamente F2. W1R permanece **PARTIAL** como aceptación de escritorio por W1R-01 en el estado visible desenfocado, W1R-02 y la observación humana pendiente. La autorización de F2 es independiente de este informe; no se inició F2, F3 ni F4.
+diff --git a/docs/recovery/GATE-W1R-REPORT.md b/docs/recovery/GATE-W1R-REPORT.md
+new file mode 100644
+index 0000000..ae738e2
+--- /dev/null
++++ b/docs/recovery/GATE-W1R-REPORT.md
+@@ -0,0 +1,45 @@
++# GATE-W1R — Bandeja y rendimiento QML en Plasma Wayland
++
++**Estado: PARTIAL.** El defecto de restauración y el coste creciente del streaming quedaron corregidos y comprobados en KWin Wayland real. La CPU visible en reposo continúa alrededor del 11 % de un núcleo y no hubo observación humana de clic físico, legibilidad o fluidez prolongada. No se inventó un umbral de aceptación para convertir esa medición en PASS.
++
++## Alcance y baseline
++
++- 13 de octubre de 2026, `America/Santo_Domingo` (14 de octubre UTC). Rama `recovery/gate-w1r-ux-performance`, HEAD sin mover `e00fc1f77322b8fd1dace4c9c4858327a141f82a`.
++- Se leyeron `AGENTS.md`, los tres documentos de referencia del proyecto, `GATE-W1-{REPORT,RESULTS,ISSUES}.md`, `F1B3B-CLOSURE.md` y `F1B2-CONTRACT.md`. Los informes GATE-W1 existentes y todos los demás documentos sin seguimiento se conservaron.
++- Archivos de producción modificados: `qml/Main.qml`, `qml/components/{ChatView,InputBar,TrayMenu}.qml`. Regresiones nuevas: `tests/qml/tst_gate_w1r.qml`, `scripts/validate_gate_w1r.py`. Este informe y los dos documentos W1R son nuevos. No hubo commit, push, merge, release ni trabajo F2/F3/F4.
++
++La sesión era `XDG_SESSION_TYPE=wayland`, `WAYLAND_DISPLAY=wayland-0`, Plasma/KWin 6.7.5 y Qt/QML 6.12.0, con cuatro CPU, 7,6 GiB de RAM e Intel UHD Graphics 605. `qml6` y `/usr/lib/qt6/bin/qmlprofiler` estaban disponibles. La ejecución usó `target/debug/kde-assistant --no-shortcuts`, QML real bajo Wayland, y en los harnesses el mismo `Main.qml` con backend `--ui-off --no-shortcuts`. No se usó `QT_QPA_PLATFORM=offscreen` como evidencia de KWin; sólo en la prueba de componentes aparte.
++
++Todo el estado sintético está en `/tmp/kda-gate-w1r-7pmmhybe` (subperfiles privados `0700` con `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME` y `TMPDIR`). El proveedor fue `127.0.0.1:8877`; backend `127.0.0.1:8765`. Se quitaron claves API y proxies del entorno. La configuración privada mantuvo `enable_tool_calling=false`, herramientas de acción desactivadas, voz y personaje desactivados. No se pasó `--enable-voice`; no hubo micrófono, descarga de modelos ni proveedor comercial. Cada proceso lanzado se identificó por PID y se recogió con su propio padre; los puertos quedaron libres.
++
++## Defectos reproducidos antes de modificar
++
++**W1-01.** KWin informó ventana `minimized=true`, pero QML registró `visible=true`, `visibility=2` (`Windowed`, frente a `Window.Minimized=3`). El primer `StatusNotifierItem.Activate` emitió `hideRequested` y KWin dejó de listar la ventana; el segundo clic la restauró activa. Por tanto, la hipótesis inicial de `root.visible` era correcta pero comprobar sólo `Window.Minimized` no era suficiente en esta sesión. La corrección usa también `root.active` para decidir si la bandeja debe traer la ventana al frente y llama `showNormal()` al restaurar una ventana visible e inactiva.
++
++**W1-02.** El Qt QML Profiler registró, para 50 deltas en ~2,5 s, 56 reevaluaciones del binding `ChatView.model`, 105 construcciones de `MessageBubble` y 970 imágenes `Octicon`; `refreshUI` apareció 53 veces con ~603 ms inclusivos y el binding del modelo ~615 ms inclusivos. Esos tiempos del profiler se solapan y no se suman. La causa demostrada fue la reasignación del array completo a `ListView.model` por cada delta, que destruía y recreaba delegados visibles. En tres turnos idénticos sin profiler, la CPU de QML subió de 41,25 % a 67,41 % y 95,96 % de un núcleo al crecer el historial.
++
++**W1-03.** `/api/config` comunicó `capabilities.voice=deferred`, pero el InputBar mostraba micrófono y el menú anunciaba «Dictar». No se pulsó el control ni se inicializó audio.
++
++## Correcciones y alcance
++
++`TrayMenu.windowVisible` considera visibilidad, activación y `Window.Minimized`. El handler de mostrar usa `showNormal()` para la ventana visible que KWin dejó inactiva, luego `raise()` y `requestActivate()`. El menú nativo y el popup usan el mismo estado. El criterio `active` es un respaldo para esta combinación Qt/KWin; una ventana visible pero desenfocada también se tratará como candidata a mostrar. Esta ambigüedad residual está registrada en ISSUES.
++
++`ChatView` mantiene un `ListModel` estable. Al reemplazar `Main.messages`, sólo cambia la fila cuyo objeto cambió; añadir, borrar o cargar historial reconcilia el resto. Se mantuvieron las rutas de SSE, Turn ID/Session ID, cancelación, errores, tool calls, recuperación y autoscroll. `approveTool` ahora copia el mensaje y su lista de herramientas afectados para que el badge se actualice con el modelo incremental sin mutar el objeto anterior. No se cambió el backend.
++
++`Main` toma la capacidad efectiva de `/api/config`; el micrófono queda oculto y deshabilitado por defecto y cuando la voz está diferida. «Dictar» se omite del popup y el item de DBusMenu queda `visible=false`, `enabled=false`. La exportación DBusMenu conserva el item oculto en `GetLayout`; Plasma recibe explícitamente esos dos atributos.
++
++## Retest y rendimiento
++
++El retest automático sobre KWin Wayland real pasó visible → oculta, oculta → visible, minimizada → visible y activa en **un clic**, cierre → bandeja → restauración, y tres ciclos adicionales sin perder foco. KWin sólo recibió scripts temporales filtrados por el PID y título de esta instancia; no se modificaron otras ventanas. `DBusMenu` mostró «Ocultar ventana» al estar activa y «Mostrar ventana» al estar oculta o minimizada. No se observó rechazo de foco de KWin en esta ejecución.
++
++Con el mismo mock de 50 deltas/2,5 s, sin profiler, tres turnos dieron **15,44 %, 16,34 % y 15,40 %** de CPU QML de un núcleo; el backend se mantuvo entre 1,76 % y 2,20 %. Los 50 caracteres llegaron en orden en los tres turnos. El primer token se detectó a 50, 31 y 33 ms desde el envío del harness (resolución de sondeo 20 ms), frente a 95, 79 y 94 ms antes. El profiler posterior registró 2 construcciones de `MessageBubble`, frente a 105 antes; sus tiempos sólo se usan para atribuir causa, no como benchmark de CPU.
++
++En reposo visible, dos muestras de 5 s del proceso real dieron 10,79 % y 11,19 %; oculto, 2,60 % y 2,40 %. La ablación privada del pulso del indicador online dio 10,34 % frente a 11,53 % de referencia; la del temporizador de hotkeys dio 10,75 %. Son muestras únicas y próximas entre sí: no se desactivó una animación ni una supervisión necesaria por esa evidencia. RSS visible fue ~187 MiB; el PSS del proceso real quedó en ~123 MiB en esa ejecución, sensible a qué páginas Qt estaban compartidas. Tras tres turnos de streaming el PSS del harness pasó de ~101,1 a ~101,9 MiB; no prueba ausencia de fugas a largo plazo. Véase RESULTS para condiciones y valores completos.
++
++## Regresiones y dictamen
++
++`python3 scripts/validate_gate_w1r.py` pasó 11 pruebas QML aisladas: modelo estable, 50 repintados, UTF‑8, cancelación, sesión nueva, error, recuperación de texto, inserción/eliminación y recarga de igual longitud, badge, voz diferida, cambios rápidos de bandeja, scroll y modelo de 120 mensajes. El harness Wayland real de conversación volvió a pasar dos turnos con `¡Hola, señor! ñandú 😀`, cancelación antes y durante tokens, cambio de sesión sin evento obsoleto y error 503 explícito; SQLite privado conservó dos respuestas confirmadas y pasó `integrity_check=ok`. La batería F1B3B completa se ejecutó con `--qml`; sus resultados finales están en RESULTS. Los tests offscreen no certifican KWin.
++
++**Aceptación de escritorio:** PARTIAL. El chat escrito, la bandeja y el streaming frecuente son utilizables según automatización real de Wayland; faltan observación humana, prueba de ventana visible pero desenfocada mediante clic físico y análisis suficiente de la CPU visible en reposo antes de cerrar F5. La respuesta del backend, cancelación, persistencia y seguridad no mostraron un bloqueo funcional nuevo.
++
++**Autorización de F2:** decisión separada. Esta evidencia no identifica un bloqueo técnico de F1B para F2; tampoco concede autorización ni inicia F2. El estado de escritorio parcial y el consumo en reposo deben seguir visibles para esa decisión.
+diff --git a/docs/recovery/GATE-W1R-RESULTS.md b/docs/recovery/GATE-W1R-RESULTS.md
+new file mode 100644
+index 0000000..88a2fb6
+--- /dev/null
++++ b/docs/recovery/GATE-W1R-RESULTS.md
+@@ -0,0 +1,78 @@
++# GATE-W1R — Resultados medidos
++
++**Leyenda:** PASS comprobado; PARTIAL comprobación incompleta; NOT_TESTED sin ensayo; NOT_SUPPORTED fuera de la configuración segura. La automatización de QML sobre Wayland, la API, el estado KWin y los tests offscreen se identifican por separado. No hubo observación humana del usuario.
++
++## Entorno, aislamiento y retest KWin
++
++| Caso | Estado | Evidencia |
++| --- | --- | --- |
++| Baseline Git | PASS | HEAD `e00fc1f77322b8fd1dace4c9c4858327a141f82a`, nueva rama `recovery/gate-w1r-ux-performance`; informes W1 originales y otros archivos sin seguimiento conservados. |
++| Wayland real | PASS | `XDG_SESSION_TYPE=wayland`, `WAYLAND_DISPLAY=wayland-0`, KWin/Plasma 6.7.5, Qt/QML 6.12.0; app `target/debug/kde-assistant --no-shortcuts` e hijo `qml6` nativo. |
++| Aislamiento | PASS | Raíz privada `/tmp/kda-gate-w1r-7pmmhybe` modo 0700; XDG y TMPDIR propios; mock sólo `127.0.0.1:8877`; backend sólo `127.0.0.1:8765`. Sin claves comerciales, atajos, audio ni herramientas de acción. |
++| Previo: minimizada → primer Activate | FAIL reproducido | KWin `minimized=true`; Qt `visible=true`, `visibility=2` (`Windowed`); primer clic ocultó y segundo restauró. PID QML inicial 23392; journal de KWin y trazas en perfil privado. |
++| Corregido: visible → bandeja → oculta | PASS | PID QML 30240, KWin pasó de una ventana activa a cero ventanas listadas; menú cambió de «Ocultar» a «Mostrar». |
++| Oculta → bandeja → visible | PASS | Una ventana mapeada y `active=true` en un clic. |
++| Minimizada → bandeja → visible | PASS | KWin `minimized=true`, `active=false`; menú «Mostrar»; un `Activate` dejó `minimized=false`, `active=true` con el mismo `internalId`. |
++| Cierre → bandeja → visible | PASS | `closeWindow()` sólo al PID propio dejó cero ventanas; un `Activate` restauró y activó. |
++| Ciclos y foco | PASS | Tres pares adicionales ocultar/mostrar terminaron siempre con una ventana `active=true`; scripts KWin filtrados por PID y título. |
++| Menú de voz diferida | PASS | `/api/config` indicó `capabilities.voice=deferred`; DBusMenu conservó el item «Dictar» con `enabled=false`, `visible=false`; popup propio omite la fila y el micrófono de InputBar está oculto/deshabilitado. No se ejerció el micrófono. |
++| Otras ventanas QML | PASS en el alcance automático | Los scripts KWin sólo actuaron sobre el PID y título propios, se descargaron tras cada uso; no se envió señal ni comando a procesos ajenos. |
++| Cierre controlado | PASS | SIGINT sólo a padres propios, hijos QML recogidos, puertos libres; logs sin error fatal QML. |
++
++El botón físico del panel, la política de foco al interactuar desde otra aplicación y la lectura humana del menú son **NOT_TESTED**. `StatusNotifierItem.Activate` por DBus y KWin scripting verifican el camino real de Plasma/KWin y la lógica QML, pero no sustituyen esos gestos humanos. No se hizo captura nueva: se usaron estados KWin, journal de QML y layout DBusMenu; ninguna otra ventana fue capturada.
++
++## Perfilado de la causa (con overhead, no benchmark)
++
++`/usr/lib/qt6/bin/qmlprofiler` registró el mismo fixture de 50 deltas en una sesión nueva antes y después. Trazas privadas: `before-profile.qtd`, `profileafter-profile.qtd`. Duraciones inclusivas; las llamadas anidadas se solapan.
++
++| Evento | Antes | Después |
++| --- | ---: | ---: |
++| Construcciones `MessageBubble` | 105 | 2 |
++| Reevaluaciones del binding `ChatView.model` anterior | 56 | No aplica: modelo estable |
++| `refreshUI` | 53; ~603 ms inclusivos | 53; ~35,7 ms inclusivos |
++| `syncMessages` del modelo estable | No aplica | 57; ~30,4 ms inclusivos |
++| Construcciones `Octicon` desde `MessageBubble` | 105 | 2 |
++| Eventos `Creating` de la traza completa | 23.739 | 5.922 |
++| Eventos `Binding` de la traza completa | 34.540 | 11.287 |
++| Eventos `Javascript` de la traza completa | 41.998 | 14.643 |
++
++El profiler identifica repetición de delegates por reasignar el array completo; su propia instrumentación aumenta los tiempos. El resultado de CPU siguiente se midió **sin profiler**.
++
++## CPU, memoria y latencia sin profiler
++
++Fixture: `target/debug`, tema oscuro, 1366×768 escala 1, Intel UHD Graphics 605, cuatro CPU, Qt 6.12.0. Mock emitió exactamente 50 deltas `x` cada 50 ms. Cada columna de streaming corresponde a un turno consecutivo de la misma sesión en perfil XDG fresco para ese lado. CPU es porcentaje **de un núcleo** a partir de `/proc/<pid>/stat`; RSS/PSS salen de `smaps_rollup`. El harness sondeó el primer token cada 20 ms. Se tomó CPU entre ~0,15 s tras comenzar y ~0,10 s antes del final del turno para reducir bordes; duración de cada muestra ~2,27–2,38 s. No se extrapola a otros equipos.
++
++| Métrica | Antes: turnos 1 / 2 / 3 | Después: turnos 1 / 2 / 3 |
++| --- | --- | --- |
++| CPU QML (% de un núcleo) | 41,25 / 67,41 / 95,96 | 15,44 / 16,34 / 15,40 |
++| CPU Rust (% de un núcleo) | 2,10 / 1,69 / 1,68 | 1,76 / 1,77 / 2,20 |
++| Primer token desde envío QML (ms, sondeo 20 ms) | 95 / 79 / 94 | 50 / 31 / 33 |
++| RSS QML al final (KiB) | 188.200 / 190.548 / 192.008 | 187.712 / 187.844 / 188.252 |
++| PSS QML al final (KiB) | 98.657 / 101.005 / 102.465 | 101.401 / 101.533 / 101.941 |
++| RSS Rust al final (KiB) | 27.184 / 27.692 / 27.836 | 27.212 / 27.716 / 27.872 |
++| PSS Rust al final (KiB) | 22.488 / 22.996 / 23.140 | 22.493 / 22.997 / 23.153 |
++| Mensaje final | 50/50 caracteres cada turno | 50/50 caracteres cada turno |
++
++El PSS comparte bibliotecas Qt con otros procesos y varía entre ejecuciones; no se atribuye la diferencia inicial a una fuga ni a un ahorro. Tras los tres turnos del harness posterior el PSS pasó de ~101,1 MiB en reposo inicial a ~101,9 MiB. El perfil XDG `after` ocupó ~8 KiB de config, ~140 KiB de SQLite/data y ~2,1 MiB de caché; los archivos de trazas y harnesses están fuera de esos subdirectorios.
++
++| Reposo | Antes | Después |
++| --- | --- | --- |
++| QML visible, proceso real, 5 s | W1: 11,0 % y 10,6 %; W1R harness tras turnos: 11,62 % | W1R proceso real: 10,79 % y 11,19 % |
++| QML oculto, proceso real, 5 s | W1: 2,2 % (una muestra) | 2,60 % y 2,40 % |
++| Rust visible/oculto | W1: 0,0 % | 0,0 % en muestras de 1 s |
++| RSS/PSS QML visible del proceso real | W1: ~185 MiB / ~98 MiB | ~187 MiB / ~123 MiB en esta ejecución |
++
++La ablación privada del pulso online dio 10,34 % frente a 11,53 % de referencia; desactivar sólo el temporizador de hotkeys dio 10,75 %. Esas muestras únicas no demuestran una mejora estable. Las rutas de red y supervisión del turno siguieron operativas.
++
++## Regresiones funcionales
++
++| Prueba | Resultado |
++| --- | --- |
++| `python3 scripts/validate_gate_w1r.py` | PASS: 11 casos QML offscreen aislados. Modelo estable durante 50 cambios UTF‑8, cancelar/terminar, cambiar sesión, proveedor fallido, historial de texto, inserción/eliminación y recarga de igual longitud, badge de aprobación, 120 filas/20 actualizaciones, scroll del lector, cambios rápidos de bandeja y voz diferida. No certifica KWin. |
++| `python3 scripts/validate_f1b3b.py --qml` | PASS final, código 0: fmt, check, clippy, seguridad F1A, F1B1, conversación F1B2, persistencia F1B3A, almacenamiento F1B3B, unitarios seguros, rutas y QML offscreen F1B1/F1B2/F1B3B. Evidencia `/tmp/kda-f1b3b-check-znap0ia1`. Una corrida anterior tuvo todos los comandos PASS pero falló su manifest porque se añadió el test W1R durante la ejecución; se repitió después con fuentes estables. |
++| Conversación QML en Wayland con mock local | PASS: dos turnos confirmados, streaming parcial y `¡Hola, señor! ñandú 😀` exacto; `Cancelando` → `Cancelado` antes y durante tokens; cambio de sesión sin token antiguo; proveedor 503 con banner y sin assistant falso. Journal PID 30720. |
++| SQLite privado del retest de conversación | PASS: `integrity_check=ok`, dos sesiones, dos respuestas assistant confirmadas y seis mensajes user; ninguna respuesta assistant publicada para turnos cancelados o fallidos. |
++| Scroll | PASS lógico: con 80 filas y lector al principio, 20 actualizaciones del último mensaje no lo llevaron al final. Fluidez visual humana: NOT_TESTED. |
++| Fugas prolongadas, tema claro, atajos globales, voz real y aceptación humana | NOT_TESTED/NOT_SUPPORTED según configuración; no se activaron capacidades diferidas. |
++
++Los logs de evidencia y trazas quedan en el perfil privado indicado; no contienen sesiones personales. Las mediciones de una sola máquina son referencias locales y no fijan límites universales.
+diff --git a/qml/Main.qml b/qml/Main.qml
+index 73fcc03..97be084 100644
+--- a/qml/Main.qml
++++ b/qml/Main.qml
+@@ -58,6 +58,7 @@ ApplicationWindow {
+     property string currentSessionId: ""
+ 
+     property var messages: []          // [{role, authorLabel, content, timestamp, isStreaming, toolCalls}]
++    property bool voiceAvailable: false
+ 
+     // === Helpers ===
+     function nowTime() {
+@@ -647,8 +648,13 @@ ApplicationWindow {
+             var tcs = arr[i].toolCalls || []
+             for (var j = 0; j < tcs.length; j++) {
+                 if (tcs[j].id === toolCallId && tcs[j].status === "confirm") {
+-                    tcs[j].status = approved ? "running" : "error"
+-                    tcs[j].result = approved ? qsTr("Aprobada, ejecutando…") : qsTr("Denegada por ti")
++                    var updatedCalls = tcs.slice()
++                    updatedCalls[j] = Object.assign({}, tcs[j], {
++                        status: approved ? "running" : "error",
++                        result: approved ? qsTr("Aprobada, ejecutando…") : qsTr("Denegada por ti")
++                    })
++                    arr[i] = Object.assign({}, arr[i], { toolCalls: updatedCalls })
++                    break
+                 }
+             }
+         }
+@@ -872,6 +878,7 @@ ApplicationWindow {
+                             if (c.status !== 200) return
+                             try {
+                                 var cfg = JSON.parse(c.responseText)
++                                voiceAvailable = !!(cfg.capabilities && cfg.capabilities.voice === "active")
+                                 var key = (cfg.ai && cfg.ai.has_api_key === true) ? "configured" : ""
+                                 var model = (cfg.ai && cfg.ai.model) ? String(cfg.ai.model) : ""
+                                 lastModel = model
+@@ -1235,6 +1242,7 @@ ApplicationWindow {
+                 Layout.margins: Theme.spacingSm
+                 Layout.preferredHeight: implicitHeight
+                 streaming: root.streaming
++                voiceEnabled: root.voiceAvailable
+                 // El mic del chat refleja SOLO el dictado al input; la
+                 // conversación por voz (wake word / PTT) es del avatar y
+                 // no debe pintar este botón como si estuviera dictando.
+@@ -1386,17 +1394,20 @@ ApplicationWindow {
+     // === System Tray (KDE Plasma) ===
+     TrayMenu {
+         id: tray
+-        windowVisible: root.visible
++        windowVisible: root.visible && root.active && root.visibility !== Window.Minimized
++        voiceEnabled: root.voiceAvailable
+         alwaysOnTop: root.alwaysOnTop
+         pttShortcut: root.pttShortcut
+         backendUrl: root.backendUrl
+         onShowRequested: {
+-            root.show()
++            if ((root.visible && !root.active) || root.visibility === Window.Minimized) root.showNormal()
++            else root.show()
+             root.raise()
+             root.requestActivate()
+         }
+         onHideRequested: root.hide()
+         onDictateRequested: {
++            if (!root.voiceAvailable) return
+             // Abre la ventana con el input listo; el dictado es el PTT global.
+             root.prefill("")
+         }
+diff --git a/qml/components/ChatView.qml b/qml/components/ChatView.qml
+index ffa8abd..912d29a 100644
+--- a/qml/components/ChatView.qml
++++ b/qml/components/ChatView.qml
+@@ -15,6 +15,25 @@ Item {
+     // === Props ===
+     property var messages: []   // Array de {role, authorLabel, content, timestamp, isStreaming, toolCalls}
+     property bool showWelcome: messages.length === 0
++    property var previousMessages: []
++
++    // Main reemplaza el array al recibir cada delta. Mantener estable el modelo
++    // evita destruir todas las burbujas visibles por un cambio en la última.
++    ListModel { id: messageRows; dynamicRoles: true }
++    onMessagesChanged: syncMessages()
++    Component.onCompleted: syncMessages()
++    function syncMessages() {
++        var next = messages || []
++        if (next.length < messageRows.count) messageRows.clear()
++        var common = Math.min(next.length, messageRows.count)
++        for (var i = 0; i < common; i++) {
++            if (previousMessages[i] !== next[i])
++                messageRows.setProperty(i, "modelData", next[i])
++        }
++        for (var j = common; j < next.length; j++)
++            messageRows.append({ modelData: next[j] })
++        previousMessages = next
++    }
+ 
+     signal suggestionClicked(string text)
+     signal imageClicked(string url, string caption)
+@@ -55,6 +74,7 @@ Item {
+         // Lista virtualizada (visible cuando hay mensajes)
+         ListView {
+             id: list
++            objectName: "messageList"
+             anchors.fill: parent
+             anchors.leftMargin: Theme.spacingMd
+             // ScrollBar pegado a la esquina (6px del borde ventana).
+@@ -65,7 +85,7 @@ Item {
+             anchors.bottomMargin: Theme.spacingLg
+             visible: !chatRoot.showWelcome
+             clip: true
+-            model: chatRoot.messages
++            model: messageRows
+             spacing: Theme.spacingLg
+             cacheBuffer: 800
+             boundsBehavior: Flickable.StopAtBounds
+diff --git a/qml/components/InputBar.qml b/qml/components/InputBar.qml
+index 58b25c5..4454fab 100644
+--- a/qml/components/InputBar.qml
++++ b/qml/components/InputBar.qml
+@@ -13,7 +13,7 @@ Item {
+     // === Props ===
+     property alias text: input.text
+     property bool recording: false
+-    property bool voiceEnabled: true
++    property bool voiceEnabled: false
+     property bool canSend: text.trim().length > 0 && !streaming
+ 
+     property bool streaming: false   // Mientras el LLM esta respondiendo, no se puede enviar
+@@ -163,6 +163,8 @@ Item {
+             // Durante streaming se deshabilita: solo el boton enviar hace stop.
+             IconButton {
+                 Layout.alignment: Qt.AlignVCenter
++                visible: root.voiceEnabled
++                objectName: "dictationButton"
+                 iconName: root.recording ? "stop-16" : "microphone-16"
+                 iconSize: Theme.iconSizeMd
+                 buttonSize: Theme.buttonIconSize
+@@ -172,7 +174,7 @@ Item {
+                 active: root.recording && !root.streaming
+                 activeColor: Theme.error
+                 opacity: root.streaming ? 0.4 : 1.0
+-                enabled: !root.streaming
++                enabled: root.voiceEnabled && !root.streaming
+                 onClicked: {
+                     // Toggle: el padre (Main) decide si empezar o parar el dictado.
+                     root.micClicked()
+diff --git a/qml/components/TrayMenu.qml b/qml/components/TrayMenu.qml
+index 315efb1..f9993ef 100644
+--- a/qml/components/TrayMenu.qml
++++ b/qml/components/TrayMenu.qml
+@@ -17,6 +17,7 @@ Item {
+ 
+     // === Props (reexpuestas para Main) ===
+     property bool windowVisible: true
++    property bool voiceEnabled: false
+     property bool alwaysOnTop: true
+     property string pttShortcut: "Super+Shift+V"
+     property var recentSessions: []   // [{id, title}]
+@@ -89,7 +90,8 @@ Item {
+     function rebuildRows() {
+         var r = []
+         r.push(newRow({ label: root.windowVisible ? qsTr("Ocultar ventana") : qsTr("Mostrar ventana"), icon: "eye-16", act: "toggle" }))
+-        r.push(newRow({ label: qsTr("Dictar"), icon: "unmute-16", hint: root.pttShortcut, act: "dictate" }))
++        if (root.voiceEnabled)
++            r.push(newRow({ label: qsTr("Dictar"), icon: "unmute-16", hint: root.pttShortcut, act: "dictate" }))
+         r.push(newRow({ sep: true }))
+         r.push(newRow({ label: qsTr("Nueva sesión"), icon: "plus-16", act: "new" }))
+         for (var i = 0; i < Math.min(root.recentSessions.length, 5); i++) {
+@@ -117,7 +119,7 @@ Item {
+             if (root.windowVisible) root.hideRequested()
+             else root.showRequested()
+         } else if (act === "dictate") {
+-            root.dictateRequested()
++            if (root.voiceEnabled) root.dictateRequested()
+         } else if (act === "new") {
+             root.newSessionRequested()
+         } else if (act === "open") {
+@@ -203,8 +205,10 @@ Item {
+                 }
+             }
+             MenuItem {
++                visible: root.voiceEnabled
++                enabled: root.voiceEnabled
+                 text: qsTr("Dictar") + "  (" + root.pttShortcut + ")"
+-                onTriggered: root.dictateRequested()
++                onTriggered: { if (root.voiceEnabled) root.dictateRequested() }
+             }
+             MenuSeparator { }
+             MenuItem {
+diff --git a/scripts/validate_gate_w1r.py b/scripts/validate_gate_w1r.py
+new file mode 100644
+index 0000000..29c9b26
+--- /dev/null
++++ b/scripts/validate_gate_w1r.py
+@@ -0,0 +1,44 @@
++#!/usr/bin/env python3
++"""Regresiones QML aisladas de W1R; no certifican KWin Wayland."""
++
++import os
++from pathlib import Path
++import shutil
++import subprocess
++import tempfile
++
++
++def main() -> int:
++    repo = Path(__file__).resolve().parent.parent
++    runner = shutil.which("qmltestrunner") or "/usr/lib/qt6/bin/qmltestrunner"
++    if not Path(runner).is_file():
++        print("qmltestrunner no disponible")
++        return 2
++    with tempfile.TemporaryDirectory(prefix="kda-gate-w1r-qml-") as private:
++        env = os.environ.copy()
++        for key in list(env):
++            if key.endswith("_API_KEY") or key.upper().endswith("_PROXY"):
++                env.pop(key)
++        for key, name in (
++            ("XDG_CONFIG_HOME", "config"),
++            ("XDG_DATA_HOME", "data"),
++            ("XDG_CACHE_HOME", "cache"),
++            ("TMPDIR", "tmp"),
++        ):
++            path = Path(private) / name
++            path.mkdir(mode=0o700)
++            env[key] = str(path)
++        env["QT_QPA_PLATFORM"] = "offscreen"
++        env["QML_DISABLE_DISK_CACHE"] = "1"
++        command = [
++            runner,
++            "-import", str(repo),
++            "-input", str(repo / "tests/qml/tst_gate_w1r.qml"),
++            "-o", "-,txt",
++        ]
++        print("QML offscreen aislado; la prueba real de KWin se registra por separado.", flush=True)
++        return subprocess.run(command, cwd=repo, env=env, check=False).returncode
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/qml/tst_gate_w1r.qml b/tests/qml/tst_gate_w1r.qml
+new file mode 100644
+index 0000000..076e005
+--- /dev/null
++++ b/tests/qml/tst_gate_w1r.qml
+@@ -0,0 +1,200 @@
++import QtQuick
++import QtTest
++import qml 1.0 as App
++import qml.components 1.0 as Components
++
++Item {
++    width: 600
++    height: 700
++
++    App.ChatView {
++        id: chat
++        width: 500
++        height: 500
++    }
++    Components.InputBar {
++        id: input
++        y: 510
++        width: 500
++    }
++    Components.TrayMenu {
++        id: tray
++        backendUrl: "http://127.0.0.1:1"
++    }
++
++    SignalSpy { id: shown; target: tray; signalName: "showRequested" }
++    SignalSpy { id: hidden; target: tray; signalName: "hideRequested" }
++    SignalSpy { id: dictated; target: tray; signalName: "dictateRequested" }
++
++    TestCase {
++        name: "GateW1R"
++        when: windowShown
++
++        function init() {
++            chat.messages = []
++            input.voiceEnabled = false
++            tray.voiceEnabled = false
++            tray.windowVisible = true
++            shown.clear(); hidden.clear(); dictated.clear()
++        }
++        function row(role, text, streaming) {
++            return {role: role, authorLabel: role, content: text, raw: text,
++                    timestamp: "12:00", isStreaming: streaming, toolCalls: []}
++        }
++        function list() { return findChild(chat, "messageList") }
++
++        function test_stream_updates_only_active_delegate() {
++            chat.messages = [row("user", "áéíóú ñ 😀", false), row("assistant", "", true)]
++            tryCompare(list(), "count", 2)
++            wait(100)
++            var user = list().itemAtIndex(0)
++            var assistant = list().itemAtIndex(1)
++            verify(user !== null && assistant !== null)
++            for (var i = 1; i <= 50; ++i) {
++                var next = chat.messages.slice()
++                next[1] = row("assistant", "ñ😀".repeat(i), true)
++                chat.messages = next
++            }
++            compare(list().itemAtIndex(0), user)
++            compare(list().itemAtIndex(1), assistant)
++            compare(list().itemAtIndex(1).modelData.raw, "ñ😀".repeat(50))
++            var done = chat.messages.slice()
++            done[1] = row("assistant", "ñ😀".repeat(50), false)
++            chat.messages = done
++            compare(list().itemAtIndex(1).modelData.isStreaming, false)
++        }
++
++        function test_cancel_switch_error_and_recovery() {
++            chat.messages = [row("user", "pedido", false), row("assistant", "Cancelando…", true)]
++            tryCompare(list(), "count", 2)
++            wait(100)
++            var user = list().itemAtIndex(0)
++            var next = chat.messages.slice()
++            next[1] = row("assistant", "Cancelado", false)
++            chat.messages = next
++            compare(list().itemAtIndex(0), user)
++            compare(list().itemAtIndex(1).modelData.raw, "Cancelado")
++            chat.messages = [row("user", "otra sesión", false)]
++            tryCompare(list(), "count", 1)
++            tryVerify(function() { return list().itemAtIndex(0) && list().itemAtIndex(0).modelData.raw === "otra sesión" }, 500)
++            chat.messages = [row("user", "fallo", false), row("assistant", "⚠ proveedor 503", false)]
++            tryCompare(list(), "count", 2)
++            tryVerify(function() { return list().itemAtIndex(1) && list().itemAtIndex(1).modelData.raw === "⚠ proveedor 503" }, 500)
++            chat.messages = [row("user", "historial", false), row("assistant", "recuperado", false)]
++            tryVerify(function() { return list().itemAtIndex(1) && list().itemAtIndex(1).modelData.raw === "recuperado" }, 500)
++        }
++
++        function test_tool_approval_badge_update() {
++            var pending = row("assistant", "esperando", true)
++            pending.toolCalls = [{id: "op-1", name: "test", status: "confirm", result: "", imageUrl: "", caption: ""}]
++            chat.messages = [pending]
++            tryCompare(list(), "count", 1)
++            tryVerify(function() { return list().itemAtIndex(0) && list().itemAtIndex(0).modelData.raw === "esperando" }, 500)
++            var bubble = list().itemAtIndex(0)
++            var approved = Object.assign({}, pending, {toolCalls: [Object.assign({}, pending.toolCalls[0], {status: "running"})]})
++            chat.messages = [approved]
++            compare(list().itemAtIndex(0), bubble)
++            tryVerify(function() { return list().itemAtIndex(0).modelData.toolCalls[0].status === "running" }, 500)
++        }
++
++        function test_large_model_and_repeated_turns() {
++            var rows = []
++            for (var i = 0; i < 120; ++i) rows.push(row(i % 2 ? "assistant" : "user", "mensaje " + i, false))
++            chat.messages = rows
++            tryCompare(list(), "count", 120)
++            for (var n = 0; n < 20; ++n) {
++                var updated = chat.messages.slice()
++                updated[119] = row("assistant", "turno " + n, false)
++                chat.messages = updated
++            }
++            compare(list().count, 120)
++            chat.messages = []
++            tryCompare(list(), "count", 0)
++            compare(chat.showWelcome, true)
++        }
++
++        function test_insert_remove_and_equal_length_reload() {
++            chat.messages = [row("user", "primero", false), row("assistant", "último", false)]
++            tryCompare(list(), "count", 2)
++            wait(100)
++            var first = list().itemAtIndex(0)
++            verify(first !== null)
++
++            var inserted = [chat.messages[0], row("user", "intermedio ñ😀", false), chat.messages[1]]
++            chat.messages = inserted
++            tryCompare(list(), "count", 3)
++            compare(list().itemAtIndex(0), first)
++            tryVerify(function() { return list().itemAtIndex(1) && list().itemAtIndex(1).modelData.raw === "intermedio ñ😀" }, 500)
++            compare(list().model.get(2).modelData.raw, "último")
++
++            chat.messages = [inserted[0], inserted[2]]
++            tryCompare(list(), "count", 2)
++            tryVerify(function() { return list().itemAtIndex(1) && list().itemAtIndex(1).modelData.raw === "último" }, 500)
++
++            chat.messages = [row("user", "otra sesión", false), row("assistant", "completado", false)]
++            tryVerify(function() { return list().itemAtIndex(0) && list().itemAtIndex(0).modelData.raw === "otra sesión" }, 500)
++            tryVerify(function() { return list().itemAtIndex(1) && list().itemAtIndex(1).modelData.raw === "completado" }, 500)
++        }
++
++        function test_stream_does_not_take_scroll_from_reader() {
++            var rows = []
++            for (var i = 0; i < 80; ++i) rows.push(row(i % 2 ? "assistant" : "user", "línea " + i, false))
++            rows[79] = row("assistant", "", true)
++            chat.messages = rows
++            tryCompare(list(), "count", 80)
++            wait(100)
++            list().positionViewAtBeginning()
++            wait(50)
++            tryVerify(function() { return !list().atYEnd }, 500)
++            var top = list().contentY
++            for (var n = 0; n < 20; ++n) {
++                var updated = chat.messages.slice()
++                updated[79] = row("assistant", "token ".repeat(n + 1), true)
++                chat.messages = updated
++            }
++            wait(100)
++            verify(list().contentY <= top + 2)
++        }
++
++        function test_tray_toggle_and_deferred_voice() {
++            tray.rebuildRows()
++            compare(tray.rows[0].label, "Ocultar ventana")
++            verify(!tray.rows.some(function(r) { return r.act === "dictate" }))
++            tray.handleRow("dictate", "")
++            compare(dictated.count, 0)
++            tray.handleRow("toggle", "")
++            compare(hidden.count, 1)
++            tray.windowVisible = false
++            tray.rebuildRows()
++            compare(tray.rows[0].label, "Mostrar ventana")
++            tray.handleRow("toggle", "")
++            compare(shown.count, 1)
++            tray.voiceEnabled = true
++            tray.rebuildRows()
++            verify(tray.rows.some(function(r) { return r.act === "dictate" }))
++        }
++
++        function test_rapid_tray_toggle() {
++            for (var i = 0; i < 20; ++i) {
++                tray.windowVisible = (i % 2 === 0)
++                tray.rebuildRows()
++                tray.handleRow("toggle", "")
++            }
++            compare(hidden.count, 10)
++            compare(shown.count, 10)
++        }
++
++        function test_input_voice_capability() {
++            var mic = findChild(input, "dictationButton")
++            verify(mic !== null)
++            compare(mic.visible, false)
++            compare(mic.enabled, false)
++            input.voiceEnabled = true
++            compare(mic.visible, true)
++            compare(mic.enabled, true)
++            input.streaming = true
++            compare(mic.enabled, false)
++            input.streaming = false
++        }
++    }
++}

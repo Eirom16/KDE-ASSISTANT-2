@@ -1,0 +1,747 @@
+{
+  "category": "AUTOMATED_AUDIO_FIXTURE",
+  "resident_default": false,
+  "records": [
+    {
+      "idle": [
+        {
+          "after": {
+            "cpu_ticks": 839,
+            "pss_kib": 227599,
+            "rss_kib": 235156
+          },
+          "before": {
+            "cpu_ticks": 839,
+            "pss_kib": 227599,
+            "rss_kib": 235156
+          },
+          "seconds": 1
+        },
+        {
+          "after": {
+            "cpu_ticks": 1107,
+            "pss_kib": 252085,
+            "rss_kib": 259940
+          },
+          "before": {
+            "cpu_ticks": 1105,
+            "pss_kib": 250731,
+            "rss_kib": 258288
+          },
+          "seconds": 2
+        }
+      ],
+      "idle_ttl_seconds": 3,
+      "max_requests": 2,
+      "reaped": true,
+      "resident_default": false,
+      "rows": [
+        {
+          "complete_ms": 6694.852016000001,
+          "first_pcm_ms": 5794.481879,
+          "index": 0,
+          "memory": {
+            "cpu_ticks": 839,
+            "pss_kib": 227599,
+            "rss_kib": 235156
+          },
+          "worker": {
+            "channels": 1,
+            "chunk_count": 2,
+            "config_ms": 0.36151499989500735,
+            "first_chunk_bytes": 13312,
+            "first_pcm_ms": 5083.936440999423,
+            "import_ms": 889.2752820001988,
+            "inference_ms": 1013.4881819994916,
+            "ipc_write_ms": 0.3726799986907281,
+            "load_ms": 4069.8044209993895,
+            "load_per_request_ms": 4069.8044209993895,
+            "native": {
+              "model_config_hash_ms": 140.04255700000002,
+              "runtime_hash_ms": 393.550511,
+              "validation_ms": 534.6871669999999
+            },
+            "optimization": "all",
+            "ort_import_ms": 737.6554889997351,
+            "pcm_bytes": 158208,
+            "pcm_conversion_ms": 0.20920099905197276,
+            "phoneme_ids_ms": 0.06434999977500411,
+            "phonemize_ms": 9.309846000178368,
+            "piper_import_ms": 151.43584900033602,
+            "prepared": false,
+            "providers": [
+              "CPUExecutionProvider"
+            ],
+            "python_bootstrap_wall_estimate_ms": 170.607421875,
+            "sample_rate": 22050,
+            "sample_width": 2,
+            "session_ms": 4069.392839000102,
+            "supply_gap_ms": 597.9462585698316,
+            "synthesis_ms": 1024.8967210000046,
+            "threads": 3
+          }
+        },
+        {
+          "complete_ms": 972.168861,
+          "first_pcm_ms": 99.602833,
+          "index": 1,
+          "memory": {
+            "cpu_ticks": 1105,
+            "pss_kib": 250731,
+            "rss_kib": 258288
+          },
+          "worker": {
+            "channels": 1,
+            "chunk_count": 2,
+            "config_ms": 0.36151499989500735,
+            "first_chunk_bytes": 12800,
+            "first_pcm_ms": 99.28885600038484,
+            "import_ms": 889.2752820001988,
+            "inference_ms": 969.2028830004348,
+            "ipc_write_ms": 0.34880900057032704,
+            "load_ms": 4069.8044209993895,
+            "load_per_request_ms": 0.0,
+            "native": {
+              "model_config_hash_ms": 140.04255700000002,
+              "runtime_hash_ms": 393.550511,
+              "validation_ms": 534.6871669999999
+            },
+            "optimization": "all",
+            "ort_import_ms": 737.6554889997351,
+            "pcm_bytes": 155648,
+            "pcm_conversion_ms": 0.18574400019133464,
+            "phoneme_ids_ms": 0.05956499990134034,
+            "phonemize_ms": 0.5847000002177083,
+            "piper_import_ms": 151.43584900033602,
+            "prepared": true,
+            "providers": [
+              "CPUExecutionProvider"
+            ],
+            "python_bootstrap_wall_estimate_ms": 170.607421875,
+            "sample_rate": 22050,
+            "sample_width": 2,
+            "session_ms": 4069.392839000102,
+            "supply_gap_ms": 581.8237248931177,
+            "synthesis_ms": 971.6998109997804,
+            "threads": 3
+          }
+        }
+      ],
+      "ttl_tail_wait_ms": 1154.24199,
+      "whole_ms": 11845.679424,
+      "run": 0,
+      "cpu_seconds": 11.228658000000001,
+      "rss_peak_kib": 260312,
+      "pss_peak_kib": 252457,
+      "all_reaped": true
+    },
+    {
+      "idle": [
+        {
+          "after": {
+            "cpu_ticks": 833,
+            "pss_kib": 227256,
+            "rss_kib": 234800
+          },
+          "before": {
+            "cpu_ticks": 833,
+            "pss_kib": 227256,
+            "rss_kib": 234800
+          },
+          "seconds": 1
+        },
+        {
+          "after": {
+            "cpu_ticks": 1111,
+            "pss_kib": 253202,
+            "rss_kib": 261044
+          },
+          "before": {
+            "cpu_ticks": 1109,
+            "pss_kib": 251848,
+            "rss_kib": 259392
+          },
+          "seconds": 2
+        }
+      ],
+      "idle_ttl_seconds": 3,
+      "max_requests": 2,
+      "reaped": true,
+      "resident_default": false,
+      "rows": [
+        {
+          "complete_ms": 6628.676504999999,
+          "first_pcm_ms": 5717.62997,
+          "index": 0,
+          "memory": {
+            "cpu_ticks": 833,
+            "pss_kib": 227256,
+            "rss_kib": 234800
+          },
+          "worker": {
+            "channels": 1,
+            "chunk_count": 2,
+            "config_ms": 0.38228900029935176,
+            "first_chunk_bytes": 12288,
+            "first_pcm_ms": 4998.21865299964,
+            "import_ms": 898.532176000117,
+            "inference_ms": 1012.9655319997256,
+            "ipc_write_ms": 0.35462000050756615,
+            "load_ms": 3985.5374749995462,
+            "load_per_request_ms": 3985.5374749995462,
+            "native": {
+              "model_config_hash_ms": 144.82238999999998,
+              "runtime_hash_ms": 396.260915,
+              "validation_ms": 542.172045
+            },
+            "optimization": "all",
+            "ort_import_ms": 747.9922820002685,
+            "pcm_bytes": 159232,
+            "pcm_conversion_ms": 0.21181600004638312,
+            "phoneme_ids_ms": 0.06111899983807234,
+            "phonemize_ms": 9.777866999684193,
+            "piper_import_ms": 150.3526280002916,
+            "prepared": false,
+            "providers": [
+              "CPUExecutionProvider"
+            ],
+            "python_bootstrap_wall_estimate_ms": 171.968505859375,
+            "sample_rate": 22050,
+            "sample_width": 2,
+            "session_ms": 3985.1034189996426,
+            "supply_gap_ms": 631.8804652184284,
+            "synthesis_ms": 1024.8685010001282,
+            "threads": 3
+          }
+        },
+        {
+          "complete_ms": 1012.927207,
+          "first_pcm_ms": 105.934422,
+          "index": 1,
+          "memory": {
+            "cpu_ticks": 1109,
+            "pss_kib": 251848,
+            "rss_kib": 259392
+          },
+          "worker": {
+            "channels": 1,
+            "chunk_count": 2,
+            "config_ms": 0.38228900029935176,
+            "first_chunk_bytes": 14336,
+            "first_pcm_ms": 105.45198599993456,
+            "import_ms": 898.532176000117,
+            "inference_ms": 1009.6061029998964,
+            "ipc_write_ms": 0.36558799911290407,
+            "load_ms": 3985.5374749995462,
+            "load_per_request_ms": 0.0,
+            "native": {
+              "model_config_hash_ms": 144.82238999999998,
+              "runtime_hash_ms": 396.260915,
+              "validation_ms": 542.172045
+            },
+            "optimization": "all",
+            "ort_import_ms": 747.9922820002685,
+            "pcm_bytes": 163328,
+            "pcm_conversion_ms": 0.18282500059285667,
+            "phoneme_ids_ms": 0.06124399988038931,
+            "phonemize_ms": 0.5908859993724036,
+            "piper_import_ms": 150.3526280002916,
+            "prepared": true,
+            "providers": [
+              "CPUExecutionProvider"
+            ],
+            "python_bootstrap_wall_estimate_ms": 171.968505859375,
+            "sample_rate": 22050,
+            "sample_width": 2,
+            "session_ms": 3985.1034189996426,
+            "supply_gap_ms": 581.4160989213622,
+            "synthesis_ms": 1012.3061479998796,
+            "threads": 3
+          }
+        }
+      ],
+      "ttl_tail_wait_ms": 1107.027057,
+      "whole_ms": 11776.099698,
+      "run": 1,
+      "cpu_seconds": 11.272185,
+      "rss_peak_kib": 261424,
+      "pss_peak_kib": 253582,
+      "all_reaped": true
+    },
+    {
+      "idle": [
+        {
+          "after": {
+            "cpu_ticks": 827,
+            "pss_kib": 227363,
+            "rss_kib": 234924
+          },
+          "before": {
+            "cpu_ticks": 827,
+            "pss_kib": 227363,
+            "rss_kib": 234924
+          },
+          "seconds": 1
+        },
+        {
+          "after": {
+            "cpu_ticks": 1100,
+            "pss_kib": 251222,
+            "rss_kib": 259092
+          },
+          "before": {
+            "cpu_ticks": 1098,
+            "pss_kib": 249895,
+            "rss_kib": 257456
+          },
+          "seconds": 2
+        }
+      ],
+      "idle_ttl_seconds": 3,
+      "max_requests": 2,
+      "reaped": true,
+      "resident_default": false,
+      "rows": [
+        {
+          "complete_ms": 6605.457861999999,
+          "first_pcm_ms": 5703.76288,
+          "index": 0,
+          "memory": {
+            "cpu_ticks": 827,
+            "pss_kib": 227363,
+            "rss_kib": 234924
+          },
+          "worker": {
+            "channels": 1,
+            "chunk_count": 2,
+            "config_ms": 0.35305399978824425,
+            "first_chunk_bytes": 12800,
+            "first_pcm_ms": 4989.657756999804,
+            "import_ms": 900.9569170002578,
+            "inference_ms": 1006.1210329995448,
+            "ipc_write_ms": 0.3542889990058029,
+            "load_ms": 3972.7869359994656,
+            "load_per_request_ms": 3972.7869359994656,
+            "native": {
+              "model_config_hash_ms": 141.88799899999998,
+              "runtime_hash_ms": 394.558886,
+              "validation_ms": 537.591088
+            },
+            "optimization": "all",
+            "ort_import_ms": 749.6033850002277,
+            "pcm_bytes": 157184,
+            "pcm_conversion_ms": 0.2013690009334823,
+            "phoneme_ids_ms": 0.05929099916102132,
+            "phonemize_ms": 9.108127999752467,
+            "piper_import_ms": 151.17905300030543,
+            "prepared": false,
+            "providers": [
+              "CPUExecutionProvider"
+            ],
+            "python_bootstrap_wall_estimate_ms": 171.241943359375,
+            "sample_rate": 22050,
+            "sample_width": 2,
+            "session_ms": 3972.381619999396,
+            "supply_gap_ms": 610.9258738933272,
+            "synthesis_ms": 1017.2967119997338,
+            "threads": 3
+          }
+        },
+        {
+          "complete_ms": 987.337269,
+          "first_pcm_ms": 110.37559800000001,
+          "index": 1,
+          "memory": {
+            "cpu_ticks": 1098,
+            "pss_kib": 249895,
+            "rss_kib": 257456
+          },
+          "worker": {
+            "channels": 1,
+            "chunk_count": 2,
+            "config_ms": 0.35305399978824425,
+            "first_chunk_bytes": 15360,
+            "first_pcm_ms": 110.02259799988678,
+            "import_ms": 900.9569170002578,
+            "inference_ms": 984.2341640005544,
+            "ipc_write_ms": 0.33802000052673975,
+            "load_ms": 3972.7869359994656,
+            "load_per_request_ms": 0.0,
+            "native": {
+              "model_config_hash_ms": 141.88799899999998,
+              "runtime_hash_ms": 394.558886,
+              "validation_ms": 537.591088
+            },
+            "optimization": "all",
+            "ort_import_ms": 749.6033850002277,
+            "pcm_bytes": 158720,
+            "pcm_conversion_ms": 0.1757850004651118,
+            "phoneme_ids_ms": 0.05780500032415148,
+            "phonemize_ms": 0.6217789996298961,
+            "piper_import_ms": 151.17905300030543,
+            "prepared": true,
+            "providers": [
+              "CPUExecutionProvider"
+            ],
+            "python_bootstrap_wall_estimate_ms": 171.241943359375,
+            "sample_rate": 22050,
+            "sample_width": 2,
+            "session_ms": 3972.381619999396,
+            "supply_gap_ms": 528.1465072718793,
+            "synthesis_ms": 986.7930499995056,
+            "threads": 3
+          }
+        }
+      ],
+      "ttl_tail_wait_ms": 1097.330175,
+      "whole_ms": 11713.87961,
+      "run": 2,
+      "cpu_seconds": 11.134325,
+      "rss_peak_kib": 259104,
+      "pss_peak_kib": 251234,
+      "all_reaped": true
+    },
+    {
+      "idle": [
+        {
+          "after": {
+            "cpu_ticks": 859,
+            "pss_kib": 228479,
+            "rss_kib": 236044
+          },
+          "before": {
+            "cpu_ticks": 859,
+            "pss_kib": 228479,
+            "rss_kib": 236044
+          },
+          "seconds": 1
+        },
+        {
+          "after": {
+            "cpu_ticks": 1134,
+            "pss_kib": 252365,
+            "rss_kib": 260228
+          },
+          "before": {
+            "cpu_ticks": 1132,
+            "pss_kib": 251007,
+            "rss_kib": 258572
+          },
+          "seconds": 2
+        }
+      ],
+      "idle_ttl_seconds": 3,
+      "max_requests": 2,
+      "reaped": true,
+      "resident_default": false,
+      "rows": [
+        {
+          "complete_ms": 6870.8338189999995,
+          "first_pcm_ms": 5950.893397,
+          "index": 0,
+          "memory": {
+            "cpu_ticks": 859,
+            "pss_kib": 228479,
+            "rss_kib": 236044
+          },
+          "worker": {
+            "channels": 1,
+            "chunk_count": 2,
+            "config_ms": 0.36895900029776385,
+            "first_chunk_bytes": 13824,
+            "first_pcm_ms": 5237.400199000149,
+            "import_ms": 896.5291399999842,
+            "inference_ms": 1029.7303030001783,
+            "ipc_write_ms": 0.4760649999298039,
+            "load_ms": 4219.2088720003085,
+            "load_per_request_ms": 4219.2088720003085,
+            "native": {
+              "model_config_hash_ms": 143.739101,
+              "runtime_hash_ms": 395.183655,
+              "validation_ms": 540.0005450000001
+            },
+            "optimization": "all",
+            "ort_import_ms": 746.5138950001347,
+            "pcm_bytes": 161280,
+            "pcm_conversion_ms": 0.21028000082878864,
+            "phoneme_ids_ms": 0.061392000134219415,
+            "phonemize_ms": 9.229147999576526,
+            "piper_import_ms": 149.83867599949008,
+            "prepared": false,
+            "providers": [
+              "CPUExecutionProvider"
+            ],
+            "python_bootstrap_wall_estimate_ms": 168.232666015625,
+            "sample_rate": 22050,
+            "sample_width": 2,
+            "session_ms": 4218.7895530005335,
+            "supply_gap_ms": 605.7525172449838,
+            "synthesis_ms": 1041.2185810000665,
+            "threads": 3
+          }
+        },
+        {
+          "complete_ms": 1028.997202,
+          "first_pcm_ms": 124.132534,
+          "index": 1,
+          "memory": {
+            "cpu_ticks": 1132,
+            "pss_kib": 251007,
+            "rss_kib": 258572
+          },
+          "worker": {
+            "channels": 1,
+            "chunk_count": 2,
+            "config_ms": 0.36895900029776385,
+            "first_chunk_bytes": 13312,
+            "first_pcm_ms": 123.75563900059204,
+            "import_ms": 896.5291399999842,
+            "inference_ms": 1025.9809450008106,
+            "ipc_write_ms": 0.3667119999590795,
+            "load_ms": 4219.2088720003085,
+            "load_per_request_ms": 0.0,
+            "native": {
+              "model_config_hash_ms": 143.739101,
+              "runtime_hash_ms": 395.183655,
+              "validation_ms": 540.0005450000001
+            },
+            "optimization": "all",
+            "ort_import_ms": 746.5138950001347,
+            "pcm_bytes": 158208,
+            "pcm_conversion_ms": 0.18741800067800796,
+            "phoneme_ids_ms": 0.07082499996613478,
+            "phonemize_ms": 0.5660120004904456,
+            "piper_import_ms": 149.83867599949008,
+            "prepared": true,
+            "providers": [
+              "CPUExecutionProvider"
+            ],
+            "python_bootstrap_wall_estimate_ms": 168.232666015625,
+            "sample_rate": 22050,
+            "sample_width": 2,
+            "session_ms": 4218.7895530005335,
+            "supply_gap_ms": 602.5317975688126,
+            "synthesis_ms": 1028.510463999737,
+            "threads": 3
+          }
+        }
+      ],
+      "ttl_tail_wait_ms": 1106.03808,
+      "whole_ms": 12031.102359,
+      "run": 3,
+      "cpu_seconds": 11.478682,
+      "rss_peak_kib": 260228,
+      "pss_peak_kib": 252365,
+      "all_reaped": true
+    },
+    {
+      "idle": [
+        {
+          "after": {
+            "cpu_ticks": 846,
+            "pss_kib": 229838,
+            "rss_kib": 237432
+          },
+          "before": {
+            "cpu_ticks": 846,
+            "pss_kib": 229838,
+            "rss_kib": 237432
+          },
+          "seconds": 1
+        },
+        {
+          "after": {
+            "cpu_ticks": 1120,
+            "pss_kib": 253740,
+            "rss_kib": 261632
+          },
+          "before": {
+            "cpu_ticks": 1118,
+            "pss_kib": 252370,
+            "rss_kib": 259964
+          },
+          "seconds": 2
+        }
+      ],
+      "idle_ttl_seconds": 3,
+      "max_requests": 2,
+      "reaped": true,
+      "resident_default": false,
+      "rows": [
+        {
+          "complete_ms": 6737.519926,
+          "first_pcm_ms": 5820.890227,
+          "index": 0,
+          "memory": {
+            "cpu_ticks": 846,
+            "pss_kib": 229838,
+            "rss_kib": 237432
+          },
+          "worker": {
+            "channels": 1,
+            "chunk_count": 2,
+            "config_ms": 0.402184000449779,
+            "first_chunk_bytes": 15872,
+            "first_pcm_ms": 5110.9890119996635,
+            "import_ms": 901.177445999565,
+            "inference_ms": 1032.9990470008852,
+            "ipc_write_ms": 0.38176600082806544,
+            "load_ms": 4081.553838000218,
+            "load_per_request_ms": 4081.553838000218,
+            "native": {
+              "model_config_hash_ms": 139.947114,
+              "runtime_hash_ms": 394.258101,
+              "validation_ms": 535.306143
+            },
+            "optimization": "all",
+            "ort_import_ms": 749.6744700001727,
+            "pcm_bytes": 163328,
+            "pcm_conversion_ms": 0.22139999873616031,
+            "phoneme_ids_ms": 0.05933800093771424,
+            "phonemize_ms": 9.43201400059479,
+            "piper_import_ms": 151.3250150001113,
+            "prepared": false,
+            "providers": [
+              "CPUExecutionProvider"
+            ],
+            "python_bootstrap_wall_estimate_ms": 169.07080078125,
+            "sample_rate": 22050,
+            "sample_width": 2,
+            "session_ms": 4081.101020999995,
+            "supply_gap_ms": 556.1795739481295,
+            "synthesis_ms": 1044.5967830000882,
+            "threads": 3
+          }
+        },
+        {
+          "complete_ms": 990.605375,
+          "first_pcm_ms": 108.902476,
+          "index": 1,
+          "memory": {
+            "cpu_ticks": 1118,
+            "pss_kib": 252370,
+            "rss_kib": 259964
+          },
+          "worker": {
+            "channels": 1,
+            "chunk_count": 2,
+            "config_ms": 0.402184000449779,
+            "first_chunk_bytes": 14848,
+            "first_pcm_ms": 108.50353299974812,
+            "import_ms": 901.177445999565,
+            "inference_ms": 987.4070990008476,
+            "ipc_write_ms": 0.3442389997871942,
+            "load_ms": 4081.553838000218,
+            "load_per_request_ms": 0.0,
+            "native": {
+              "model_config_hash_ms": 139.947114,
+              "runtime_hash_ms": 394.258101,
+              "validation_ms": 535.306143
+            },
+            "optimization": "all",
+            "ort_import_ms": 749.6744700001727,
+            "pcm_bytes": 161792,
+            "pcm_conversion_ms": 0.20196300101815723,
+            "phoneme_ids_ms": 0.05822599996463396,
+            "phonemize_ms": 0.6159240001579747,
+            "piper_import_ms": 151.3250150001113,
+            "prepared": true,
+            "providers": [
+              "CPUExecutionProvider"
+            ],
+            "python_bootstrap_wall_estimate_ms": 169.07080078125,
+            "sample_rate": 22050,
+            "sample_width": 2,
+            "session_ms": 4081.101020999995,
+            "supply_gap_ms": 544.543064596797,
+            "synthesis_ms": 990.074155000002,
+            "threads": 3
+          }
+        }
+      ],
+      "ttl_tail_wait_ms": 1096.487506,
+      "whole_ms": 11850.026442,
+      "run": 4,
+      "cpu_seconds": 11.33746,
+      "rss_peak_kib": 261632,
+      "pss_peak_kib": 253740,
+      "all_reaped": true
+    }
+  ],
+  "summaries": {
+    "0": {
+      "first_pcm_ms": {
+        "n": 5,
+        "p50": 5794.481879,
+        "p95": 5950.893397,
+        "min": 5703.76288,
+        "max": 5950.893397,
+        "mean": 5797.5316706,
+        "stddev": 88.6020432717468,
+        "mad": 76.85190899999998
+      },
+      "complete_ms": {
+        "n": 5,
+        "p50": 6694.852016000001,
+        "p95": 6870.8338189999995,
+        "min": 6605.457861999999,
+        "max": 6870.8338189999995,
+        "mean": 6707.4680256,
+        "stddev": 94.19643312275612,
+        "mad": 66.17551100000128
+      }
+    },
+    "1": {
+      "first_pcm_ms": {
+        "n": 5,
+        "p50": 108.902476,
+        "p95": 124.132534,
+        "min": 99.602833,
+        "max": 124.132534,
+        "mean": 109.7895726,
+        "stddev": 8.068243398608589,
+        "mad": 2.968053999999995
+      },
+      "complete_ms": {
+        "n": 5,
+        "p50": 990.605375,
+        "p95": 1028.997202,
+        "min": 972.168861,
+        "max": 1028.997202,
+        "mean": 998.4071828,
+        "stddev": 20.09199395178528,
+        "mad": 18.43651399999999
+      }
+    }
+  },
+  "cpu": {
+    "n": 5,
+    "p50": 11.272185,
+    "p95": 11.478682,
+    "min": 11.134325,
+    "max": 11.478682,
+    "mean": 11.290262,
+    "stddev": 0.1150373211770853,
+    "mad": 0.06527499999999975
+  },
+  "rss": {
+    "n": 5,
+    "p50": 260312,
+    "p95": 261632,
+    "min": 259104,
+    "max": 261632,
+    "mean": 260540,
+    "stddev": 914.9146408272195,
+    "mad": 1112
+  },
+  "pss": {
+    "n": 5,
+    "p50": 252457,
+    "p95": 253740,
+    "min": 251234,
+    "max": 253740,
+    "mean": 252675.6,
+    "stddev": 913.9996936542157,
+    "mad": 1125
+  }
+}

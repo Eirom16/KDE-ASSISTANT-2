@@ -1,0 +1,8 @@
+{
+  "manifest_sha256": "a1a5d25c6404491dfb0702118a094c1d536f0976c2a99c377411e76896a9f686",
+  "resource_count": 1799,
+  "derived_from": "Every regular member of the seven approved wheels; excludes .data and regenerated .dist-info/RECORD. Member bytes matched private installation before benchmark.",
+  "files_are": "Hashes/paths/sizes only. No model, package or audio bytes committed.",
+  "interpreter": "Canonical system /usr/bin/python3; no venv startup or sitecustomize/.pth; only explicitly verified private site-packages",
+  "source_inventory_sha256": "9bfae9b8de01611063c76979bd742c026679c4d668fb8f2ce9fcfab7d11cba91"
+}

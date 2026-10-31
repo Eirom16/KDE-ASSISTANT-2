@@ -1,0 +1,26 @@
+{
+  "name": "native-runtime",
+  "category": "AUTOMATED_AUDIO_FIXTURE",
+  "status": "PASS",
+  "backend_pid": 28584,
+  "idle": {
+    "seconds": 3.002,
+    "processes": {
+      "28584": {
+        "rss_kib": 26176,
+        "pss_kib": 22257,
+        "cpu_one_core_percent": 0.33
+      }
+    }
+  },
+  "provider_calls": [
+    {
+      "path": "/v1/chat/completions",
+      "message_count": 2
+    }
+  ],
+  "microphone": "NOT_TESTED",
+  "tts": "NOT_TESTED",
+  "wake": "NOT_TESTED",
+  "missing_model_error": "Modelo STT no instalado; instala manualmente un modelo Whisper multiling\u00fce"
+}
